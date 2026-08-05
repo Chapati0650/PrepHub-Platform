@@ -1,0 +1,820 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Identity & Auth (PRD-001) — table shapes required by @auth/prisma-adapter
+// ---------------------------------------------------------------------------
+
+enum Role {
+  OWNER
+  SCHOOL_ADMINISTRATOR
+  STUDENT
+}
+
+model User {
+  id   String @id @default(cuid())
+  role Role   @default(STUDENT)
+
+  // PRD-001: only first name is collected, never last name/username/phone
+  firstName     String
+  email         String    @unique
+  emailVerified DateTime?
+  passwordHash  String? // null when the account only has an OAuth identity
+  image         String? // imported from Google, editable; falls back to initials in UI
+
+  grade        Int? // 9-12, required for students; null for OWNER/SCHOOL_ADMINISTRATOR
+  ageConfirmed Boolean @default(false)
+
+  // Bumped on password change / "log out all devices" / account deletion to invalidate
+  // all outstanding JWT sessions (Credentials provider requires JWT, not DB, sessions)
+  tokenVersion Int @default(0)
+
+  targetScore Int? // PRD-010 academic goal, editable any time
+
+  // PRD-010 §7 — the only notification that's actually a student-facing
+  // toggle; "Streak Lost Email" is always-on and not independently disableable,
+  // so it has no field here. Actual scheduled delivery (a daily reminder job) is
+  // not built — no job scheduler exists in this monolith yet (see CLAUDE.md);
+  // this field is real, persisted preference storage, wired up when one exists.
+  dailyReminderEnabled Boolean @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // PRD-001: deletion is atomic + anonymizing, not row deletion
+
+  accounts           Account[]
+  sessions           Session[]
+  legalAcceptances   LegalAcceptance[]
+  passwordResets     PasswordResetToken[]
+  subscription       Subscription?
+  studentMembership  StudentMembership?
+  adminAssignments   AdministratorAssignment[]
+  performedEvents    MembershipHistoryEvent[]  @relation("PerformedBy")
+  verificationTokens SchoolVerificationToken[]
+
+  categoryStates    CategoryState[]
+  practiceSets      PracticeSet[]
+  finalizedAttempts FinalizedAttempt[]
+  diagnosticSession DiagnosticSession?
+  predictionHistory PredictionHistoryEntry[]
+  announcementsCreated Announcement[]
+
+  @@map("users")
+}
+
+// Auth.js adapter model — one row per linked provider (google, credentials)
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
+}
+
+model LegalAcceptance {
+  id             String   @id @default(cuid())
+  userId         String
+  tosVersion     String
+  privacyVersion String
+  acceptedAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("legal_acceptances")
+}
+
+// ---------------------------------------------------------------------------
+// Billing & Subscriptions (PRD-003)
+// ---------------------------------------------------------------------------
+
+enum SubscriptionPlan {
+  MONTHLY
+  ANNUAL
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE // failed payment, inside the 7-day grace period
+  CANCELED // canceled but access continues until currentPeriodEnd
+  EXPIRED
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  userId               String             @unique
+  stripeCustomerId     String             @unique
+  stripeSubscriptionId String?            @unique
+  plan                 SubscriptionPlan?
+  status               SubscriptionStatus @default(EXPIRED)
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  gracePeriodEndsAt    DateTime? // PRD-003: 7-day grace period after failed payment
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+// ---------------------------------------------------------------------------
+// School Organizations, Contracts & Access (PRD-002, PRD-017)
+// ---------------------------------------------------------------------------
+
+enum OrganizationType {
+  SCHOOL
+  DISTRICT
+}
+
+enum OrganizationStatus {
+  SETUP
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+  ARCHIVED
+}
+
+// PRD-009 §7 — one active community goal per school. Districts don't get one:
+// the School Community page is scoped to a single school's students.
+enum CommunityGoalMetric {
+  QUESTIONS_ANSWERED
+  STUDY_HOURS
+  ADAPTIVE_SESSIONS
+}
+
+model Organization {
+  id                String             @id @default(cuid())
+  organizationType  OrganizationType
+  officialName      String
+  city              String
+  state             String
+  schoolYear        String
+  contractStartDate DateTime
+  contractEndDate   DateTime
+  status            OrganizationStatus @default(SETUP)
+  internalNotes     String?            @db.Text // Owner-only, never exposed to admins/students
+
+  // PRD-009 §7 — Owner-configured, SCHOOL-type orgs only. Null metric means no
+  // active goal is set yet (the School Community page shows no goal section).
+  communityGoalMetric CommunityGoalMetric?
+  communityGoalTarget Int?
+
+  // PRD-011 §9 — Owner-set eligible student population for this school; not
+  // editable by the Administrator. Null until the Owner sets it (Registration
+  // Percentage is then simply not shown rather than divide-by-null/zero).
+  totalEnrollment Int?
+
+  // PRD-002 §15.1: whether this org appears in the student-facing school/district
+  // search directory at all — independent of `status` (a directory entry can exist
+  // for "known but not partnered" schools without an active contract).
+  directoryVisible Boolean @default(true)
+
+  parentDistrictId String? // null for DISTRICT orgs; set on SCHOOL orgs under a district
+  parentDistrict   Organization?  @relation("DistrictSchools", fields: [parentDistrictId], references: [id])
+  schools          Organization[] @relation("DistrictSchools")
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  archivedAt DateTime?
+
+  domains              OrganizationDomain[]
+  administratorAssigns AdministratorAssignment[]
+  studentMemberships   StudentMembership[]       @relation("MembershipOrganization")
+  schoolMemberships    StudentMembership[]       @relation("MembershipSchool")
+  verificationTokens   SchoolVerificationToken[]
+  historyEventsFrom    MembershipHistoryEvent[]  @relation("PreviousOrganization")
+  historyEventsTo      MembershipHistoryEvent[]  @relation("NewOrganization")
+  announcements        Announcement[]
+
+  @@map("organizations")
+}
+
+// Approved email domains that prove district/school eligibility (PRD-002)
+model OrganizationDomain {
+  id             String   @id @default(cuid())
+  organizationId String
+  domain         String   @unique
+  isActive       Boolean  @default(true) // PRD-002 §9.3: reject inactive/expired partner domains
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("organization_domains")
+}
+
+enum AdministratorScope {
+  SCHOOL
+  DISTRICT
+}
+
+// Join table: an administrator account may be assigned to multiple orgs (PRD-017 §7)
+model AdministratorAssignment {
+  id             String             @id @default(cuid())
+  userId         String
+  organizationId String
+  scope          AdministratorScope
+  createdAt      DateTime           @default(now())
+  removedAt      DateTime?
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@map("administrator_assignments")
+}
+
+enum MembershipStatus {
+  ACTIVE
+  REMOVED
+  GRADUATED
+}
+
+enum ActivationMethod {
+  SCHOOL_EMAIL_VERIFICATION
+  OWNER_OVERRIDE
+}
+
+// A student may have at most one active membership at a time (enforced in app logic
+// via a partial unique index migration: one ACTIVE row per studentId)
+model StudentMembership {
+  id                     String           @id @default(cuid())
+  studentId              String           @unique // 1:1 today; unique enforces "no 2nd active membership" at the DB level
+  organizationId         String // the verified org — a District or a standalone School
+  schoolId               String // PRD-017 §3: always resolves to one specific School, even under a District
+  verifiedSchoolEmail    String           @unique // PRD-002 §13.4: one school email, one account
+  currentGrade           Int
+  expectedGraduationYear Int
+  status                 MembershipStatus @default(ACTIVE)
+  activationMethod       ActivationMethod
+
+  activatedAt DateTime  @default(now())
+  removedAt   DateTime?
+  graduatedAt DateTime?
+  restoredAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  student      User         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  organization Organization @relation("MembershipOrganization", fields: [organizationId], references: [id])
+  school       Organization @relation("MembershipSchool", fields: [schoolId], references: [id])
+
+  historyEvents MembershipHistoryEvent[]
+
+  @@map("student_memberships")
+}
+
+// PRD-002 §8, §15.4: single-use, expiring school-email ownership proof.
+// Membership isn't created until this completes (and, for multi-school districts,
+// until the student also picks their specific school — see §10).
+model SchoolVerificationToken {
+  id                    String    @id @default(cuid())
+  studentId             String
+  requestedEmail        String
+  matchedOrganizationId String
+  tokenHash             String    @unique
+  createdAt             DateTime  @default(now())
+  expiresAt             DateTime
+  completedAt           DateTime?
+
+  student             User         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  matchedOrganization Organization @relation(fields: [matchedOrganizationId], references: [id], onDelete: Cascade)
+
+  @@map("school_verification_tokens")
+}
+
+// Audit trail (PRD-017 §21) — not exposed as a UI in V1, but retained
+model MembershipHistoryEvent {
+  id                     String   @id @default(cuid())
+  membershipId           String
+  eventType              String
+  performedByAccountId   String?
+  previousOrganizationId String?
+  newOrganizationId      String?
+  occurredAt             DateTime @default(now())
+  optionalReason         String?
+
+  membership           StudentMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  performedBy          User?             @relation("PerformedBy", fields: [performedByAccountId], references: [id])
+  previousOrganization Organization?     @relation("PreviousOrganization", fields: [previousOrganizationId], references: [id])
+  newOrganization      Organization?     @relation("NewOrganization", fields: [newOrganizationId], references: [id])
+
+  @@map("membership_history_events")
+}
+
+// ---------------------------------------------------------------------------
+// Question Content System (PRD-013, PRD-015)
+//
+// PRD-015 refines PRD-013's model: the individual Question is the primary
+// content-management object (not the Question Family). Every content edit to
+// a DRAFT/DRAFT_REVISION writes into that Question's *current* QuestionRevision;
+// publishing/republishing is what advances currentPublishedRevisionId. Old
+// QuestionRevision rows are never deleted — Active Practice Sets (PRD-012/014,
+// not yet built) will reference specific revisions so republishing/unpublishing
+// never mutates a set a student is already working through.
+// ---------------------------------------------------------------------------
+
+enum QuestionCategory {
+  READING_COMPREHENSION
+  GRAMMAR
+  VOCABULARY
+  ALGEBRA
+  GEOMETRY_TRIGONOMETRY
+  ADVANCED_MATH
+  PROBLEM_SOLVING_DATA_ANALYSIS
+}
+
+enum QuestionDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum QuestionType {
+  MULTIPLE_CHOICE
+  OPEN_ENDED_NUMERIC
+}
+
+enum CalculatorSetting {
+  ALLOWED
+  NOT_ALLOWED
+}
+
+// Shared by Question and QuestionFamily (PRD-015 §4.2)
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  DRAFT_REVISION
+  ARCHIVED
+}
+
+enum MediaKind {
+  IMAGE
+  VIDEO
+}
+
+enum MediaStatus {
+  UPLOADING
+  PROCESSING
+  READY
+  FAILED
+}
+
+// One row per uploaded file, regardless of where it's referenced from.
+// Storage is abstracted behind src/lib/content/storage.ts — `storageKey` is an
+// opaque key for whatever backend is configured (local disk today).
+model MediaAsset {
+  id               String      @id @default(cuid())
+  kind             MediaKind
+  status           MediaStatus @default(UPLOADING)
+  storageKey       String
+  originalFilename String
+  mimeType         String
+  sizeBytes        Int
+  durationSeconds  Int? // video only
+  width            Int? // image only
+  height           Int? // image only
+  failureReason    String? // set when status = FAILED
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  questionImageFor     QuestionRevision[]     @relation("QuestionRevisionImage")
+  standaloneVideoFor   QuestionRevision[]     @relation("QuestionRevisionVideo")
+  familySharedVideoFor QuestionFamily[]       @relation("QuestionFamilyVideo")
+  answerChoiceImageFor QuestionAnswerChoice[] @relation("AnswerChoiceImage")
+
+  @@map("media_assets")
+}
+
+// PRD-013 §6, PRD-015 §8: optional grouping of up to 3 math-only questions that
+// share one video. Family and its member Questions publish/unpublish atomically.
+model QuestionFamily {
+  id           String             @id @default(cuid())
+  status       ContentStatus      @default(DRAFT)
+  internalName String? // Owner-facing label only; never shown to students (PRD-015 §5.2)
+  category     QuestionCategory
+  difficulty   QuestionDifficulty
+
+  sharedVideoId String?
+  sharedVideo   MediaAsset? @relation("QuestionFamilyVideo", fields: [sharedVideoId], references: [id])
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  publishedAt DateTime?
+  archivedAt  DateTime?
+
+  questions Question[]
+
+  blueprintSlots BlueprintSlot[]
+
+  @@map("question_families")
+}
+
+// The management/aggregate row. category/difficulty/questionType/familyId are
+// denormalized here from the current editable revision so the Questions table
+// (PRD-015 §4) can filter/sort without joining revision content on every row.
+model Question {
+  id           String             @id @default(cuid())
+  status       ContentStatus      @default(DRAFT)
+  questionType QuestionType
+  category     QuestionCategory
+  difficulty   QuestionDifficulty
+
+  familyId String?
+  family   QuestionFamily? @relation(fields: [familyId], references: [id])
+
+  currentPublishedRevisionId String?           @unique
+  currentPublishedRevision   QuestionRevision? @relation("CurrentPublished", fields: [currentPublishedRevisionId], references: [id])
+  currentDraftRevisionId     String?           @unique
+  currentDraftRevision       QuestionRevision? @relation("CurrentDraft", fields: [currentDraftRevisionId], references: [id])
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  publishedAt DateTime?
+  archivedAt  DateTime?
+
+  revisions QuestionRevision[] @relation("QuestionRevisions")
+
+  blueprintSlots     BlueprintSlot[]
+  diagnosticAttempts DiagnosticAttempt[]
+  finalizedAttempts  FinalizedAttempt[]
+
+  @@map("questions")
+}
+
+// One immutable-once-published content snapshot. A DRAFT/DRAFT_REVISION question
+// edits its currentDraftRevision in place (autosave); republishing copies that
+// revision's id into currentPublishedRevisionId and clears currentDraftRevisionId.
+model QuestionRevision {
+  id         String   @id @default(cuid())
+  questionId String
+  question   Question @relation("QuestionRevisions", fields: [questionId], references: [id], onDelete: Cascade)
+
+  questionText String @db.Text
+
+  questionImageId String?
+  questionImage   MediaAsset? @relation("QuestionRevisionImage", fields: [questionImageId], references: [id])
+
+  calculatorSetting    CalculatorSetting
+  suggestedTimeSeconds Int
+
+  // Open-Ended Numeric Response only (PRD-013 §15)
+  acceptedAnswers String[] @default([])
+
+  writtenExplanation String? @db.Text
+
+  // Standalone questions only — family questions use QuestionFamily.sharedVideo
+  standaloneVideoId String?
+  standaloneVideo   MediaAsset? @relation("QuestionRevisionVideo", fields: [standaloneVideoId], references: [id])
+
+  // Set when this exact revision has been opened in Student Preview; cleared by
+  // any content edit (PRD-015 §5.5). Publishing requires this to be non-null.
+  previewCompletedAt DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  publishedAt DateTime?
+
+  answerChoices QuestionAnswerChoice[]
+
+  currentPublishedFor Question? @relation("CurrentPublished")
+  currentDraftFor     Question? @relation("CurrentDraft")
+
+  blueprintSlots     BlueprintSlot[]
+  diagnosticAttempts DiagnosticAttempt[]
+
+  @@map("question_revisions")
+}
+
+// Multiple Choice only — exactly 4 per revision, exactly one isCorrect (PRD-013 §14)
+model QuestionAnswerChoice {
+  id         String           @id @default(cuid())
+  revisionId String
+  revision   QuestionRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  order     Int // 0-3, display order
+  text      String  @db.Text
+  isCorrect Boolean @default(false)
+
+  imageId String?
+  image   MediaAsset? @relation("AnswerChoiceImage", fields: [imageId], references: [id])
+
+  @@unique([revisionId, order])
+  @@map("question_answer_choices")
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostic, Adaptive Practice & Predicted Score (PRD-012, PRD-014, PRD-016)
+//
+// BlueprintSlot/DiagnosticAttempt reference the exact QuestionRevision shown
+// to the student, not just the Question — revisions are immutable once
+// published (PRD-013/015) and never deleted, so a student's already-started
+// set/diagnostic keeps its exact content even if the Owner later edits,
+// republishes, or unpublishes the question (PRD-005 §17, PRD-014 §17).
+// ---------------------------------------------------------------------------
+
+// One row per student per category, created only after diagnostic completion
+// (PRD-014 §4). ability/initialAbility are plain floats, not Decimal — the
+// update formula (10^x powers, division) is inherently floating-point, and
+// nothing here is money-like exact-arithmetic.
+model CategoryState {
+  id        String           @id @default(cuid())
+  studentId String
+  category  QuestionCategory
+
+  ability                               Float
+  initialAbility                        Float
+  adaptiveQuestionsAnswered             Int       @default(0)
+  consecutiveSetsWithoutExtraAllocation Int       @default(0)
+  lastAbilityUpdatedAt                  DateTime?
+
+  student User @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, category])
+  @@map("category_states")
+}
+
+enum PracticeSetStatus {
+  ACTIVE
+  COMPLETED
+}
+
+// PRD-014 §13: a student may have at most one ACTIVE set — enforced in
+// application logic (generatePracticeSet checks before creating a new one),
+// matching this codebase's established pattern (see StudentMembership) of
+// enforcing single-active-row invariants in code, not a DB partial index.
+model PracticeSet {
+  id              String            @id @default(cuid())
+  studentId       String
+  setNumber       Int // sequential per student; the diagnostic is not Set 1 (PRD-005 §9)
+  status          PracticeSetStatus @default(ACTIVE)
+  engineVersion   String
+  randomSeed      String
+  currentPosition Int               @default(0)
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  student           User                         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  categorySnapshots CategoryGenerationSnapshot[]
+  slots             BlueprintSlot[]
+  finalizedAttempts FinalizedAttempt[]
+  predictionEntries PredictionHistoryEntry[]
+
+  @@unique([studentId, setNumber])
+  @@map("practice_sets")
+}
+
+// One row per category per set — the audit trail behind category allocation
+// (PRD-014 §14 "Category Generation Snapshot").
+model CategoryGenerationSnapshot {
+  id            String           @id @default(cuid())
+  practiceSetId String
+  category      QuestionCategory
+
+  abilityAtGeneration Float
+  weaknessScore       Float
+  recentStruggleScore Float
+  focusRecencyScore   Float
+  priorityScore       Float
+  guaranteedSlotCount Int
+  additionalSlotCount Int
+
+  practiceSet PracticeSet @relation(fields: [practiceSetId], references: [id], onDelete: Cascade)
+
+  @@unique([practiceSetId, category])
+  @@map("category_generation_snapshots")
+}
+
+// One row per question position in a generated set (PRD-014 §10). resolved*
+// starts equal to planned* and only changes through content fallback (§12).
+model BlueprintSlot {
+  id            String @id @default(cuid())
+  practiceSetId String
+  position      Int
+
+  plannedCategory    QuestionCategory
+  plannedDifficulty  QuestionDifficulty
+  resolvedCategory   QuestionCategory
+  resolvedDifficulty QuestionDifficulty
+
+  questionId         String
+  questionRevisionId String
+  questionFamilyId   String?
+
+  // Draft state prior to finalization (PRD-006 §11/§18) — not itself scored.
+  draftAnswer String?
+  skipped     Boolean @default(false)
+
+  practiceSet      PracticeSet      @relation(fields: [practiceSetId], references: [id], onDelete: Cascade)
+  question         Question         @relation(fields: [questionId], references: [id])
+  questionRevision QuestionRevision @relation(fields: [questionRevisionId], references: [id])
+  family           QuestionFamily?  @relation(fields: [questionFamilyId], references: [id])
+
+  finalizedAttempt FinalizedAttempt?
+
+  @@unique([practiceSetId, position])
+  @@map("blueprint_slots")
+}
+
+// PRD-014 §14/§16 "Finalized Attempt" — created exactly once per slot, when
+// the student's answer is finalized. Finalizing is atomic and idempotent: a
+// retried request must see blueprintSlot.finalizedAttempt already exists and
+// return it rather than reapplying the Ability Score update (§16 pseudocode).
+model FinalizedAttempt {
+  id              String @id @default(cuid())
+  studentId       String
+  practiceSetId   String
+  blueprintSlotId String @unique
+  questionId      String
+
+  category   QuestionCategory
+  difficulty QuestionDifficulty
+
+  answer    String?
+  isBlank   Boolean
+  isCorrect Boolean
+
+  expectedProbability  Float
+  kValue               Float
+  abilityBefore        Float
+  rawAbilityChange     Float
+  appliedAbilityChange Float
+  abilityAfter         Float
+
+  finalizedAt   DateTime @default(now())
+  engineVersion String
+
+  student       User          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  practiceSet   PracticeSet   @relation(fields: [practiceSetId], references: [id], onDelete: Cascade)
+  blueprintSlot BlueprintSlot @relation(fields: [blueprintSlotId], references: [id], onDelete: Cascade)
+  question      Question      @relation(fields: [questionId], references: [id])
+
+  @@map("finalized_attempts")
+}
+
+enum DiagnosticStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+// One per student, ever — PRD-012 §25: no traditional retake. A row is only
+// created once the student actually begins (Not Started = no row, derived).
+model DiagnosticSession {
+  id              String           @id @default(cuid())
+  studentId       String           @unique
+  status          DiagnosticStatus @default(IN_PROGRESS)
+  currentPosition Int              @default(0)
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  student  User                @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  attempts DiagnosticAttempt[]
+
+  @@map("diagnostic_sessions")
+}
+
+// 21 rows per session: exactly one Easy, one Medium, one Hard per category
+// (PRD-012 §11). Diagnostic answers never feed adaptiveQuestionsAnswered or
+// Recent Struggle (PRD-014 §5) — they use a wholly separate scoring path.
+model DiagnosticAttempt {
+  id                  String @id @default(cuid())
+  diagnosticSessionId String
+  position            Int
+
+  category   QuestionCategory
+  difficulty QuestionDifficulty
+
+  questionId         String
+  questionRevisionId String
+
+  draftAnswer String?
+  skipped     Boolean @default(false)
+
+  answer      String?
+  isBlank     Boolean?
+  isCorrect   Boolean?
+  submittedAt DateTime?
+
+  diagnosticSession DiagnosticSession @relation(fields: [diagnosticSessionId], references: [id], onDelete: Cascade)
+  question          Question          @relation(fields: [questionId], references: [id])
+  questionRevision  QuestionRevision  @relation(fields: [questionRevisionId], references: [id])
+
+  @@unique([diagnosticSessionId, position])
+  @@map("diagnostic_attempts")
+}
+
+enum PredictionSourceType {
+  DIAGNOSTIC
+  ADAPTIVE_SET
+}
+
+// PRD-016 §10 "Prediction History" — one immutable entry after the diagnostic
+// and after every completed set. Never recalculated after config changes.
+model PredictionHistoryEntry {
+  id          String               @id @default(cuid())
+  studentId   String
+  sourceType  PredictionSourceType
+  sourceSetId String?
+
+  readingWritingAbility      Float?
+  mathAbility                Float?
+  overallAbility             Float?
+  internalDiagnosticEstimate Float?
+
+  displayedRangeIndex    Int
+  displayedRangeMinimum  Int
+  displayedRangeMaximum  Int
+  representativeMidpoint Int
+  approximateImprovement Int
+  withinRangeProgress    Float
+
+  scoringEngineVersion String
+  createdAt            DateTime @default(now())
+
+  student     User         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  practiceSet PracticeSet? @relation(fields: [sourceSetId], references: [id])
+
+  @@map("prediction_history_entries")
+}
+
+// ---------------------------------------------------------------------------
+// School Administrator (PRD-011)
+// ---------------------------------------------------------------------------
+
+// PRD-011 §16-§18 — one per school, created by an Administrator. `removedAt`
+// is a soft delete (admin "Remove an active announcement") so it can still
+// surface under "View previous announcements" rather than disappearing
+// entirely; `expiresAt` is a separate, student-facing natural expiration.
+// Delivered by email exactly once, at publish time (see the createdAt-gated
+// idempotency note on `publishAnnouncement`) — there is no send-again action.
+model Announcement {
+  id             String    @id @default(cuid())
+  organizationId String
+  title          String
+  message        String    @db.Text
+  publishedAt    DateTime  @default(now())
+  expiresAt      DateTime?
+  removedAt      DateTime?
+
+  createdByUserId String
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdByUserId], references: [id])
+
+  @@map("announcements")
+}
