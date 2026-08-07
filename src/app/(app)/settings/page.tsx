@@ -50,6 +50,20 @@ export default async function SettingsPage() {
     <div className="mx-auto flex max-w-2xl flex-col gap-6 p-8">
       <h1 className="text-2xl font-semibold">Account settings</h1>
 
+      {/* Appearance — a device/browser preference, not a student-specific
+          feature, so it renders for every role (including Owner) rather
+          than living inside the showStudentSections-gated block below. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Appearance</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ThemeToggle />
+        </CardContent>
+      </Card>
+
+      <Separator />
+
       {showStudentSections && user && (
         <>
           {/* Profile */}
@@ -100,18 +114,6 @@ export default async function SettingsPage() {
             </CardHeader>
             <CardContent>
               <NotificationsForm dailyReminderEnabled={user.dailyReminderEnabled} />
-            </CardContent>
-          </Card>
-
-          <Separator />
-
-          {/* Appearance */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Appearance</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ThemeToggle />
             </CardContent>
           </Card>
 

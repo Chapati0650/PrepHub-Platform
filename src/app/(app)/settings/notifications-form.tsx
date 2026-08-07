@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
 import { updateNotificationPrefsAction } from "../actions";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { toast } from "@/components/ui/toast";
 import type { ActionState } from "@/app/(auth)/actions";
 
 const initialState: ActionState = {};
@@ -14,6 +15,10 @@ const initialState: ActionState = {};
 // shown as informational text only, with no control.
 export function NotificationsForm({ dailyReminderEnabled }: { dailyReminderEnabled: boolean }) {
   const [state, formAction, pending] = useActionState(updateNotificationPrefsAction, initialState);
+
+  useEffect(() => {
+    if (state.success) toast.add({ title: "Notification settings saved", type: "success" });
+  }, [state]);
 
   return (
     <form action={formAction} className="flex flex-col gap-4">

@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Fredoka } from "next/font/google";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/toast";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -38,7 +39,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          {children}
+          <Toaster>{children}</Toaster>
         </ThemeProvider>
       </body>
     </html>

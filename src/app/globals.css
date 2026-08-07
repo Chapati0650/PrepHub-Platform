@@ -62,66 +62,71 @@
 }
 
 /*
- * PrepHub brand palette — deep pine teal + warm cream, drawn directly from
- * the PrepHub YouTube channel's banner and house-and-book logomark, plus a
- * warm gold reserved for achievement moments. Every color below is warm-hued
- * (a small positive chroma at a ~80-85° hue for neutrals) rather than true
- * gray, so backgrounds/borders/text all sit in the same family as the cream
- * and never read as generic shadcn grayscale.
+ * PrepHub brand palette — deep pine teal on a neutral white/gray base, plus
+ * a warm gold reserved for achievement moments. The earlier version of this
+ * palette tinted every neutral (background, card, border, muted) toward the
+ * warm cream of the PrepHub YouTube channel's banner — real user feedback
+ * called the result out as reading like cardboard, so neutrals are now true
+ * grayscale (zero chroma) and the brand color carries the identity by
+ * itself: teal primary, gold achievement accent, white/gray everywhere else.
  */
 :root {
-  --background: oklch(0.9691 0.0138 84.57);
-  --foreground: oklch(0.2503 0.0243 84.57);
-  --card: oklch(0.9909 0.0069 84.57);
-  --card-foreground: oklch(0.2503 0.0243 84.57);
-  --popover: oklch(0.9909 0.0069 84.57);
-  --popover-foreground: oklch(0.2503 0.0243 84.57);
+  --background: oklch(0.99 0 0);
+  --foreground: oklch(0.2 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0 0);
   --primary: oklch(0.4231 0.0757 192.19);
-  --primary-foreground: oklch(0.9748 0.0089 84.57);
-  --secondary: oklch(0.9227 0.016 84.57);
-  --secondary-foreground: oklch(0.2939 0.0243 84.57);
-  --muted: oklch(0.9364 0.0132 84.57);
-  --muted-foreground: oklch(0.4954 0.0212 84.57);
-  --accent: oklch(0.9096 0.0272 82);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.95 0 0);
+  --secondary-foreground: oklch(0.25 0 0);
+  --muted: oklch(0.96 0 0);
+  --muted-foreground: oklch(0.45 0 0);
+  /* Accent stays teal-tinted (not neutral) — it's the hover/selected wash
+     for nav items and controls, so it should read as "brand," not gray. */
+  --accent: oklch(0.93 0.02 192.19);
   --accent-foreground: oklch(0.3169 0.0656 192.19);
   --achievement: oklch(0.7231 0.115 74.87);
   --achievement-foreground: oklch(0.2907 0.0619 60);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.8763 0.0186 84.57);
-  --input: oklch(0.8763 0.0186 84.57);
+  --border: oklch(0.9 0 0);
+  --input: oklch(0.9 0 0);
   --ring: oklch(0.5843 0.0906 192.19);
   --chart-1: oklch(0.4231 0.0757 192.19);
   --chart-2: oklch(0.7546 0.1379 74.87);
   --chart-3: oklch(0.5843 0.0906 192.19);
-  --chart-4: oklch(0.6879 0.019 84.57);
-  --chart-5: oklch(0.4954 0.0212 84.57);
+  --chart-4: oklch(0.6879 0 0);
+  --chart-5: oklch(0.4954 0 0);
   /* Tight, precise radius (Linear/Stripe reference — cards land around
      8-9px, buttons around 6px), not the generous "friendly app" rounding
      this started at — see the visual-design note in CLAUDE.md. */
   --radius: 0.375rem;
-  --sidebar: oklch(0.9364 0.0132 84.57);
-  --sidebar-foreground: oklch(0.2503 0.0243 84.57);
+  /* Sidebar reads one shade off pure white, distinguishing it from the
+     white content column without reaching for a border alone. */
+  --sidebar: oklch(0.97 0 0);
+  --sidebar-foreground: oklch(0.2 0 0);
   --sidebar-primary: oklch(0.4231 0.0757 192.19);
-  --sidebar-primary-foreground: oklch(0.9748 0.0089 84.57);
-  --sidebar-accent: oklch(0.9096 0.0272 82);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.93 0.02 192.19);
   --sidebar-accent-foreground: oklch(0.3169 0.0656 192.19);
-  --sidebar-border: oklch(0.8763 0.0186 84.57);
+  --sidebar-border: oklch(0.9 0 0);
   --sidebar-ring: oklch(0.5843 0.0906 192.19);
 }
 
 .dark {
-  --background: oklch(0.1934 0.0117 75);
-  --foreground: oklch(0.9509 0.0129 84.57);
-  --card: oklch(0.2367 0.0141 75);
-  --card-foreground: oklch(0.9509 0.0129 84.57);
-  --popover: oklch(0.2367 0.0141 75);
-  --popover-foreground: oklch(0.9509 0.0129 84.57);
+  --background: oklch(0.1934 0 0);
+  --foreground: oklch(0.9509 0 0);
+  --card: oklch(0.2367 0 0);
+  --card-foreground: oklch(0.9509 0 0);
+  --popover: oklch(0.2367 0 0);
+  --popover-foreground: oklch(0.9509 0 0);
   --primary: oklch(0.6664 0.1023 190.65);
-  --primary-foreground: oklch(0.1544 0.0117 75);
-  --secondary: oklch(0.3009 0.0148 75);
-  --secondary-foreground: oklch(0.9509 0.0129 84.57);
-  --muted: oklch(0.2758 0.0139 75);
-  --muted-foreground: oklch(0.7383 0.0164 84.57);
+  --primary-foreground: oklch(0.1544 0 0);
+  --secondary: oklch(0.3009 0 0);
+  --secondary-foreground: oklch(0.9509 0 0);
+  --muted: oklch(0.2758 0 0);
+  --muted-foreground: oklch(0.7383 0 0);
   --accent: oklch(0.3169 0.0325 192.19);
   --accent-foreground: oklch(0.851 0.0568 178.15);
   --achievement: oklch(0.7684 0.105 74.87);
@@ -133,12 +138,12 @@
   --chart-1: oklch(0.6664 0.1023 190.65);
   --chart-2: oklch(0.7987 0.1265 74.87);
   --chart-3: oklch(0.5843 0.0906 192.19);
-  --chart-4: oklch(0.5372 0.0157 84.57);
-  --chart-5: oklch(0.7383 0.0164 84.57);
-  --sidebar: oklch(0.2367 0.0141 75);
-  --sidebar-foreground: oklch(0.9509 0.0129 84.57);
+  --chart-4: oklch(0.5372 0 0);
+  --chart-5: oklch(0.7383 0 0);
+  --sidebar: oklch(0.2367 0 0);
+  --sidebar-foreground: oklch(0.9509 0 0);
   --sidebar-primary: oklch(0.6664 0.1023 190.65);
-  --sidebar-primary-foreground: oklch(0.1544 0.0117 75);
+  --sidebar-primary-foreground: oklch(0.1544 0 0);
   --sidebar-accent: oklch(0.3169 0.0325 192.19);
   --sidebar-accent-foreground: oklch(0.851 0.0568 178.15);
   --sidebar-border: oklch(1 0 0 / 10%);
@@ -154,6 +159,15 @@
   }
   html {
     @apply font-sans;
+    /* A modest reduction from the browser default 16px — every rem-based
+       size in the app (type, spacing, radius) tightens proportionally,
+       which is most of how Linear/Stripe read as denser without every
+       individual component needing its own smaller text-size override.
+       The one deliberate exception is question/answer text in the session
+       runner, sized up a step (see session-runner.tsx) so it stays "large,
+       comfortable" (the Brilliant reference) rather than shrinking along
+       with everything else. */
+    font-size: 15px;
   }
   /* Every semantic heading gets consistent weight/tracking for free — no
      per-page className edits needed. font-heading resolves to Geist Sans

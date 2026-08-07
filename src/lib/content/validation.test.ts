@@ -156,13 +156,13 @@ describe("getPublishIssues — open-ended numeric", () => {
   });
 });
 
-describe("getPublishIssues — video requirements", () => {
-  it("flags a missing standalone video", () => {
+describe("getPublishIssues — video is optional", () => {
+  it("does not flag a missing standalone video", () => {
     const issues = getPublishIssues(makeQuestion(), makeRevision({ standaloneVideo: null }), null);
-    expect(issues).toContain("A video explanation is required.");
+    expect(issues).toEqual([]);
   });
 
-  it("flags a standalone video still processing", () => {
+  it("flags a standalone video still processing (broken reference, not a missing one)", () => {
     const issues = getPublishIssues(
       makeQuestion(),
       makeRevision({ standaloneVideo: makeVideo({ status: "PROCESSING" }) }),
@@ -171,13 +171,13 @@ describe("getPublishIssues — video requirements", () => {
     expect(issues).toContain("The video explanation is still processing or failed to process.");
   });
 
-  it("flags a missing family video for a family member", () => {
+  it("does not flag a missing family video for a family member", () => {
     const question = makeQuestion({ familyId: "f1" });
     const issues = getPublishIssues(question, makeRevision(), makeFamily({ sharedVideo: null }));
-    expect(issues).toContain("The family's shared video is required.");
+    expect(issues).toEqual([]);
   });
 
-  it("flags a family video that failed processing", () => {
+  it("flags a family video that failed processing (broken reference, not a missing one)", () => {
     const question = makeQuestion({ familyId: "f1" });
     const family = makeFamily({ sharedVideo: makeVideo({ status: "FAILED" }) });
     const issues = getPublishIssues(question, makeRevision(), family);
@@ -188,7 +188,7 @@ describe("getPublishIssues — video requirements", () => {
     const question = makeQuestion({ familyId: "f1" });
     const revision = makeRevision({ standaloneVideo: null });
     const issues = getPublishIssues(question, revision, makeFamily());
-    expect(issues).not.toContain("A video explanation is required.");
+    expect(issues).toEqual([]);
   });
 });
 

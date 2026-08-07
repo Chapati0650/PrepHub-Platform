@@ -36,6 +36,10 @@ export type StudentQuestionFeedback = {
   correctChoiceId: string | null;
   acceptedAnswers: string[];
   writtenExplanation: string | null;
+  // Richer alternative to writtenExplanation (PRD-013-style step-by-step,
+  // each step optionally carrying its own diagram/chart image) — the
+  // renderer prefers this over writtenExplanation when non-empty.
+  explanationSteps: { text: string; imageId: string | null }[];
   explanationVideoId: string | null;
 };
 
@@ -44,6 +48,7 @@ export async function getStudentQuestionFeedback(questionRevisionId: string): Pr
     where: { id: questionRevisionId },
     include: {
       answerChoices: true,
+      explanationSteps: { orderBy: { order: "asc" } },
       standaloneVideo: true,
       question: { include: { family: { include: { sharedVideo: true } } } },
     },
@@ -57,6 +62,7 @@ export async function getStudentQuestionFeedback(questionRevisionId: string): Pr
     correctChoiceId: revision.answerChoices.find((c) => c.isCorrect)?.id ?? null,
     acceptedAnswers: revision.acceptedAnswers,
     writtenExplanation: revision.writtenExplanation,
+    explanationSteps: revision.explanationSteps.map((s) => ({ text: s.text, imageId: s.imageId })),
     explanationVideoId: video?.status === "READY" ? video.id : null,
   };
 }

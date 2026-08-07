@@ -5,6 +5,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/password";
+import { sendWelcomeEmail } from "@/lib/auth/account";
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -27,6 +28,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const user = await prisma.user.create({
         data: { email: newUser.email, image: newUser.image, emailVerified: newUser.emailVerified, firstName },
       });
+      // Best-effort — mirrors the credentials-signup path in
+      // src/lib/auth/account.ts's createAccount.
+      await sendWelcomeEmail(user);
       return { ...user, name: user.firstName };
     },
   },

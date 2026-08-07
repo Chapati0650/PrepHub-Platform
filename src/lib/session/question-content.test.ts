@@ -44,6 +44,7 @@ describe("getStudentQuestionFeedback", () => {
       answerChoices: [{ id: "c1", isCorrect: true }],
       acceptedAnswers: [],
       writtenExplanation: "Because math.",
+      explanationSteps: [],
       standaloneVideo: { id: "standalone-video", status: "READY" },
       question: { family: { sharedVideo: { id: "family-video", status: "READY" } } },
     });
@@ -58,6 +59,7 @@ describe("getStudentQuestionFeedback", () => {
       answerChoices: [{ id: "c1", isCorrect: true }],
       acceptedAnswers: [],
       writtenExplanation: null,
+      explanationSteps: [],
       standaloneVideo: { id: "standalone-video", status: "READY" },
       question: { family: null },
     });
@@ -72,6 +74,7 @@ describe("getStudentQuestionFeedback", () => {
       answerChoices: [{ id: "c1", isCorrect: true }],
       acceptedAnswers: [],
       writtenExplanation: null,
+      explanationSteps: [],
       standaloneVideo: { id: "standalone-video", status: "PROCESSING" },
       question: { family: null },
     });
@@ -89,6 +92,7 @@ describe("getStudentQuestionFeedback", () => {
       ],
       acceptedAnswers: [],
       writtenExplanation: null,
+      explanationSteps: [],
       standaloneVideo: null,
       question: { family: null },
     });
@@ -96,5 +100,26 @@ describe("getStudentQuestionFeedback", () => {
     const result = await getStudentQuestionFeedback("r1");
 
     expect(result.correctChoiceId).toBe("c2");
+  });
+
+  it("maps explanation steps to their student-facing shape, in order", async () => {
+    mocked.questionRevision.findUniqueOrThrow.mockResolvedValue({
+      answerChoices: [{ id: "c1", isCorrect: true }],
+      acceptedAnswers: [],
+      writtenExplanation: null,
+      explanationSteps: [
+        { order: 0, text: "First, isolate x.", imageId: null },
+        { order: 1, text: "Then plot it.", imageId: "img-1" },
+      ],
+      standaloneVideo: null,
+      question: { family: null },
+    });
+
+    const result = await getStudentQuestionFeedback("r1");
+
+    expect(result.explanationSteps).toEqual([
+      { text: "First, isolate x.", imageId: null },
+      { text: "Then plot it.", imageId: "img-1" },
+    ]);
   });
 });

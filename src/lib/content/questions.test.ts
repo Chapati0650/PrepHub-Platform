@@ -15,6 +15,7 @@ vi.mock("@/lib/prisma", () => {
     question: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), delete: vi.fn() },
     questionRevision: { create: vi.fn(), update: vi.fn() },
     questionAnswerChoice: { createMany: vi.fn(), deleteMany: vi.fn() },
+    explanationStep: { createMany: vi.fn(), deleteMany: vi.fn() },
     questionFamily: { update: vi.fn() },
     $transaction: vi.fn(),
   };
@@ -29,6 +30,7 @@ const mocked = prisma as unknown as {
   question: Record<string, ReturnType<typeof vi.fn>>;
   questionRevision: Record<string, ReturnType<typeof vi.fn>>;
   questionAnswerChoice: Record<string, ReturnType<typeof vi.fn>>;
+  explanationStep: Record<string, ReturnType<typeof vi.fn>>;
   questionFamily: Record<string, ReturnType<typeof vi.fn>>;
 };
 
@@ -58,6 +60,7 @@ const baseRevision = {
     isCorrect: order === 0,
     imageId: null,
   })),
+  explanationSteps: [],
   standaloneVideo: { id: "v1", status: "READY" },
   questionImage: null,
 };

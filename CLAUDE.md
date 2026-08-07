@@ -34,16 +34,24 @@ serverless host, `storage.ts` is the one file to swap.
 
 ## Visual design
 
-The brand color (deep pine teal + warm cream) and logomark (a house
-containing an open book) come from the PrepHub YouTube channel, not a
-generic pick — see `src/app/globals.css`'s `:root`/`.dark` blocks for the
-oklch palette and `src/components/logo.tsx` for the mark. The overall
-execution deliberately targets a Linear/Stripe/Brilliant/Bluebook hybrid —
-serious and premium, not a "friendly learning game" or a generic AI-SaaS
-dashboard — after an initial pass (warm rounded display font on every
-heading, soft full-card color washes, generous 0.75rem radius) read as
-"cartoonish kid app" in real user feedback and was deliberately walked back.
-Two intentional choices worth preserving when touching either file:
+The brand color (deep pine teal, plus a warm gold reserved for achievement
+moments) and logomark (a house containing an open book) come from the
+PrepHub YouTube channel, not a generic pick — see `src/app/globals.css`'s
+`:root`/`.dark` blocks for the oklch palette and `src/components/logo.tsx`
+for the mark. Every neutral token (`--background`, `--card`, `--muted`,
+`--border`, `--sidebar`, etc.) is true grayscale (zero chroma) on a white
+base in light mode — an earlier version tinted these warm/cream to match the
+YouTube channel's banner, but real user feedback called that "cardboard,"
+so neutrals are now plain white/gray and teal alone carries the brand
+identity. Don't reintroduce a warm hue on the neutral scale; if a component
+needs a brand-colored surface, reach for `--accent` (a light teal wash) or
+`--achievement`, not a tinted gray. The overall execution deliberately
+targets a Linear/Stripe/Brilliant/Bluebook hybrid — serious and premium, not
+a "friendly learning game" or a generic AI-SaaS dashboard — after an initial
+pass (warm rounded display font on every heading, soft full-card color
+washes, generous 0.75rem radius) read as "cartoonish kid app" in real user
+feedback and was deliberately walked back. Intentional choices worth
+preserving when touching either file:
 
 - **Fredoka is brand-mark-only.** `--font-brand` (Fredoka, the channel's
   wordmark font) is used in exactly one place — the "PrepHub" text in
@@ -80,16 +88,49 @@ Two intentional choices worth preserving when touching either file:
   `text-achievement-foreground` alone.
 
 **Gotcha, also confirmed by screenshot**: light Tailwind status tints
-(`bg-green-50`, `bg-amber-50`) that read fine against pure white are nearly
-invisible against this app's warm cream background — the "correct answer"
-highlight in the session runner was less visible than the "wrong answer"
-one until caught and bumped to `bg-green-100`/`border-2`. Any new light-mode
-status wash should be checked against the actual cream `--background`, not
-assumed from how it'd look on white; the existing green/amber instances
+(`bg-green-50`, `bg-amber-50`) read faint against *any* light background,
+cream or white — the "correct answer" highlight in the session runner was
+less visible than the "wrong answer" one until caught and bumped to
+`bg-green-100`/`border-2`. (This was originally diagnosed as a cream-specific
+contrast problem before `--background` moved to white — the fix stands
+either way, so don't assume moving to white alone restores enough contrast
+for a `-50` tint.) Any new light-mode status wash should be checked directly
+against the rendered page, not assumed; the existing green/amber instances
 across `session-runner.tsx`, `session-results.tsx`, `session-nav-grid.tsx`,
 `timer-badge.tsx`, `student-preview-sheet.tsx`, and `question-editor.tsx` are
 the reference pattern (`dark:` variants included — plain `bg-green-50` with
 no dark override is a light-mode-only bug, not just a missed enhancement).
+
+**Navigation shell**: `src/components/app-shell.tsx` (a client component,
+used from the server-component `src/app/(app)/layout.tsx`) is a persistent
+left sidebar on desktop (`sm:flex`, `w-60`) and a slide-out `Sheet` behind a
+hamburger button on mobile — replacing an earlier top horizontal header, per
+the Linear/Stripe reference. `children` renders exactly once in a single
+shared content column; only the surrounding chrome (sidebar vs. mobile
+header+sheet) toggles by viewport — don't reintroduce a second `<main>` for
+mobile, which would double-run page-level data fetching and client state.
+Nav sections (student/admin/owner) are plain arrays of `{href, label, icon}`
+keyed off `session.user.role`. Log out lives at the bottom of the sidebar
+(`mt-auto`), not in a top corner — on a narrow viewport it's inside the
+hamburger sheet, not visible until opened.
+
+**Density**: `html`'s base `font-size` is `15px` (down from the 16px
+browser default) in `globals.css` — since nearly everything in the app is
+sized in `rem`, this one change proportionally tightens type/spacing/radius
+app-wide without per-component overrides, which is most of how Linear/Stripe
+read as denser. The deliberate exception is question/answer text in the
+session runner (`session-runner.tsx`), sized up a step
+(`text-lg`/`p-4 text-base`) so it stays "large, comfortable" (the Brilliant
+reference) rather than shrinking along with everything else.
+
+**Hero numbers**: the few numbers that matter most (dashboard's Score
+Prediction, the session-results Score Prediction) are set large and bold
+(`text-6xl sm:text-7xl font-heading tabular-nums`) against otherwise quiet
+surrounding UI — small uppercase labels, plain bordered stat tiles — so they
+read as the obvious focal point rather than competing with everything else
+on the page. Keep any new "headline number" (a stat tile, a streak count) on
+this same `tabular-nums` + size-contrast pattern rather than a same-size
+label+value pair.
 
 ## Core invariants (violate these and something in the PRDs breaks)
 
@@ -289,7 +330,16 @@ The PRDs form these dependency layers — build top to bottom:
    group existing questions, atomic publish/unpublish across all 3 versions),
    Content Coverage (Category × Difficulty matrix) — see `src/lib/content/`,
    `src/app/(app)/owner/content/`. LaTeX renders via KaTeX
-   (`src/components/content/latex-text.tsx`); publish-readiness is computed by
+   (`src/components/content/latex-text.tsx`), and only inside `$...$`
+   (inline) or `$$...$$` (block) delimiters — bare LaTeX syntax like `x^2`
+   typed without `$` renders as literal text, by design (PRD-013 §12).
+   Confirmed via user report that this wasn't discoverable: the field's only
+   hint was placeholder text, which disappears the moment the field has
+   content, so the requirement silently vanished right when it mattered.
+   Fixed by adding a persistent (non-placeholder) caption — `LatexHint` in
+   `question-editor.tsx` — under every LaTeX-enabled field (question text,
+   answer choices, written explanation); keep any new LaTeX-capable field on
+   this same pattern rather than a placeholder-only hint. Publish-readiness is computed by
    one shared pure function (`src/lib/content/validation.ts`'s
    `getPublishIssues`) used by both the editor's checklist panel and the
    Student Preview drawer, so they can't drift apart. `ffmpeg-static` is listed

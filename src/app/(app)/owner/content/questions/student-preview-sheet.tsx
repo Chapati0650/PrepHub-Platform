@@ -5,6 +5,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LatexText } from "@/components/content/latex-text";
+import { ExplanationSteps } from "@/components/content/explanation-steps";
 import { getPublishIssues } from "@/lib/content/validation";
 import { CALCULATOR_LABELS } from "@/lib/content/labels";
 import type { QuestionListRow } from "@/lib/content/list-questions";
@@ -162,10 +163,14 @@ export function StudentPreviewSheet({
                 <p className={`text-sm font-medium ${isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
                   {isCorrect ? "Correct!" : "Incorrect."}
                 </p>
-                {revision.writtenExplanation && (
-                  <div className="rounded-md bg-muted p-3 text-sm">
-                    <LatexText text={revision.writtenExplanation} />
-                  </div>
+                {revision.explanationSteps.length > 0 ? (
+                  <ExplanationSteps steps={revision.explanationSteps} mediaBasePath="/api/owner/media" />
+                ) : (
+                  revision.writtenExplanation && (
+                    <div className="rounded-md bg-muted p-3 text-sm">
+                      <LatexText text={revision.writtenExplanation} />
+                    </div>
+                  )
                 )}
                 {explanationVideo?.status === "READY" && (
                   <video controls className="w-full rounded" src={`/api/owner/media/${explanationVideo.id}`} />

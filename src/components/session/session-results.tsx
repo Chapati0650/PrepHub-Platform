@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { LatexText } from "@/components/content/latex-text";
+import { ExplanationSteps } from "@/components/content/explanation-steps";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
 import type { SessionResultsData } from "@/lib/session/session-results-data";
 import type { LoadedQuestion } from "./session-runner";
@@ -89,7 +90,7 @@ export function SessionResults({
             Previous: {data.previousRange.min}–{data.previousRange.max}
           </p>
         )}
-        <p className="font-heading text-4xl font-semibold tabular-nums transition-all duration-700 ease-out sm:text-5xl">
+        <p className="font-heading text-6xl font-semibold tabular-nums transition-all duration-700 ease-out sm:text-7xl">
           {data.currentRange.min}–{data.currentRange.max}
         </p>
         <p className="mt-3 text-xs text-muted-foreground" title="An estimate based on your PrepHub performance. Your actual SAT score may vary.">
@@ -186,9 +187,9 @@ export function SessionResults({
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border p-3 text-center">
-      <p className="text-lg font-semibold">{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
+    <div className="rounded-lg border border-border p-3">
+      <p className="font-heading text-xl font-semibold tabular-nums">{value}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
     </div>
   );
 }
@@ -223,10 +224,14 @@ function QuestionDetail({ loaded, isCorrect }: { loaded: LoadedQuestion; isCorre
       <p className={`font-medium ${isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
         {isCorrect ? "Correct" : "Incorrect"}
       </p>
-      {loaded.feedback?.writtenExplanation && (
-        <div className="rounded-md bg-muted p-3">
-          <LatexText text={loaded.feedback.writtenExplanation} />
-        </div>
+      {loaded.feedback && loaded.feedback.explanationSteps.length > 0 ? (
+        <ExplanationSteps steps={loaded.feedback.explanationSteps} mediaBasePath="/api/media" />
+      ) : (
+        loaded.feedback?.writtenExplanation && (
+          <div className="rounded-md bg-muted p-3">
+            <LatexText text={loaded.feedback.writtenExplanation} />
+          </div>
+        )
       )}
       {loaded.feedback?.explanationVideoId && (
         <video controls className="w-full rounded" src={`/api/media/${loaded.feedback.explanationVideoId}`} />

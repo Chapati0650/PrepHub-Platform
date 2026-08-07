@@ -25,6 +25,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { LatexText } from "@/components/content/latex-text";
+import { toast } from "@/components/ui/toast";
+import { ExplanationSteps } from "@/components/content/explanation-steps";
 import { getPublishIssues, type RevisionForValidation } from "@/lib/content/validation";
 import { CATEGORY_LABELS, DIFFICULTY_LABELS, STATUS_LABELS } from "@/lib/content/labels";
 import type { QuestionContentPatch, QuestionWithContent } from "@/lib/content/questions";
@@ -33,10 +35,13 @@ import { MediaUploadField } from "../../media-upload-field";
 import { StudentPreviewSheet } from "../student-preview-sheet";
 import {
   archiveQuestionAction,
+  generateExplanationAction,
+  generateStepDiagramAction,
   getQuestionAction,
   markPreviewCompletedAction,
   publishQuestionAction,
   restoreQuestionAction,
+  transcribeQuestionImageAction,
   unpublishQuestionAction,
   updateQuestionContentAction,
 } from "../../actions";
@@ -80,6 +85,9 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
   const [calculatorSetting, setCalculatorSetting] = useState(revision.calculatorSetting);
   const [suggestedTimeSeconds, setSuggestedTimeSeconds] = useState(revision.suggestedTimeSeconds);
   const [writtenExplanation, setWrittenExplanation] = useState(revision.writtenExplanation ?? "");
+  const [explanationSteps, setExplanationSteps] = useState(
+    revision.explanationSteps.map((s) => ({ text: s.text, imageId: s.imageId as string | null })),
+  );
   const [acceptedAnswersText, setAcceptedAnswersText] = useState(revision.acceptedAnswers.join("\n"));
   const [choices, setChoices] = useState(
     revision.answerChoices.length === 4
@@ -93,12 +101,112 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
   const [saveError, setSaveError] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewQuestion, setPreviewQuestion] = useState(initialQuestion);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState(false);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
 
+  const [transcribing, setTranscribing] = useState(false);
+  const [transcribeError, setTranscribeError] = useState<string | null>(null);
+  const transcribeInputRef = useRef<HTMLInputElement>(null);
+
+  const [generatingExplanation, setGeneratingExplanation] = useState(false);
+  const [generateExplanationError, setGenerateExplanationError] = useState<string | null>(null);
+  const [generatingDiagramForStep, setGeneratingDiagramForStep] = useState<number | null>(null);
+
   const pendingPatch = useRef<QuestionContentPatch>({});
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fills the form from a photo/screenshot of a question — the uploaded
+  // photo itself is never stored, it's only sent through once to produce a
+  // text draft (plus, if the photo includes a graph/table/diagram, a
+  // cropped image of just that element, uploaded the same way a manual
+  // "Question image" upload would be). Same review path as typing the
+  // question by hand: nothing here saves without going through queueSave,
+  // and nothing publishes without the existing preview-then-publish gate.
+  async function handleTranscribeFile(file: File) {
+    setTranscribeError(null);
+    setTranscribing(true);
+    const formData = new FormData();
+    formData.set("file", file);
+    const result = await transcribeQuestionImageAction(formData);
+    setTranscribing(false);
+    if (result.error) {
+      setTranscribeError(result.error);
+      return;
+    }
+    const { questionText: transcribedText, answerChoices, questionImageId: transcribedImageId } = result.transcription!;
+    setQuestionText(transcribedText);
+    queueSave({ questionText: transcribedText });
+    if (answerChoices && question.questionType === "MULTIPLE_CHOICE") {
+      const nextChoices = choices.map((choice, i) =>
+        answerChoices[i] !== undefined ? { ...choice, text: answerChoices[i] } : choice,
+      );
+      setChoices(nextChoices);
+      queueSave({ answerChoices: nextChoices });
+    }
+    if (transcribedImageId) {
+      setQuestionImageId(transcribedImageId);
+      queueSave({ questionImageId: transcribedImageId });
+    }
+  }
+
+  // Needs the correct answer already marked/entered — the model explains why
+  // that specific answer is right rather than independently re-solving (and
+  // potentially disagreeing with it). Replaces the whole step list, same as
+  // Generate on the transcription side; review/edit below before saving.
+  const canGenerateExplanation =
+    questionText.trim().length > 0 &&
+    (question.questionType === "MULTIPLE_CHOICE"
+      ? choices.some((c) => c.isCorrect)
+      : acceptedAnswersText.trim().length > 0);
+
+  function buildExplanationGenerationInput() {
+    return {
+      questionText,
+      category: CATEGORY_LABELS[question.category],
+      questionType: question.questionType as "MULTIPLE_CHOICE" | "OPEN_ENDED_NUMERIC",
+      answerChoices: question.questionType === "MULTIPLE_CHOICE" ? choices.map((c) => c.text) : null,
+      correctChoiceIndex: question.questionType === "MULTIPLE_CHOICE" ? choices.findIndex((c) => c.isCorrect) : null,
+      acceptedAnswers: acceptedAnswersText
+        .split("\n")
+        .map((a) => a.trim())
+        .filter(Boolean),
+    };
+  }
+
+  async function handleGenerateExplanation() {
+    setGenerateExplanationError(null);
+    setGeneratingExplanation(true);
+    const result = await generateExplanationAction(buildExplanationGenerationInput());
+    setGeneratingExplanation(false);
+    if (result.error) {
+      setGenerateExplanationError(result.error);
+      return;
+    }
+    const next = result.steps!.map((s) => ({ text: s.text, imageId: null as string | null }));
+    setExplanationSteps(next);
+    queueSave({ explanationSteps: next });
+  }
+
+  // Separate, opt-in, and meaningfully more expensive than text generation
+  // (real code execution to draw the chart) — see generate-explanation.ts.
+  // Scoped to one step at a time so cost stays proportional to how many
+  // diagrams are actually wanted, not generated automatically on every step.
+  async function handleGenerateStepDiagram(index: number) {
+    setGeneratingDiagramForStep(index);
+    setGenerateExplanationError(null);
+    const result = await generateStepDiagramAction({
+      ...buildExplanationGenerationInput(),
+      stepText: explanationSteps[index].text,
+    });
+    setGeneratingDiagramForStep(null);
+    if (result.error) {
+      setGenerateExplanationError(result.error);
+      return;
+    }
+    const next = explanationSteps.map((s, i) => (i === index ? { ...s, imageId: result.imageId ?? s.imageId } : s));
+    setExplanationSteps(next);
+    queueSave({ explanationSteps: next });
+  }
 
   function queueSave(patch: QuestionContentPatch) {
     if (!isEditable) return;
@@ -160,15 +268,15 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
     setPreviewOpen(true);
   }
 
-  async function runStatusAction(action: (id: string) => Promise<{ error?: string }>) {
-    setActionError(null);
+  async function runStatusAction(action: (id: string) => Promise<{ error?: string }>, successMessage: string) {
     setActionPending(true);
     const result = await action(question.id);
     setActionPending(false);
     if (result.error) {
-      setActionError(result.error);
+      toast.add({ title: "Action failed", description: result.error, type: "error" });
       return;
     }
+    toast.add({ title: successMessage, type: "success" });
     await refreshQuestion();
     router.refresh();
   }
@@ -225,17 +333,11 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
         <SaveStatusIndicator state={saveState} error={saveError} onRetry={() => void flush()} />
       </div>
 
-      {actionError && (
-        <Alert variant="destructive">
-          <AlertDescription>{actionError}</AlertDescription>
-        </Alert>
-      )}
-
       {isArchived && (
         <Alert>
           <AlertDescription>
             This question is archived and read-only.{" "}
-            <button className="underline" onClick={() => runStatusAction(restoreQuestionAction)}>
+            <button className="underline" onClick={() => runStatusAction(restoreQuestionAction, "Question restored")}>
               Restore it
             </button>{" "}
             to edit again.
@@ -246,6 +348,45 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Editable form */}
         <div className="flex flex-col gap-4">
+          {isEditable && (
+            <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">Transcribe from image</p>
+                  <p className="text-xs text-muted-foreground">
+                    Upload a photo or screenshot of a question to fill in the text (and any graph/table/diagram)
+                    below. Review it before saving — nothing publishes automatically.
+                  </p>
+                </div>
+                <input
+                  ref={transcribeInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void handleTranscribeFile(file);
+                    e.target.value = "";
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={transcribing}
+                  onClick={() => transcribeInputRef.current?.click()}
+                >
+                  {transcribing ? "Transcribing…" : "Upload image"}
+                </Button>
+              </div>
+              {transcribeError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{transcribeError}</AlertDescription>
+                </Alert>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-1">
               <Label>Category</Label>
@@ -276,6 +417,7 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
               }}
               placeholder="Supports LaTeX: $x^2$ inline, $$\frac{1}{2}$$ block"
             />
+            <LatexHint />
           </div>
 
           <div className="flex flex-col gap-2">
@@ -336,6 +478,7 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
           {question.questionType === "MULTIPLE_CHOICE" ? (
             <div className="flex flex-col gap-3">
               <Label>Answer choices</Label>
+              <LatexHint />
               {choices.map((choice, index) => (
                 <div key={index} className="flex flex-col gap-2 rounded-md border border-border p-3">
                   <div className="flex items-center gap-2">
@@ -418,7 +561,115 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
                 queueSave({ writtenExplanation: e.target.value || null });
               }}
             />
+            <LatexHint />
+            <p className="text-xs text-muted-foreground">
+              Used as a fallback only when no step-by-step explanation exists below.
+            </p>
           </div>
+
+          {isEditable && (
+            <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">Step-by-step explanation (optional)</p>
+                  <p className="text-xs text-muted-foreground">
+                    {canGenerateExplanation
+                      ? "Generates a numbered walkthrough (text only). Replaces the steps below — review before saving. Add a diagram to an individual step afterward if it needs one."
+                      : "Mark the correct answer (or enter an accepted answer) above first."}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={!canGenerateExplanation || generatingExplanation}
+                  onClick={() => void handleGenerateExplanation()}
+                >
+                  {generatingExplanation ? "Generating…" : explanationSteps.length > 0 ? "Regenerate" : "Generate"}
+                </Button>
+              </div>
+              {generateExplanationError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{generateExplanationError}</AlertDescription>
+                </Alert>
+              )}
+
+              {explanationSteps.map((step, index) => (
+                <div key={index} className="flex flex-col gap-2 rounded-md border border-border p-3">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor={`explanation-step-${index}`}>Step {index + 1}</Label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        const next = explanationSteps.filter((_, i) => i !== index);
+                        setExplanationSteps(next);
+                        queueSave({ explanationSteps: next });
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                  <Textarea
+                    id={`explanation-step-${index}`}
+                    rows={2}
+                    value={step.text}
+                    onChange={(e) => {
+                      const next = explanationSteps.map((s, i) => (i === index ? { ...s, text: e.target.value } : s));
+                      setExplanationSteps(next);
+                      queueSave({ explanationSteps: next });
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="w-fit"
+                    disabled={!step.text.trim() || generatingDiagramForStep !== null}
+                    onClick={() => void handleGenerateStepDiagram(index)}
+                  >
+                    {generatingDiagramForStep === index
+                      ? "Generating diagram…"
+                      : step.imageId
+                        ? "Regenerate diagram"
+                        : "Generate diagram"}
+                  </Button>
+                  <MediaUploadField
+                    kind="image"
+                    currentMediaId={step.imageId}
+                    currentUrl={mediaUrl(step.imageId)}
+                    onUploaded={(id) => {
+                      const next = explanationSteps.map((s, i) => (i === index ? { ...s, imageId: id } : s));
+                      setExplanationSteps(next);
+                      queueSave({ explanationSteps: next });
+                    }}
+                    onRemove={() => {
+                      const next = explanationSteps.map((s, i) => (i === index ? { ...s, imageId: null } : s));
+                      setExplanationSteps(next);
+                      queueSave({ explanationSteps: next });
+                    }}
+                    accept="image/png,image/jpeg,image/webp"
+                  />
+                </div>
+              ))}
+
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="w-fit"
+                onClick={() => {
+                  const next = [...explanationSteps, { text: "", imageId: null }];
+                  setExplanationSteps(next);
+                  queueSave({ explanationSteps: next });
+                }}
+              >
+                Add step
+              </Button>
+              <LatexHint />
+            </div>
+          )}
 
           {isFamilyMember ? (
             <Alert>
@@ -432,7 +683,7 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
             </Alert>
           ) : (
             <div className="flex flex-col gap-2">
-              <Label>Video explanation (required to publish)</Label>
+              <Label>Video explanation (optional)</Label>
               <MediaUploadField
                 kind="video"
                 currentMediaId={standaloneVideoId}
@@ -467,12 +718,20 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
               </Button>
             )}
             {canUnpublish && (
-              <Button variant="outline" disabled={actionPending} onClick={() => runStatusAction(unpublishQuestionAction)}>
+              <Button
+                variant="outline"
+                disabled={actionPending}
+                onClick={() => runStatusAction(unpublishQuestionAction, "Question unpublished")}
+              >
                 Unpublish
               </Button>
             )}
             {canArchive && (
-              <Button variant="outline" disabled={actionPending} onClick={() => runStatusAction(archiveQuestionAction)}>
+              <Button
+                variant="outline"
+                disabled={actionPending}
+                onClick={() => runStatusAction(archiveQuestionAction, "Question archived")}
+              >
                 Archive
               </Button>
             )}
@@ -500,10 +759,16 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
                 ))}
               </div>
             )}
-            {writtenExplanation && (
-              <div className="mt-4 rounded-md bg-muted p-3 text-sm">
-                <LatexText text={writtenExplanation} />
+            {explanationSteps.length > 0 ? (
+              <div className="mt-4">
+                <ExplanationSteps steps={explanationSteps} mediaBasePath="/api/owner/media" />
               </div>
+            ) : (
+              writtenExplanation && (
+                <div className="mt-4 rounded-md bg-muted p-3 text-sm">
+                  <LatexText text={writtenExplanation} />
+                </div>
+              )
             )}
           </div>
 
@@ -563,7 +828,10 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
               disabled={publishIssues.length > 0 || actionPending}
               onClick={async () => {
                 setPublishDialogOpen(false);
-                await runStatusAction(publishQuestionAction);
+                await runStatusAction(
+                  publishQuestionAction,
+                  question.status === "DRAFT_REVISION" ? "Question republished" : "Question published",
+                );
               }}
             >
               Confirm {question.status === "DRAFT_REVISION" ? "Republish" : "Publish"}
@@ -572,6 +840,20 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// Reinforces the $...$ / $$...$$ convention (see latex-text.tsx) as a
+// persistent caption rather than only a placeholder, which disappears the
+// moment the field has content — confirmed via user report that typing bare
+// "5x^2" (no delimiters) into the question text field silently rendered as
+// literal text with no indication of why, once the placeholder was gone.
+function LatexHint() {
+  return (
+    <p className="text-xs text-muted-foreground">
+      Math must be wrapped in <code className="rounded bg-muted px-1 py-0.5">$...$</code> to render — e.g.{" "}
+      <code className="rounded bg-muted px-1 py-0.5">$5x^2$</code>, not <code className="rounded bg-muted px-1 py-0.5">5x^2</code>.
+    </p>
   );
 }
 

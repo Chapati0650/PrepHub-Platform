@@ -58,7 +58,7 @@ export async function updateTargetScoreAction(_prev: ActionState, formData: Form
     revalidatePath("/settings");
     revalidatePath("/home");
     revalidatePath("/progress");
-    return {};
+    return { success: true };
   }
 
   const value = Number(raw);
@@ -70,7 +70,7 @@ export async function updateTargetScoreAction(_prev: ActionState, formData: Form
   revalidatePath("/settings");
   revalidatePath("/home");
   revalidatePath("/progress");
-  return {};
+  return { success: true };
 }
 
 // PRD-010 §5 — only the first name is editable; everything else on the
@@ -87,7 +87,7 @@ export async function updateFirstNameAction(_prev: ActionState, formData: FormDa
   await prisma.user.update({ where: { id: session.user.id }, data: { firstName: firstName.trim() } });
   revalidatePath("/settings");
   revalidatePath("/home");
-  return {};
+  return { success: true };
 }
 
 // PRD-010 §7 — only the Daily Practice Reminder is an independent toggle;
@@ -101,5 +101,5 @@ export async function updateNotificationPrefsAction(_prev: ActionState, formData
     data: { dailyReminderEnabled: formData.get("dailyReminderEnabled") === "on" },
   });
   revalidatePath("/settings");
-  return {};
+  return { success: true };
 }

@@ -113,7 +113,7 @@ export function FamilyDetail({
         </p>
 
         <div className="flex flex-col gap-2">
-          <Label>Shared video (required to publish)</Label>
+          <Label>Shared video (optional)</Label>
           <MediaUploadField
             kind="video"
             currentMediaId={family.sharedVideoId}

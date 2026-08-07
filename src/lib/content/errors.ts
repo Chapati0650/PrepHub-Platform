@@ -20,7 +20,9 @@ export class ContentError extends Error {
       | "HAS_REFERENCES"
       | "UNSUPPORTED_FILE_TYPE"
       | "FILE_TOO_LARGE"
-      | "MEDIA_PROCESSING_FAILED",
+      | "MEDIA_PROCESSING_FAILED"
+      | "TRANSCRIPTION_FAILED"
+      | "EXPLANATION_GENERATION_FAILED",
     message: string,
   ) {
     super(message);

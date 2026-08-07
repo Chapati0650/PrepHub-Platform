@@ -48,16 +48,15 @@ export function getPublishIssues(
     }
   }
 
+  // Video explanations are optional (not a PRD-013 publish requirement) —
+  // but one that's attached and still mid-processing/failed would leave a
+  // broken reference live to students, so that half of the check stays.
   if (question.familyId) {
-    if (!family?.sharedVideo) {
-      issues.push("The family's shared video is required.");
-    } else if (family.sharedVideo.status !== "READY") {
+    if (family?.sharedVideo && family.sharedVideo.status !== "READY") {
       issues.push("The family's shared video is still processing or failed to process.");
     }
   } else {
-    if (!revision.standaloneVideo) {
-      issues.push("A video explanation is required.");
-    } else if (revision.standaloneVideo.status !== "READY") {
+    if (revision.standaloneVideo && revision.standaloneVideo.status !== "READY") {
       issues.push("The video explanation is still processing or failed to process.");
     }
   }

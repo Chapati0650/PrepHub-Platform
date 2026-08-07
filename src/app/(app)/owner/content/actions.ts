@@ -30,6 +30,8 @@ import {
 } from "@/lib/content/families";
 import { bulkArchive, bulkDeletePermanently, bulkPublish, bulkUnpublish, type BulkResult } from "@/lib/content/bulk";
 import { uploadImage, uploadVideo } from "@/lib/content/media";
+import { transcribeQuestionImage, type QuestionTranscription } from "@/lib/content/transcribe";
+import { generateExplanationText, generateStepDiagram, type ExplanationStepResult } from "@/lib/content/generate-explanation";
 import { ContentError } from "@/lib/content/errors";
 import { logUnauthorizedAccess } from "@/lib/logger";
 import type { QuestionCategory, QuestionDifficulty, QuestionType } from "@/generated/prisma/client";
@@ -357,6 +359,71 @@ export async function uploadVideoAction(formData: FormData): Promise<MediaUpload
       originalFilename: file.name,
     });
     return { mediaId: asset.id, status: asset.status, failureReason: asset.failureReason };
+  } catch (err) {
+    return { error: toMessage(err) };
+  }
+}
+
+// --- Explanation generation ------------------------------------------------
+
+type ExplanationGenerationInput = {
+  questionText: string;
+  category: string;
+  questionType: "MULTIPLE_CHOICE" | "OPEN_ENDED_NUMERIC";
+  answerChoices: string[] | null;
+  correctChoiceIndex: number | null;
+  acceptedAnswers: string[];
+};
+
+export type GenerateExplanationResult = { error?: string; steps?: ExplanationStepResult[] };
+
+// Same review contract as transcription: this only produces a draft for the
+// step-by-step explanation section below, saved through the normal queueSave
+// path — nothing here publishes on its own. Text-only and deliberately cheap
+// (no code execution) — see generateStepDiagramAction for the opt-in,
+// per-step diagram generation, which costs meaningfully more.
+export async function generateExplanationAction(input: ExplanationGenerationInput): Promise<GenerateExplanationResult> {
+  await requireOwner();
+  try {
+    const steps = await generateExplanationText(input);
+    return { steps };
+  } catch (err) {
+    return { error: toMessage(err) };
+  }
+}
+
+export type GenerateStepDiagramResult = { error?: string; imageId?: string | null };
+
+export async function generateStepDiagramAction(
+  input: ExplanationGenerationInput & { stepText: string },
+): Promise<GenerateStepDiagramResult> {
+  await requireOwner();
+  try {
+    const imageId = await generateStepDiagram(input, input.stepText);
+    return { imageId };
+  } catch (err) {
+    return { error: toMessage(err) };
+  }
+}
+
+// --- Question-image transcription ---------------------------------------
+
+export type TranscribeResult = { error?: string; transcription?: QuestionTranscription };
+
+// The uploaded photo/screenshot is never persisted — it exists only to
+// produce a text draft the Owner reviews and edits before saving, same as
+// hand-typing the question text. Nothing here bypasses the normal
+// Draft -> preview -> Publish review gate.
+export async function transcribeQuestionImageAction(formData: FormData): Promise<TranscribeResult> {
+  await requireOwner();
+  const file = formData.get("file");
+  if (!(file instanceof File)) return { error: "No file provided." };
+  try {
+    const transcription = await transcribeQuestionImage({
+      buffer: Buffer.from(await file.arrayBuffer()),
+      mimeType: file.type,
+    });
+    return { transcription };
   } catch (err) {
     return { error: toMessage(err) };
   }

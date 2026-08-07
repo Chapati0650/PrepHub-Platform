@@ -15,7 +15,9 @@ export type LogCategory =
   | "MEDIA_PROCESSING_FAILURE"
   | "EMAIL_DELIVERY_FAILURE"
   | "SERVER_ERROR"
-  | "DATABASE_CONNECTIVITY_FAILURE";
+  | "DATABASE_CONNECTIVITY_FAILURE"
+  | "QUESTION_TRANSCRIPTION_FAILURE"
+  | "EXPLANATION_GENERATION_FAILURE";
 
 export type LogContext = {
   // Internal account id — GER §5 prefers this over email for general logs.
@@ -97,4 +99,12 @@ export function logServerError(message: string, context?: LogContext): void {
 
 export function logDatabaseConnectivityFailure(message: string, context?: LogContext): void {
   logEvent("DATABASE_CONNECTIVITY_FAILURE", message, context);
+}
+
+export function logTranscriptionFailure(message: string, context?: LogContext): void {
+  logEvent("QUESTION_TRANSCRIPTION_FAILURE", message, context);
+}
+
+export function logExplanationGenerationFailure(message: string, context?: LogContext): void {
+  logEvent("EXPLANATION_GENERATION_FAILURE", message, context);
 }

@@ -14,6 +14,7 @@ type Client = typeof prisma | Prisma.TransactionClient;
 
 const REVISION_INCLUDE = {
   answerChoices: { orderBy: { order: "asc" as const } },
+  explanationSteps: { orderBy: { order: "asc" as const } },
   standaloneVideo: true,
   questionImage: true,
 } satisfies Prisma.QuestionRevisionInclude;
@@ -27,6 +28,7 @@ const QUESTION_INCLUDE = {
 export type QuestionWithContent = Prisma.QuestionGetPayload<{ include: typeof QUESTION_INCLUDE }>;
 
 export type AnswerChoiceInput = { text: string; imageId: string | null; isCorrect: boolean };
+export type ExplanationStepInput = { text: string; imageId: string | null };
 
 export type QuestionContentPatch = Partial<{
   questionText: string;
@@ -37,6 +39,7 @@ export type QuestionContentPatch = Partial<{
   standaloneVideoId: string | null; // ignored for family questions — family owns the video
   acceptedAnswers: string[]; // OPEN_ENDED_NUMERIC only
   answerChoices: AnswerChoiceInput[]; // MULTIPLE_CHOICE only — must be exactly 4 when provided
+  explanationSteps: ExplanationStepInput[]; // richer alternative to writtenExplanation; array order = display order
   category: QuestionCategory; // ignored for family questions — family owns category/difficulty
   difficulty: QuestionDifficulty;
 }>;
@@ -122,6 +125,13 @@ export async function ensureDraftRevision(tx: Client, question: QuestionWithCont
           imageId: c.imageId,
         })),
       },
+      explanationSteps: {
+        create: source.explanationSteps.map((s) => ({
+          order: s.order,
+          text: s.text,
+          imageId: s.imageId,
+        })),
+      },
     },
   });
   await tx.question.update({
@@ -196,6 +206,20 @@ export async function updateDraftContent(
           imageId: choice.imageId,
         })),
       });
+    }
+
+    if (patch.explanationSteps !== undefined) {
+      await tx.explanationStep.deleteMany({ where: { revisionId } });
+      if (patch.explanationSteps.length > 0) {
+        await tx.explanationStep.createMany({
+          data: patch.explanationSteps.map((step, order) => ({
+            revisionId,
+            order,
+            text: step.text,
+            imageId: step.imageId,
+          })),
+        });
+      }
     }
 
     // Family members don't own category/difficulty — those live on the family
@@ -369,6 +393,13 @@ export async function duplicateQuestionContent(questionId: string): Promise<Ques
             text: c.text,
             isCorrect: c.isCorrect,
             imageId: c.imageId,
+          })),
+        },
+        explanationSteps: {
+          create: sourceRevision.explanationSteps.map((s) => ({
+            order: s.order,
+            text: s.text,
+            imageId: s.imageId,
           })),
         },
       },

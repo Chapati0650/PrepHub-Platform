@@ -8,6 +8,7 @@ import {
 } from "@/lib/auth/account";
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/password";
+import { sendEmail } from "@/lib/email";
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -20,6 +21,8 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 vi.mock("@/lib/email", () => ({ sendEmail: vi.fn() }));
+
+const mockedSendEmail = sendEmail as ReturnType<typeof vi.fn>;
 
 const mockedPrisma = prisma as unknown as {
   user: Record<string, ReturnType<typeof vi.fn>>;
@@ -63,6 +66,20 @@ describe("createAccount", () => {
       code: "EMAIL_TAKEN",
     });
     expect(mockedPrisma.user.create).not.toHaveBeenCalled();
+    expect(mockedSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("sends a welcome email to the new account exactly once", async () => {
+    mockedPrisma.user.findUnique.mockResolvedValue(null);
+    mockedPrisma.user.create.mockResolvedValue({ id: "u1", firstName: "Ada", email: "ada@example.com" });
+
+    await createAccount(validSignUp);
+
+    expect(mockedSendEmail).toHaveBeenCalledTimes(1);
+    const call = mockedSendEmail.mock.calls[0][0];
+    expect(call.to).toBe("ada@example.com");
+    expect(call.subject).toBe("Welcome to PrepHub");
+    expect(call.text).toContain("Hi Ada,");
   });
 });
 

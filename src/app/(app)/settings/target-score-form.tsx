@@ -1,17 +1,22 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
 import { updateTargetScoreAction } from "../actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { toast } from "@/components/ui/toast";
 import type { ActionState } from "@/app/(auth)/actions";
 
 const initialState: ActionState = {};
 
 export function TargetScoreForm({ currentTargetScore }: { currentTargetScore: number | null }) {
   const [state, formAction, pending] = useActionState(updateTargetScoreAction, initialState);
+
+  useEffect(() => {
+    if (state.success) toast.add({ title: "Target score saved", type: "success" });
+  }, [state]);
 
   return (
     <form action={formAction} className="flex flex-col gap-4">

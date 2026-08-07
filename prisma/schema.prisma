@@ -58,11 +58,11 @@ model User {
   performedEvents    MembershipHistoryEvent[]  @relation("PerformedBy")
   verificationTokens SchoolVerificationToken[]
 
-  categoryStates    CategoryState[]
-  practiceSets      PracticeSet[]
-  finalizedAttempts FinalizedAttempt[]
-  diagnosticSession DiagnosticSession?
-  predictionHistory PredictionHistoryEntry[]
+  categoryStates       CategoryState[]
+  practiceSets         PracticeSet[]
+  finalizedAttempts    FinalizedAttempt[]
+  diagnosticSession    DiagnosticSession?
+  predictionHistory    PredictionHistoryEntry[]
   announcementsCreated Announcement[]
 
   @@map("users")
@@ -431,10 +431,11 @@ model MediaAsset {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  questionImageFor     QuestionRevision[]     @relation("QuestionRevisionImage")
-  standaloneVideoFor   QuestionRevision[]     @relation("QuestionRevisionVideo")
-  familySharedVideoFor QuestionFamily[]       @relation("QuestionFamilyVideo")
-  answerChoiceImageFor QuestionAnswerChoice[] @relation("AnswerChoiceImage")
+  questionImageFor        QuestionRevision[]     @relation("QuestionRevisionImage")
+  standaloneVideoFor      QuestionRevision[]     @relation("QuestionRevisionVideo")
+  familySharedVideoFor    QuestionFamily[]       @relation("QuestionFamilyVideo")
+  answerChoiceImageFor    QuestionAnswerChoice[] @relation("AnswerChoiceImage")
+  explanationStepImageFor ExplanationStep[]      @relation("ExplanationStepImage")
 
   @@map("media_assets")
 }
@@ -528,7 +529,8 @@ model QuestionRevision {
   updatedAt   DateTime  @updatedAt
   publishedAt DateTime?
 
-  answerChoices QuestionAnswerChoice[]
+  answerChoices    QuestionAnswerChoice[]
+  explanationSteps ExplanationStep[]
 
   currentPublishedFor Question? @relation("CurrentPublished")
   currentDraftFor     Question? @relation("CurrentDraft")
@@ -554,6 +556,29 @@ model QuestionAnswerChoice {
 
   @@unique([revisionId, order])
   @@map("question_answer_choices")
+}
+
+// A richer alternative to the plain-text writtenExplanation field: an ordered
+// walkthrough where any step can carry its own image (a generated diagram,
+// graph, or number line, or a manually uploaded one) — the Brilliant.org-style
+// step-by-step explanation. writtenExplanation is untouched and still used as
+// a fallback for older/simpler content; where both exist, steps take priority
+// in the student-facing renderer. Deleting/recreating the whole set on every
+// save (rather than diffing) mirrors how QuestionAnswerChoice's fixed 4-slot
+// array is already patched wholesale in this editor.
+model ExplanationStep {
+  id         String           @id @default(cuid())
+  revisionId String
+  revision   QuestionRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  order Int // 0-based, display order
+  text  String @db.Text
+
+  imageId String?
+  image   MediaAsset? @relation("ExplanationStepImage", fields: [imageId], references: [id])
+
+  @@unique([revisionId, order])
+  @@map("explanation_steps")
 }
 
 // ---------------------------------------------------------------------------

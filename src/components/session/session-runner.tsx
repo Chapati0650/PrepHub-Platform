@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LatexText } from "@/components/content/latex-text";
+import { ExplanationSteps } from "@/components/content/explanation-steps";
 import { CALCULATOR_LABELS } from "@/lib/content/labels";
 import type { StudentQuestionContent, StudentQuestionFeedback } from "@/lib/session/question-content";
 import { Calculator } from "./calculator";
@@ -145,7 +146,11 @@ export function SessionRunner(props: SessionRunnerProps) {
             <TimerBadge suggestedTimeSeconds={loaded.content.suggestedTimeSeconds} resetKey={currentItem.id} />
           </div>
 
-          <LatexText text={loaded.content.questionText} className="text-base" />
+          {/* PRD-006/Brilliant reference: question text stays "large, comfortable"
+              even as the app's base font-size tightened for density elsewhere
+              (globals.css) — this is the one place that should read generously,
+              not compactly. */}
+          <LatexText text={loaded.content.questionText} className="text-lg leading-relaxed" />
 
           {loaded.content.questionImageId && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -172,7 +177,7 @@ export function SessionRunner(props: SessionRunnerProps) {
                     onClick={() => updateDraft(choice.id)}
                     aria-pressed={isSelected}
                     className={[
-                      "rounded-md border p-3 text-left text-sm transition-colors",
+                      "rounded-md border p-4 text-left text-base transition-colors",
                       isSelected && !currentItem.submitted && "border-primary bg-primary/5",
                       !isSelected && !showCorrect && !showWrongSelection && "border-border",
                       showCorrect && "border-2 border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50",
@@ -219,10 +224,14 @@ export function SessionRunner(props: SessionRunnerProps) {
               {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && loaded.feedback && (
                 <p className="text-sm text-muted-foreground">Accepted answer: {loaded.feedback.acceptedAnswers[0]}</p>
               )}
-              {loaded.feedback?.writtenExplanation && (
-                <div className="rounded-md bg-muted p-3 text-sm">
-                  <LatexText text={loaded.feedback.writtenExplanation} />
-                </div>
+              {loaded.feedback && loaded.feedback.explanationSteps.length > 0 ? (
+                <ExplanationSteps steps={loaded.feedback.explanationSteps} mediaBasePath="/api/media" />
+              ) : (
+                loaded.feedback?.writtenExplanation && (
+                  <div className="rounded-md bg-muted p-3 text-sm">
+                    <LatexText text={loaded.feedback.writtenExplanation} />
+                  </div>
+                )
               )}
               {loaded.feedback?.explanationVideoId && (
                 <video controls className="w-full rounded" src={`/api/media/${loaded.feedback.explanationVideoId}`} />

@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { toast } from "@/components/ui/toast";
 import {
   Select,
   SelectContent,
@@ -85,7 +86,6 @@ export function QuestionsTable({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState(filters.search ?? "");
-  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
 
   // Clear selection whenever the visible row set changes (new page/filter/sort)
   // — adjusted during render per React's guidance, rather than in an effect.
@@ -147,15 +147,17 @@ export function QuestionsTable({
   async function runBulk(action: (ids: string[]) => Promise<{ succeeded: string[]; failed: { questionId: string; reason?: string }[] }>) {
     const result = await action(selectedIds);
     if (result.failed.length === 0) {
-      setBulkMessage(`Updated ${result.succeeded.length} question(s).`);
+      toast.add({ title: `Updated ${result.succeeded.length} question(s)`, type: "success" });
     } else {
-      setBulkMessage(
-        `Updated ${result.succeeded.length} question(s). ${result.failed.length} skipped: ${result.failed
+      toast.add({
+        title: `Updated ${result.succeeded.length} question(s)`,
+        description: `${result.failed.length} skipped: ${result.failed
           .map((f) => f.reason)
           .filter(Boolean)
           .slice(0, 2)
           .join(" ")}`,
-      );
+        type: "warning",
+      });
     }
     setSelected(new Set());
     router.refresh();
@@ -293,8 +295,6 @@ export function QuestionsTable({
           </Button>
         </div>
       )}
-      {bulkMessage && <p className="text-sm text-muted-foreground">{bulkMessage}</p>}
-
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No questions match the current filters.</p>
       ) : (
@@ -429,12 +429,15 @@ function FilterSelect({
 
 function RowActions({ row }: { row: QuestionListRow }) {
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
 
-  async function run(action: () => Promise<{ error?: string }>) {
+  async function run(action: () => Promise<{ error?: string }>, successMessage: string) {
     const result = await action();
-    if (result.error) setError(result.error);
-    else router.refresh();
+    if (result.error) {
+      toast.add({ title: "Action failed", description: result.error, type: "error" });
+      return;
+    }
+    toast.add({ title: successMessage, type: "success" });
+    router.refresh();
   }
 
   const isFamilyMember = row.familyId !== null;
@@ -458,34 +461,44 @@ function RowActions({ row }: { row: QuestionListRow }) {
           }
         />
         <DropdownMenuContent>
-          <DropdownMenuItem onClick={() => run(() => duplicateQuestionAction(row.id, false))}>
+          <DropdownMenuItem onClick={() => run(() => duplicateQuestionAction(row.id, false), "Question duplicated")}>
             Duplicate
           </DropdownMenuItem>
           {isFamilyMember && (
-            <DropdownMenuItem onClick={() => run(() => duplicateQuestionAction(row.id, true))}>
+            <DropdownMenuItem onClick={() => run(() => duplicateQuestionAction(row.id, true), "Question duplicated")}>
               Duplicate into family
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
           {canPublish && (
-            <DropdownMenuItem onClick={() => run(() => publishQuestionAction(row.id))}>
+            <DropdownMenuItem
+              onClick={() =>
+                run(() => publishQuestionAction(row.id), row.status === "DRAFT_REVISION" ? "Question republished" : "Question published")
+              }
+            >
               {row.status === "DRAFT_REVISION" ? "Republish" : "Publish"}
             </DropdownMenuItem>
           )}
           {canUnpublish && (
-            <DropdownMenuItem onClick={() => run(() => unpublishQuestionAction(row.id))}>Unpublish</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => run(() => unpublishQuestionAction(row.id), "Question unpublished")}>
+              Unpublish
+            </DropdownMenuItem>
           )}
           {canArchive && (
-            <DropdownMenuItem onClick={() => run(() => archiveQuestionAction(row.id))}>Archive</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => run(() => archiveQuestionAction(row.id), "Question archived")}>
+              Archive
+            </DropdownMenuItem>
           )}
           {canRestore && (
-            <DropdownMenuItem onClick={() => run(() => restoreQuestionAction(row.id))}>Restore</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => run(() => restoreQuestionAction(row.id), "Question restored")}>
+              Restore
+            </DropdownMenuItem>
           )}
           {canDeletePermanently && (
             <DropdownMenuItem
               onClick={() => {
                 if (confirm("Permanently delete this question? This cannot be undone.")) {
-                  run(() => deleteQuestionAction(row.id));
+                  run(() => deleteQuestionAction(row.id), "Question deleted");
                 }
               }}
             >
@@ -494,7 +507,6 @@ function RowActions({ row }: { row: QuestionListRow }) {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      {error && <span className="text-xs text-destructive">{error}</span>}
     </div>
   );
 }

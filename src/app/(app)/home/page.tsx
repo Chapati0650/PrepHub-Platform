@@ -117,10 +117,10 @@ export default async function HomePage() {
       <AnnouncementsBanner announcements={announcements} />
 
       {/* PrepHub Score Prediction — informational only, per PRD-004 §7 "Interaction" */}
-      <div className="flex flex-col gap-4 rounded-lg border border-border p-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 rounded-lg border border-border p-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">PrepHub Score Prediction</p>
-          <p className="mt-2 font-heading text-4xl font-semibold tabular-nums sm:text-5xl">
+          <p className="mt-1 font-heading text-6xl font-semibold tabular-nums sm:text-7xl">
             {data.currentRange ? `${data.currentRange.min}–${data.currentRange.max}` : "—"}
           </p>
         </div>
@@ -142,12 +142,17 @@ export default async function HomePage() {
 
       {/* Study Streak */}
       <div className="flex items-center justify-between rounded-lg border border-border p-4">
-        <p className="text-sm font-medium">
-          {data.studyStreak} Day{data.studyStreak === 1 ? "" : "s"} Study Streak
+        <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Study Streak</p>
+        <p
+          className={`font-heading text-2xl font-semibold tabular-nums ${
+            data.studyStreak > 0 ? "text-achievement-foreground dark:text-achievement" : ""
+          }`}
+        >
+          {data.studyStreak}
+          <span className="ml-1.5 text-sm font-normal text-muted-foreground">
+            day{data.studyStreak === 1 ? "" : "s"}
+          </span>
         </p>
-        {data.studyStreak > 0 && (
-          <span className="text-xs font-medium text-achievement-foreground dark:text-achievement">Active</span>
-        )}
       </div>
 
       {/* Recent Improvements */}
@@ -222,9 +227,9 @@ function AnnouncementsBanner({ announcements }: { announcements: AnnouncementEnt
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border p-4 text-center">
-      <p className="text-lg font-semibold">{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
+    <div className="rounded-lg border border-border p-4">
+      <p className="font-heading text-2xl font-semibold tabular-nums">{value}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
     </div>
   );
 }

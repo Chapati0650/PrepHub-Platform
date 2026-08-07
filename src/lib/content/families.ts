@@ -13,6 +13,7 @@ import {
 
 const REVISION_INCLUDE = {
   answerChoices: { orderBy: { order: "asc" as const } },
+  explanationSteps: { orderBy: { order: "asc" as const } },
   standaloneVideo: true,
   questionImage: true,
 } satisfies Prisma.QuestionRevisionInclude;
