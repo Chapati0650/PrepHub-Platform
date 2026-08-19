@@ -1,17 +1,23 @@
-import { signIn, signOut } from "@/auth";
+import { NextResponse } from "next/server";
+import { signOut } from "@/auth";
 
-// A plain Route Handler, not a client-side signOut()+signIn() pair — that
-// two-request client sequence is a real timing dependency (confirmed via a
-// second real incident: even with the client-side fix, a Google account got
-// linked to the currently-logged-in user again, most likely from testing
-// across multiple tabs where one tab's stale page still had a valid session
-// by the time its sign-in click landed). A GET to this route does both
-// steps server-side, sequentially, inside one request — no client JS timing
-// involved at all, so there's no window for a stale session to slip through.
-// The underlying reason this needs to happen at all: Auth.js links a new
-// OAuth account to whoever's already logged in, rather than switching to
-// it, whenever a session cookie is present when the sign-in completes.
-export async function GET() {
+// A genuine two-request browser round trip, not signOut()+signIn() inside one
+// handler — confirmed insufficient by reading @auth/core's own
+// handleLoginOrRegister directly (node_modules/@auth/core/lib/actions/
+// callback/handle-login.js:206-212): whether a new Google account gets
+// *linked to whoever's already logged in* is decided from the session cookie
+// on the incoming /api/auth/callback/google request, and clearing a cookie
+// via signOut() only takes effect once the browser receives and re-sends it —
+// it's still present on any request made within the same round trip. Calling
+// signOut() then signIn() back-to-back in one handler leaves the stale
+// session cookie on the request that later reaches Google's callback, so
+// linking still silently happened (confirmed live: the Owner account
+// accumulated 3 different Google identities after that "fix" was deployed
+// and had already been verified once). Redirecting here forces the browser
+// to actually apply the Set-Cookie deletion and send a brand-new request
+// before signIn() ever runs, so there is no session left for the callback to
+// link against.
+export async function GET(request: Request) {
   await signOut({ redirect: false });
-  return signIn("google", { redirectTo: "/home" });
+  return NextResponse.redirect(new URL("/api/auth/google-sign-in/start", request.url));
 }
