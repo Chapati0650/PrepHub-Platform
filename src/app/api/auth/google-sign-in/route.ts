@@ -17,7 +17,22 @@ import { signOut } from "@/auth";
 // to actually apply the Set-Cookie deletion and send a brand-new request
 // before signIn() ever runs, so there is no session left for the callback to
 // link against.
+// On Netlify, request.url reflects the Next.js function's own internal
+// deploy-ID origin (e.g. https://<deploy-id>--prephubtp.netlify.app), not the
+// public domain the browser is actually on — confirmed live via a real
+// browser: the redirect below sent the browser to that internal origin,
+// which the browser's CORS policy then correctly refused to follow, silently
+// breaking the entire Google sign-in flow. The Host header (or
+// x-forwarded-host behind a proxy) reflects what the browser actually sent,
+// so it's used instead of trusting request.url's origin.
+function getPublicOrigin(request: Request): string {
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  if (!host) return new URL(request.url).origin;
+  const protocol = request.headers.get("x-forwarded-proto") ?? new URL(request.url).protocol.replace(":", "");
+  return `${protocol}://${host}`;
+}
+
 export async function GET(request: Request) {
   await signOut({ redirect: false });
-  return NextResponse.redirect(new URL("/api/auth/google-sign-in/start", request.url));
+  return NextResponse.redirect(new URL("/api/auth/google-sign-in/start", getPublicOrigin(request)));
 }
