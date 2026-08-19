@@ -50,7 +50,7 @@ test.describe("Owner content management (PRD-013, PRD-015)", () => {
     await expect(page).not.toHaveURL(/\/owner/);
   });
 
-  test("full question lifecycle: create, edit, upload media, preview, publish, edit-creates-draft-revision, republish, unpublish, archive", async ({
+  test("full question lifecycle: create, edit, upload media, preview, publish, edit-applies-immediately, unpublish, archive", async ({
     page,
   }) => {
     await signInAsOwner(page);
@@ -71,25 +71,17 @@ test.describe("Owner content management (PRD-013, PRD-015)", () => {
     await expect(sheet.getByText("Correct!")).toBeVisible();
     await sheet.getByRole("button", { name: "Close" }).click();
 
-    // Publish
+    // Publish — one click, no confirmation dialog
     await page.getByRole("button", { name: "Publish", exact: true }).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
-    await page.getByRole("button", { name: "Confirm Publish" }).click();
     await expect(page.getByText("Published", { exact: true }).first()).toBeVisible({ timeout: 10_000 });
 
-    // PRD-015 §7.2: editing published content creates a Draft Revision — the
-    // question moves to DRAFT_REVISION, not straight back to Published/Draft.
+    // Editing an already-Published question now applies immediately — no
+    // Draft Revision buffer, no separate Republish step (Owner-requested
+    // change overriding PRD-015 §7.2's original buffer-then-republish design).
     await page.getByLabel("Question text").fill("What is $2 + 2$?? (revised)");
     await waitForAutosave(page);
-    await expect(page.getByText("Draft Revision")).toBeVisible();
-
-    // Republish
-    await page.getByRole("button", { name: "Open Student Preview" }).click();
-    await expect(sheet.getByRole("heading", { name: "Student Preview" })).toBeVisible();
-    await sheet.getByRole("button", { name: "Close" }).click();
-    await page.getByRole("button", { name: "Republish" }).click();
-    await page.getByRole("button", { name: "Confirm Republish" }).click();
-    await expect(page.getByText("Published", { exact: true }).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Published", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Draft Revision")).toHaveCount(0);
 
     // Unpublish, then Archive
     await page.getByRole("button", { name: "Unpublish" }).click();
@@ -120,7 +112,6 @@ test.describe("Owner content management (PRD-013, PRD-015)", () => {
     await sheet.getByRole("button", { name: "Close" }).click();
 
     await page.getByRole("button", { name: "Publish", exact: true }).click();
-    await page.getByRole("button", { name: "Confirm Publish" }).click();
     await expect(page.getByText("Published", { exact: true }).first()).toBeVisible({ timeout: 10_000 });
   });
 

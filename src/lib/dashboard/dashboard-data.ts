@@ -2,6 +2,7 @@ import type { QuestionCategory } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ALL_CATEGORIES } from "@/lib/adaptive/config";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
+import { getRecommendedPace, type RecommendedPace } from "@/lib/onboarding/study-commitment";
 import { computeStudyStreak } from "./study-streak";
 
 export type DashboardData = {
@@ -15,15 +16,17 @@ export type DashboardData = {
   studyStreak: number;
   recentImprovements: string[];
   mastery: { category: QuestionCategory; currentMastery: number }[];
+  recommendedPace: RecommendedPace | null;
 };
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function getDashboardData(studentId: string): Promise<DashboardData> {
   const [user, diagnostic] = await Promise.all([
-    prisma.user.findUniqueOrThrow({ where: { id: studentId }, select: { firstName: true } }),
+    prisma.user.findUniqueOrThrow({ where: { id: studentId }, select: { firstName: true, studyCommitment: true } }),
     prisma.diagnosticSession.findUnique({ where: { studentId } }),
   ]);
+  const recommendedPace = user.studyCommitment ? getRecommendedPace(user.studyCommitment) : null;
 
   if (diagnostic?.status !== "COMPLETED") {
     return {
@@ -37,6 +40,7 @@ export async function getDashboardData(studentId: string): Promise<DashboardData
       studyStreak: 0,
       recentImprovements: [],
       mastery: [],
+      recommendedPace,
     };
   }
 
@@ -125,6 +129,7 @@ export async function getDashboardData(studentId: string): Promise<DashboardData
     studyStreak: computeStudyStreak(activityDates, new Date()),
     recentImprovements: recentImprovements.slice(0, 4),
     mastery,
+    recommendedPace,
   };
 }
 

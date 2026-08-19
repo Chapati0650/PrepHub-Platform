@@ -9,6 +9,7 @@ export type LogCategory =
   | "UNAUTHORIZED_ACCESS"
   | "RATE_LIMIT_EXCEEDED"
   | "PRACTICE_SET_GENERATION_FAILURE"
+  | "DIAGNOSTIC_INCOMPLETE_COVERAGE"
   | "PREDICTION_GENERATION_FAILURE"
   | "PAYMENT_WEBHOOK_FAILURE"
   | "SCHOOL_VERIFICATION_FAILURE"
@@ -17,7 +18,10 @@ export type LogCategory =
   | "SERVER_ERROR"
   | "DATABASE_CONNECTIVITY_FAILURE"
   | "QUESTION_TRANSCRIPTION_FAILURE"
-  | "EXPLANATION_GENERATION_FAILURE";
+  | "EXPLANATION_GENERATION_FAILURE"
+  | "ANSWER_DETECTION_FAILURE"
+  | "CATEGORY_CLASSIFICATION_FAILURE"
+  | "DIFFICULTY_CLASSIFICATION_FAILURE";
 
 export type LogContext = {
   // Internal account id — GER §5 prefers this over email for general logs.
@@ -73,6 +77,15 @@ export function logGenerationFailure(message: string, context?: LogContext): voi
   logEvent("PRACTICE_SET_GENERATION_FAILURE", message, context);
 }
 
+// Not a failure — the diagnostic still generates — but worth surfacing to the
+// Owner that a student's diagnostic skipped one or more (category,
+// difficulty) pools because nothing is published there yet, since that
+// depresses that student's initial Ability Score/Predicted Score until more
+// content exists. See start-diagnostic.ts.
+export function logDiagnosticIncompleteCoverage(message: string, context?: LogContext): void {
+  logEvent("DIAGNOSTIC_INCOMPLETE_COVERAGE", message, context);
+}
+
 export function logPredictionFailure(message: string, context?: LogContext): void {
   logEvent("PREDICTION_GENERATION_FAILURE", message, context);
 }
@@ -107,4 +120,16 @@ export function logTranscriptionFailure(message: string, context?: LogContext): 
 
 export function logExplanationGenerationFailure(message: string, context?: LogContext): void {
   logEvent("EXPLANATION_GENERATION_FAILURE", message, context);
+}
+
+export function logAnswerDetectionFailure(message: string, context?: LogContext): void {
+  logEvent("ANSWER_DETECTION_FAILURE", message, context);
+}
+
+export function logCategoryClassificationFailure(message: string, context?: LogContext): void {
+  logEvent("CATEGORY_CLASSIFICATION_FAILURE", message, context);
+}
+
+export function logDifficultyClassificationFailure(message: string, context?: LogContext): void {
+  logEvent("DIFFICULTY_CLASSIFICATION_FAILURE", message, context);
 }

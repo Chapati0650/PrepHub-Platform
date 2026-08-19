@@ -19,7 +19,7 @@ test.describe("authentication (PRD-001)", () => {
 
     // still hasn't chosen an access method, so login also lands on /access
     await expect(page).toHaveURL(/\/access$/);
-    await expect(page.getByRole("heading", { name: "Choose how you'll access PrepHub" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "How would you like to access PrepHub?" })).toBeVisible();
   });
 
   test("rejects signup with a duplicate email", async ({ page }) => {
@@ -29,8 +29,6 @@ test.describe("authentication (PRD-001)", () => {
       await page.getByLabel("First name").fill("Ada");
       await page.getByLabel("Email").fill(email);
       await page.getByLabel("Password").fill("hunter2222");
-      await page.getByLabel("Grade").click();
-      await page.getByRole("option", { name: "9th grade" }).click();
       await page.getByRole("checkbox", { name: "I confirm I am 13 years of age or older" }).click();
       await page.getByRole("checkbox", { name: "I agree to the Terms of Service" }).click();
       await page.getByRole("checkbox", { name: "I agree to the Privacy Policy" }).click();
@@ -39,7 +37,8 @@ test.describe("authentication (PRD-001)", () => {
 
     await page.goto("/signup");
     await fillSignupForm();
-    await expect(page).toHaveURL(/\/access$/);
+    // A brand-new account lands on the onboarding wizard, not /access directly.
+    await expect(page).toHaveURL(/\/onboarding$/);
     await page.getByRole("button", { name: "Log out" }).click();
     await expect(page).toHaveURL(/\/login$/);
 
@@ -107,10 +106,12 @@ test.describe("authentication (PRD-001)", () => {
 
     await page.getByLabel("Confirm your password").fill("delete-me-pw1");
     await page.getByRole("button", { name: "Delete my account" }).click();
-    // Deletion signs the student out via signOut({ redirectTo: "/" }); the
-    // bare root route itself has no content — it redirects unauthenticated
-    // visitors straight to /login.
-    await expect(page).toHaveURL("http://localhost:3000/login");
+    // Deletion signs the student out via signOut({ redirectTo: "/" }) — the
+    // public marketing page for logged-out visitors, confirming the session
+    // is really gone (an authenticated visitor to / is redirected to /home
+    // instead, so landing here at all is itself proof of logout).
+    await expect(page).toHaveURL("http://localhost:3000/");
+    await expect(page.getByRole("link", { name: "Get started" })).toBeVisible();
 
     await page.goto("/login");
     await page.getByLabel("Email").fill(email);

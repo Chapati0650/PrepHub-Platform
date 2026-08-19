@@ -22,7 +22,10 @@ export class ContentError extends Error {
       | "FILE_TOO_LARGE"
       | "MEDIA_PROCESSING_FAILED"
       | "TRANSCRIPTION_FAILED"
-      | "EXPLANATION_GENERATION_FAILED",
+      | "EXPLANATION_GENERATION_FAILED"
+      | "ANSWER_DETECTION_FAILED"
+      | "CATEGORY_CLASSIFICATION_FAILED"
+      | "DIFFICULTY_CLASSIFICATION_FAILED",
     message: string,
   ) {
     super(message);

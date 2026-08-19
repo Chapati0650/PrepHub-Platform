@@ -1,11 +1,13 @@
 "use client";
 
 import { useActionState } from "react";
+import { CreditCard } from "lucide-react";
 import { subscribeAction, type ActionState } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { PageHeader } from "@/components/page-header";
 
 const initialState: ActionState = {};
 
@@ -14,12 +16,11 @@ export default function PricingPage() {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8 p-8">
-      <div>
-        <h1 className="text-2xl font-semibold">Choose your plan</h1>
-        <p className="text-muted-foreground">
-          Subscriptions renew automatically and can be cancelled anytime from Billing.
-        </p>
-      </div>
+      <PageHeader
+        icon={CreditCard}
+        title="Choose your plan"
+        description="Subscriptions renew automatically and can be cancelled anytime from Billing."
+      />
 
       {state.error && (
         <Alert variant="destructive">
@@ -34,7 +35,7 @@ export default function PricingPage() {
             <CardDescription>Best suited for students preparing over a shorter period.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            <p className="text-3xl font-semibold">
+            <p className="font-heading text-4xl font-semibold tabular-nums">
               $25<span className="text-base font-normal text-muted-foreground">/month</span>
             </p>
             <form action={formAction}>
@@ -55,7 +56,7 @@ export default function PricingPage() {
             <CardDescription>Save compared to paying monthly.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            <p className="text-3xl font-semibold">
+            <p className="font-heading text-4xl font-semibold tabular-nums">
               $99<span className="text-base font-normal text-muted-foreground">/year</span>
             </p>
             <form action={formAction}>

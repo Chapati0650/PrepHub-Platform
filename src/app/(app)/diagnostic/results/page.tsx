@@ -10,7 +10,7 @@ import { loadDiagnosticQuestionDetailAction } from "../actions";
 // experience," reusing PRD-007's Session Review component.
 export default async function DiagnosticResultsPage() {
   const session = await auth();
-  if (!session?.user) redirect("/home");
+  if (!session?.user?.id) redirect("/home");
   if (!canUseStudentExperience(session.user.role)) redirect("/home");
 
   const diagnostic = await prisma.diagnosticSession.findUnique({ where: { studentId: session.user.id } });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { Megaphone } from "lucide-react";
 import { publishAnnouncementAction, removeAnnouncementAction, type ActionState } from "./actions";
 import type { AnnouncementEntry } from "@/lib/announcements";
 import { useCloseDialogOnSuccess } from "@/hooks/use-close-dialog-on-success";
@@ -10,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { EmptyState } from "@/components/empty-state";
 
 const initialState: ActionState = {};
 
@@ -28,9 +30,11 @@ export function AnnouncementsPanel({ announcements }: { announcements: Announcem
       <div>
         <h2 className="mb-3 text-sm font-semibold">Active Announcements</h2>
         {active.length === 0 ? (
-          <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
-            No announcements have been published. Create an announcement to share an update with your registered students.
-          </p>
+          <EmptyState
+            icon={Megaphone}
+            title="No announcements have been published."
+            description="Create an announcement to share an update with your registered students."
+          />
         ) : (
           <div className="flex flex-col gap-3">
             {active.map((a) => (

@@ -39,7 +39,6 @@ const validSignUp = {
   firstName: "Ada",
   email: "ada@example.com",
   password: "hunter22",
-  grade: 11,
   ageConfirmed: true as const,
   tosAccepted: true as const,
   privacyAccepted: true as const,

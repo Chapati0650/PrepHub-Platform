@@ -33,4 +33,26 @@ describe("renderLatexHtml", () => {
     expect(html.startsWith("Solve: ")).toBe(true);
     expect(html.endsWith(" for x.")).toBe(true);
   });
+
+  it("renders text wrapped in [[...]] as underlined", () => {
+    const html = renderLatexHtml("The [[fecal-steroidal profile]] is distinct.");
+    expect(html).toBe("The <u>fecal-steroidal profile</u> is distinct.");
+  });
+
+  it("still renders math inside an underlined span", () => {
+    const html = renderLatexHtml("[[the value $x^2$]]");
+    expect(html.startsWith("<u>the value ")).toBe(true);
+    expect(html).toContain("katex");
+    expect(html.endsWith("</u>")).toBe(true);
+  });
+
+  it("does not let underlined source smuggle raw HTML into the output", () => {
+    const html = renderLatexHtml("[[<img src=x onerror=alert(1)>]]");
+    expect(html).not.toContain("<img");
+  });
+
+  it("supports multiple separate underlined spans in the same text", () => {
+    const html = renderLatexHtml("[[first]] and [[second]]");
+    expect(html).toBe("<u>first</u> and <u>second</u>");
+  });
 });

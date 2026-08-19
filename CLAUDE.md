@@ -26,11 +26,21 @@ One owner is building this, so it's deliberately a monolith: server actions and
 route handlers instead of a separate API service, Postgres transactions instead
 of distributed-transaction machinery.
 
-Deployment target is a persistent-disk PaaS (Railway/Render-style), not
-serverless — chosen specifically so uploaded question media can live on local
-disk (`src/lib/content/storage.ts`, gitignored `.content-storage/`) rather than
-requiring a third-party object-storage service. If that ever changes to a
-serverless host, `storage.ts` is the one file to swap.
+Uploaded question media (images/videos) lives behind one swappable interface
+in `src/lib/content/storage.ts` — local disk (gitignored `.content-storage/`)
+by default, or Cloudflare R2 (S3-compatible, free up to 10GB with no egress
+fees) once its four `R2_*` env vars are all set (see `.env.example`). Local
+disk was the only backend until the first real deploy (prephubtp.com,
+Netlify) needed a serverless-compatible option — a serverless function has no
+persistent filesystem, so local disk alone would have required a
+persistent-disk PaaS (Railway/Render-style) instead. The R2 swap is what
+makes either kind of host workable now: local dev still defaults to disk with
+zero setup (the choice is made by "are the R2 vars present," not by
+`NODE_ENV`), while a serverless deploy sets the R2 vars. ffmpeg's video-
+duration probe (`media.ts`) writes to `os.tmpdir()` for the probe itself
+regardless of which backend holds the durable copy, since ffmpeg needs a real
+file path either way and `/tmp` is writable even on hosts with no other
+persistent filesystem.
 
 ## Visual design
 

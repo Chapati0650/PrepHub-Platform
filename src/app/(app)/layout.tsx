@@ -18,8 +18,15 @@ import { AppShell } from "@/components/app-shell";
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   // Defense in depth alongside src/middleware.ts — every server-rendered page
   // under (app) independently confirms a session before rendering anything.
+  // Checks session.user.id specifically, not just the bare session.user
+  // object: a just-deleted account's jwt callback returns an empty token
+  // (see src/auth.ts), which Auth.js still surfaces as a truthy — but
+  // id-less — session.user for that one stale request. Every child page's
+  // own data fetch assumes session.user.id is a real, queryable id, so this
+  // must catch the id-less case, not just an absent session (see the same
+  // pattern in src/app/page.tsx).
   const session = await auth();
-  if (!session?.user) redirect("/login");
+  if (!session?.user?.id) redirect("/login");
 
   return (
     <AppShell role={session.user.role ?? "STUDENT"} logoutAction={logoutAction}>

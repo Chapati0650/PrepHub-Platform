@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma";
 import type {
-  CalculatorSetting,
   Prisma,
   QuestionCategory,
   QuestionDifficulty,
@@ -8,7 +7,7 @@ import type {
 } from "@/generated/prisma/client";
 import { ContentError } from "./errors";
 import { assertPublishable, getPublishIssues } from "./validation";
-import { MULTIPLE_CHOICE_OPTION_COUNT } from "./constants";
+import { MULTIPLE_CHOICE_OPTION_COUNT, getCalculatorSettingForCategory, getSuggestedTimeForDifficulty } from "./constants";
 
 type Client = typeof prisma | Prisma.TransactionClient;
 
@@ -27,13 +26,16 @@ const QUESTION_INCLUDE = {
 
 export type QuestionWithContent = Prisma.QuestionGetPayload<{ include: typeof QUESTION_INCLUDE }>;
 
-export type AnswerChoiceInput = { text: string; imageId: string | null; isCorrect: boolean };
+export type AnswerChoiceInput = {
+  text: string;
+  imageId: string | null;
+  isCorrect: boolean;
+  distractorExplanation?: string | null; // ignored for the correct choice
+};
 export type ExplanationStepInput = { text: string; imageId: string | null };
 
 export type QuestionContentPatch = Partial<{
   questionText: string;
-  calculatorSetting: CalculatorSetting;
-  suggestedTimeSeconds: number;
   questionImageId: string | null;
   writtenExplanation: string | null;
   standaloneVideoId: string | null; // ignored for family questions — family owns the video
@@ -42,6 +44,8 @@ export type QuestionContentPatch = Partial<{
   explanationSteps: ExplanationStepInput[]; // richer alternative to writtenExplanation; array order = display order
   category: QuestionCategory; // ignored for family questions — family owns category/difficulty
   difficulty: QuestionDifficulty;
+  aiGenerated: boolean; // set once at bulk-upload creation time — see src/lib/content/bulk-upload.ts
+  aiAnswerReasoning: string | null;
 }>;
 
 // PRD-013 §6.1 requires selecting a question type up front; we also collect
@@ -51,6 +55,7 @@ export async function createQuestion(input: {
   questionType: QuestionType;
   category: QuestionCategory;
   difficulty: QuestionDifficulty;
+  sourceImageHash?: string | null;
 }): Promise<QuestionWithContent> {
   const questionId = await prisma.$transaction(async (tx) => {
     const question = await tx.question.create({
@@ -58,6 +63,7 @@ export async function createQuestion(input: {
         questionType: input.questionType,
         category: input.category,
         difficulty: input.difficulty,
+        sourceImageHash: input.sourceImageHash ?? null,
         status: "DRAFT",
       },
     });
@@ -65,8 +71,8 @@ export async function createQuestion(input: {
       data: {
         questionId: question.id,
         questionText: "",
-        calculatorSetting: "NOT_ALLOWED",
-        suggestedTimeSeconds: 60,
+        calculatorSetting: getCalculatorSettingForCategory(input.category),
+        suggestedTimeSeconds: getSuggestedTimeForDifficulty(input.difficulty),
       },
     });
     if (input.questionType === "MULTIPLE_CHOICE") {
@@ -92,6 +98,42 @@ export async function getQuestionOrThrow(questionId: string): Promise<QuestionWi
   return question;
 }
 
+// Bulk-upload's duplicate-detection lookup — see the sourceImageHash field
+// comment in schema.prisma. Checked before spending an AI call on an image,
+// not after, so re-uploading the exact same file (e.g. after a false
+// "Failed" status) costs nothing and creates nothing.
+export async function findQuestionIdsByImageHash(hash: string): Promise<string[]> {
+  const questions = await prisma.question.findMany({ where: { sourceImageHash: hash }, select: { id: true } });
+  return questions.map((q) => q.id);
+}
+
+// Second layer of bulk-upload duplicate detection — checked after
+// transcription (unlike findQuestionIdsByImageHash above, it needs the
+// transcribed text, so it can't run before that one AI call) but before any
+// of the more expensive downstream calls (category classification, answer
+// detection, explanation generation, distractor generation). Catches what a
+// byte-for-byte image hash can't: the same question re-submitted via a
+// *different* source file — e.g. an Owner extracting "the pages that
+// failed" into a new PDF, whose rendered page images won't necessarily
+// match the original file's bytes even when the visual content is
+// identical. An exact (trimmed, case-sensitive) match on the full question
+// text is deliberately conservative — a prefix or fuzzy match risks merging
+// two genuinely different questions that happen to start alike.
+export async function findQuestionIdByExactText(questionText: string): Promise<string | null> {
+  const text = questionText.trim();
+  if (!text) return null;
+  const match = await prisma.question.findFirst({
+    where: {
+      OR: [
+        { currentDraftRevision: { questionText: text } },
+        { AND: [{ currentDraftRevisionId: null }, { currentPublishedRevision: { questionText: text } }] },
+      ],
+    },
+    select: { id: true },
+  });
+  return match?.id ?? null;
+}
+
 // The revision the Owner is currently authoring: the Draft/Draft-Revision
 // content when one exists, otherwise the live Published content (read-only
 // until the Owner starts editing it, at which point updateDraftContent clones it).
@@ -99,13 +141,22 @@ export function getEditableRevision(question: QuestionWithContent) {
   return question.currentDraftRevision ?? question.currentPublishedRevision;
 }
 
-// PRD-015 §7.2: editing a Published question creates a Draft Revision on
-// first edit — the existing live content is untouched until Republish.
+// Standalone questions: by Owner request, an edit to an already-Published
+// question now applies directly to the live revision — no Draft Revision
+// buffer, no separate Republish step. This overrides PRD-015 §7.2's original
+// "existing live content is untouched until Republish" design, which the
+// Owner found to be unwanted friction (an extra manual step every time).
+// Question Family members are deliberately excluded — see the clone path
+// below, still used for them — since a family's atomic publish across all 3
+// versions (PRD-015 §8.5) is a separate, more delicate mechanism this change
+// doesn't touch.
 export async function ensureDraftRevision(tx: Client, question: QuestionWithContent): Promise<string> {
   if (question.currentDraftRevisionId) return question.currentDraftRevisionId;
 
   const source = question.currentPublishedRevision;
   if (!source) throw new ContentError("REVISION_NOT_FOUND", "This question has no editable content.");
+
+  if (!question.familyId) return source.id;
 
   const clone = await tx.questionRevision.create({
     data: {
@@ -123,6 +174,7 @@ export async function ensureDraftRevision(tx: Client, question: QuestionWithCont
           text: c.text,
           isCorrect: c.isCorrect,
           imageId: c.imageId,
+          distractorExplanation: c.distractorExplanation,
         })),
       },
       explanationSteps: {
@@ -170,10 +222,20 @@ export async function updateDraftContent(
     const revisionId = await ensureDraftRevision(tx, question);
     const isFamilyMember = question.familyId !== null;
 
-    const revisionData: Prisma.QuestionRevisionUpdateInput = { previewCompletedAt: null };
+    // Calculator access and suggested time are both fixed functions of
+    // category/difficulty (see getCalculatorSettingForCategory /
+    // getSuggestedTimeForDifficulty), never independent Owner choices —
+    // re-derived on every save from whichever category/difficulty is in
+    // effect (the patch's incoming value if this call is changing it,
+    // otherwise the question's current one) so neither can drift out of sync.
+    const effectiveCategory = patch.category ?? question.category;
+    const effectiveDifficulty = patch.difficulty ?? question.difficulty;
+    const revisionData: Prisma.QuestionRevisionUpdateInput = {
+      previewCompletedAt: null,
+      calculatorSetting: getCalculatorSettingForCategory(effectiveCategory),
+      suggestedTimeSeconds: getSuggestedTimeForDifficulty(effectiveDifficulty),
+    };
     if (patch.questionText !== undefined) revisionData.questionText = patch.questionText;
-    if (patch.calculatorSetting !== undefined) revisionData.calculatorSetting = patch.calculatorSetting;
-    if (patch.suggestedTimeSeconds !== undefined) revisionData.suggestedTimeSeconds = patch.suggestedTimeSeconds;
     if (patch.questionImageId !== undefined) {
       revisionData.questionImage = patch.questionImageId
         ? { connect: { id: patch.questionImageId } }
@@ -181,6 +243,8 @@ export async function updateDraftContent(
     }
     if (patch.writtenExplanation !== undefined) revisionData.writtenExplanation = patch.writtenExplanation;
     if (patch.acceptedAnswers !== undefined) revisionData.acceptedAnswers = patch.acceptedAnswers;
+    if (patch.aiGenerated !== undefined) revisionData.aiGenerated = patch.aiGenerated;
+    if (patch.aiAnswerReasoning !== undefined) revisionData.aiAnswerReasoning = patch.aiAnswerReasoning;
     if (!isFamilyMember && patch.standaloneVideoId !== undefined) {
       revisionData.standaloneVideo = patch.standaloneVideoId
         ? { connect: { id: patch.standaloneVideoId } }
@@ -204,6 +268,7 @@ export async function updateDraftContent(
           text: choice.text,
           isCorrect: choice.isCorrect,
           imageId: choice.imageId,
+          distractorExplanation: choice.isCorrect ? null : (choice.distractorExplanation ?? null),
         })),
       });
     }
@@ -246,6 +311,22 @@ export async function markPreviewCompleted(questionId: string): Promise<Question
   await prisma.questionRevision.update({
     where: { id: revision.id },
     data: { previewCompletedAt: new Date() },
+  });
+  return getQuestionOrThrow(questionId);
+}
+
+// Mirrors markPreviewCompleted: a dedicated write, not routed through
+// updateDraftContent, since confirming a review isn't a content edit and
+// must not reset previewCompletedAt (see PRD-015 §5.5's "any edit resets
+// preview" rule — reviewing already-previewed content shouldn't invalidate it).
+export async function markAiReviewed(questionId: string): Promise<QuestionWithContent> {
+  const question = await getQuestionOrThrow(questionId);
+  const revision = getEditableRevision(question);
+  if (!revision) throw new ContentError("REVISION_NOT_FOUND", "This question has no content to review.");
+
+  await prisma.questionRevision.update({
+    where: { id: revision.id },
+    data: { aiReviewedAt: new Date() },
   });
   return getQuestionOrThrow(questionId);
 }
@@ -393,6 +474,7 @@ export async function duplicateQuestionContent(questionId: string): Promise<Ques
             text: c.text,
             isCorrect: c.isCorrect,
             imageId: c.imageId,
+            distractorExplanation: c.distractorExplanation,
           })),
         },
         explanationSteps: {

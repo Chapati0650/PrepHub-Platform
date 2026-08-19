@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { TrendingUp, Compass, School, BookOpen, LayoutDashboard } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { needsAccessSelection } from "@/lib/access";
@@ -7,7 +8,10 @@ import { getDashboardData } from "@/lib/dashboard/dashboard-data";
 import { getActiveAnnouncementsForStudents, type AnnouncementEntry } from "@/lib/announcements";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
 import { ALL_CATEGORIES } from "@/lib/adaptive/config";
-import { Button } from "@/components/ui/button";
+import { LinkButton } from "@/components/ui/link-button";
+import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
+import { ScorePrediction } from "@/components/score-prediction";
 
 function formatStudyTime(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
@@ -21,7 +25,7 @@ function formatStudyTime(seconds: number): string {
 // renders a question itself.
 export default async function HomePage() {
   const session = await auth();
-  if (!session?.user) redirect("/login");
+  if (!session?.user?.id) redirect("/login");
 
   // PRD-011 §6/§7 — a School Administrator gets the full student Dashboard,
   // exactly like a student, plus an additional admin-only nav area (added in
@@ -31,12 +35,15 @@ export default async function HomePage() {
   if (session.user.role === "OWNER") {
     return (
       <div className="mx-auto flex max-w-2xl flex-col gap-6 p-8">
-        <h1 className="text-2xl font-semibold">Welcome, {session.user.name}.</h1>
+        <PageHeader icon={LayoutDashboard} title={`Welcome, ${session.user.name}.`} description="Where do you want to work today?" />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Link
             href="/owner/schools"
-            className="rounded-xl border border-border p-5 transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="group rounded-xl border border-border p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
           >
+            <div className="mb-3 inline-flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+              <School className="size-5" aria-hidden />
+            </div>
             <p className="font-heading text-lg font-semibold">Schools</p>
             <p className="mt-1 text-sm text-muted-foreground">
               Manage partner schools and districts, administrators, and student memberships.
@@ -44,21 +51,27 @@ export default async function HomePage() {
           </Link>
           <Link
             href="/owner/content/questions"
-            className="rounded-xl border border-border p-5 transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="group rounded-xl border border-border p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
           >
+            <div className="mb-3 inline-flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+              <BookOpen className="size-5" aria-hidden />
+            </div>
             <p className="font-heading text-lg font-semibold">Content</p>
             <p className="mt-1 text-sm text-muted-foreground">
               Author and publish SAT questions, group them into question families, and review coverage.
             </p>
           </Link>
         </div>
-        <Button variant="outline" className="w-fit" render={<Link href="/settings">Account settings</Link>} />
+        <LinkButton variant="outline" className="w-fit" href="/settings">
+          Account settings
+        </LinkButton>
       </div>
     );
   }
 
   const isAdmin = session.user.role === "SCHOOL_ADMINISTRATOR";
-  const [data, membership, adminAssignment] = await Promise.all([
+  const isStudent = session.user.role === "STUDENT";
+  const [data, membership, adminAssignment, onboarding] = await Promise.all([
     getDashboardData(session.user.id),
     !isAdmin
       ? prisma.studentMembership.findUnique({ where: { studentId: session.user.id }, select: { status: true, schoolId: true } })
@@ -68,6 +81,9 @@ export default async function HomePage() {
           where: { userId: session.user.id, removedAt: null, organization: { organizationType: "SCHOOL" } },
         })
       : null,
+    isStudent
+      ? prisma.user.findUniqueOrThrow({ where: { id: session.user.id }, select: { onboardingCompletedAt: true } })
+      : null,
   ]);
   const communitySchoolId = membership?.status === "ACTIVE" ? membership.schoolId : adminAssignment?.organizationId;
   const hasSchoolCommunity = Boolean(communitySchoolId);
@@ -76,6 +92,15 @@ export default async function HomePage() {
   // registered student (and the administrator, evaluating the same product
   // surface) at the school that published them.
   const announcements = communitySchoolId ? await getActiveAnnouncementsForStudents(communitySchoolId) : [];
+
+  // Brand-new students see a short personalization wizard before anything
+  // else — same "only while NOT_STARTED" escape hatch as the access-selection
+  // gate just below, so a student who's engaged with the diagnostic is never
+  // bounced backward. Scoped to STUDENT only: administrators never sign up
+  // through the public flow this wizard sits in front of.
+  if (isStudent && data.diagnosticStatus === "NOT_STARTED" && !onboarding?.onboardingCompletedAt) {
+    redirect("/onboarding");
+  }
 
   // PRD-002 §5.1: a student who has never chosen an access method lands on
   // the chooser instead of here — but only before they've engaged with the
@@ -92,15 +117,14 @@ export default async function HomePage() {
   if (data.diagnosticStatus !== "COMPLETED") {
     return (
       <div className="mx-auto flex max-w-lg flex-col items-center gap-4 p-8 text-center">
-        <h1 className="text-2xl font-semibold">Welcome back, {data.firstName}.</h1>
+        <h1 className="text-2xl sm:text-3xl">Welcome back, {data.firstName}.</h1>
         <AnnouncementsBanner announcements={announcements} />
         <p className="text-muted-foreground">
           Complete your diagnostic to generate your first PrepHub Score Prediction and personalized practice plan.
         </p>
-        <Button
-          size="lg"
-          render={<Link href="/diagnostic">{data.diagnosticStatus === "IN_PROGRESS" ? "Resume Diagnostic" : "Begin Diagnostic"}</Link>}
-        />
+        <LinkButton size="lg" href="/diagnostic">
+          {data.diagnosticStatus === "IN_PROGRESS" ? "Resume Diagnostic" : "Begin Diagnostic"}
+        </LinkButton>
         {hasSchoolCommunity && (
           <Link href="/community" className="text-sm underline underline-offset-2 hover:text-foreground">
             View School Community →
@@ -112,26 +136,30 @@ export default async function HomePage() {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8 p-4 sm:p-8">
-      <h1 className="text-2xl font-semibold">Welcome back, {data.firstName}.</h1>
+      <h1 className="text-3xl sm:text-4xl">Welcome back, {data.firstName}.</h1>
 
       <AnnouncementsBanner announcements={announcements} />
 
       {/* PrepHub Score Prediction — informational only, per PRD-004 §7 "Interaction" */}
-      <div className="flex flex-col gap-4 rounded-lg border border-border p-6 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">PrepHub Score Prediction</p>
-          <p className="mt-1 font-heading text-6xl font-semibold tabular-nums sm:text-7xl">
-            {data.currentRange ? `${data.currentRange.min}–${data.currentRange.max}` : "—"}
-          </p>
-        </div>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        {data.currentRange ? (
+          <ScorePrediction min={data.currentRange.min} max={data.currentRange.max} label="PrepHub Score Prediction" />
+        ) : (
+          <div>
+            <p className="text-caption font-medium tracking-wide text-muted-foreground uppercase">PrepHub Score Prediction</p>
+            <p className="mt-1 font-heading text-hero font-semibold tabular-nums sm:text-hero-lg">—</p>
+          </div>
+        )}
         {data.approximateImprovementSinceStart !== null && data.approximateImprovementSinceStart > 0 && (
-          <span className="inline-flex w-fit items-center gap-1 rounded-md bg-achievement/12 px-2 py-1 text-sm font-medium text-achievement-foreground dark:text-achievement">
+          <span className="inline-flex w-fit items-center gap-1 rounded-md bg-achievement/20 px-3 py-1.5 text-base font-semibold text-achievement-foreground dark:text-achievement">
             ↑ {data.approximateImprovementSinceStart} pts since you started
           </span>
         )}
       </div>
 
-      <Button size="lg" render={<Link href="/practice">Continue Practice</Link>} />
+      <LinkButton size="lg" href="/practice">
+        Continue Practice
+      </LinkButton>
 
       {/* Weekly Statistics */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -140,11 +168,32 @@ export default async function HomePage() {
         <StatCard label="Total Questions Answered" value={String(data.totalQuestionsAnswered)} />
       </div>
 
+      {/* Recommended Pace — from the onboarding wizard's study-commitment
+          answer; null for students who signed up before it existed. */}
+      {data.recommendedPace ? (
+        <div className="rounded-lg border border-border p-4">
+          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Your Recommended Pace</p>
+          <p className="mt-1 font-medium">
+            {data.recommendedPace.label} {data.recommendedPace.description}
+          </p>
+        </div>
+      ) : (
+        <EmptyState
+          icon={Compass}
+          title="No recommended pace yet"
+          description="New accounts get a personalized pace from a quick onboarding quiz — this account signed up before that existed."
+        />
+      )}
+
       {/* Study Streak */}
-      <div className="flex items-center justify-between rounded-lg border border-border p-4">
-        <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Study Streak</p>
+      <div
+        className={`flex items-center justify-between rounded-xl border p-4 ${
+          data.studyStreak > 0 ? "border-achievement/30 bg-achievement/10" : "border-border"
+        }`}
+      >
+        <p className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">Study Streak</p>
         <p
-          className={`font-heading text-2xl font-semibold tabular-nums ${
+          className={`font-heading text-3xl font-semibold tabular-nums ${
             data.studyStreak > 0 ? "text-achievement-foreground dark:text-achievement" : ""
           }`}
         >
@@ -156,9 +205,9 @@ export default async function HomePage() {
       </div>
 
       {/* Recent Improvements */}
-      {data.recentImprovements.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <h2 className="text-sm font-semibold">Recent Improvements</h2>
+      <div className="flex flex-col gap-2">
+        <h2 className="text-base font-semibold">Recent Improvements</h2>
+        {data.recentImprovements.length > 0 ? (
           <ul className="flex flex-col gap-1.5">
             {data.recentImprovements.map((improvement) => (
               <li key={improvement} className="rounded-md bg-muted p-2 text-sm">
@@ -166,23 +215,29 @@ export default async function HomePage() {
               </li>
             ))}
           </ul>
-        </div>
-      )}
+        ) : (
+          <EmptyState
+            icon={TrendingUp}
+            title="No improvements yet"
+            description="Complete a few more Practice Sets and any real gains will show up here."
+          />
+        )}
+      </div>
 
       {/* Strengths & Weaknesses */}
-      <div className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Strengths & Weaknesses</h2>
+      <div className="flex flex-col gap-4">
+        <h2 className="text-base font-semibold">Strengths & Weaknesses</h2>
         {ALL_CATEGORIES.map((category) => {
           const entry = data.mastery.find((m) => m.category === category);
           const value = entry?.currentMastery ?? 0;
           return (
             <div key={category}>
-              <div className="mb-1 flex items-center justify-between text-sm">
-                <span>{CATEGORY_LABELS[category]}</span>
-                <span className="text-xs text-muted-foreground">{value}%</span>
+              <div className="mb-1.5 flex items-center justify-between text-sm">
+                <span className="font-medium">{CATEGORY_LABELS[category]}</span>
+                <span className="font-semibold tabular-nums">{value}%</span>
               </div>
               <div
-                className="h-2 w-full overflow-hidden rounded-full bg-muted"
+                className="h-3 w-full overflow-hidden rounded-full bg-muted"
                 role="progressbar"
                 aria-valuenow={value}
                 aria-valuemin={0}
@@ -227,9 +282,9 @@ function AnnouncementsBanner({ announcements }: { announcements: AnnouncementEnt
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border p-4">
-      <p className="font-heading text-2xl font-semibold tabular-nums">{value}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
+    <div className="rounded-xl border border-border p-4 shadow-sm">
+      <p className="font-heading text-3xl font-semibold tabular-nums">{value}</p>
+      <p className="mt-0.5 text-sm text-muted-foreground">{label}</p>
     </div>
   );
 }

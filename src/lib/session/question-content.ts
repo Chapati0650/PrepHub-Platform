@@ -41,6 +41,13 @@ export type StudentQuestionFeedback = {
   // renderer prefers this over writtenExplanation when non-empty.
   explanationSteps: { text: string; imageId: string | null }[];
   explanationVideoId: string | null;
+  // MULTIPLE_CHOICE only — keyed by QuestionAnswerChoice id, one entry per
+  // WRONG choice that has a distractor note written (see
+  // generateDistractorExplanations). The renderer looks up the student's own
+  // submitted choice id here to show a note specific to the mistake they
+  // actually made, alongside the general correct-answer walkthrough above.
+  // Never includes the correct choice's id (it has no note by design).
+  distractorExplanationsByChoiceId: Record<string, string>;
 };
 
 export async function getStudentQuestionFeedback(questionRevisionId: string): Promise<StudentQuestionFeedback> {
@@ -58,11 +65,19 @@ export async function getStudentQuestionFeedback(questionRevisionId: string): Pr
   // their own. A family's shared video always wins when both exist.
   const video = revision.question.family?.sharedVideo ?? revision.standaloneVideo;
 
+  const distractorExplanationsByChoiceId: Record<string, string> = {};
+  for (const choice of revision.answerChoices) {
+    if (!choice.isCorrect && choice.distractorExplanation) {
+      distractorExplanationsByChoiceId[choice.id] = choice.distractorExplanation;
+    }
+  }
+
   return {
     correctChoiceId: revision.answerChoices.find((c) => c.isCorrect)?.id ?? null,
     acceptedAnswers: revision.acceptedAnswers,
     writtenExplanation: revision.writtenExplanation,
     explanationSteps: revision.explanationSteps.map((s) => ({ text: s.text, imageId: s.imageId })),
     explanationVideoId: video?.status === "READY" ? video.id : null,
+    distractorExplanationsByChoiceId,
   };
 }

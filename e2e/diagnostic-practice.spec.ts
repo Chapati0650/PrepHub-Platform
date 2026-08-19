@@ -39,10 +39,11 @@ test.describe("Diagnostic + Practice loop (PRD-012, PRD-005, PRD-006, PRD-007)",
 
     // PRD-012 §5/§26 — the diagnostic must be reachable before choosing an
     // access method.
-    await page.getByRole("link", { name: "Take the free diagnostic first" }).click();
+    await page.getByRole("link", { name: "Take the Diagnostic First →" }).click();
     await expect(page).toHaveURL(/\/diagnostic$/);
 
-    // Product introduction — walk through all 6 informational screens.
+    // Product introduction — the new welcome screen, then all 6 informational screens.
+    await page.getByRole("button", { name: "Start Diagnostic" }).click();
     for (let i = 0; i < 6; i++) {
       await page.getByRole("button", { name: "Next", exact: true }).click();
     }

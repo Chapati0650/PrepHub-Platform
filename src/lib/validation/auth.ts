@@ -8,7 +8,6 @@ export const signUpSchema = z.object({
   firstName: z.string().trim().min(1, "First name is required").max(100),
   email: z.string().trim().toLowerCase().email("Enter a valid email address"),
   password: passwordSchema,
-  grade: z.coerce.number().int().min(9).max(12),
   ageConfirmed: z.literal(true, {
     error: "You must confirm you are 13 years or older",
   }),

@@ -18,8 +18,8 @@ export default function RequestResetPage() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Check your email</CardTitle>
-          <CardDescription>
+          <CardTitle className="text-2xl font-semibold sm:text-3xl">Check your email</CardTitle>
+          <CardDescription className="text-base">
             If an account exists for that email, we&apos;ve sent a link to reset your password.
             The link expires in 1 hour.
           </CardDescription>
@@ -36,8 +36,8 @@ export default function RequestResetPage() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Reset your password</CardTitle>
-        <CardDescription>We&apos;ll email you a link to set a new one.</CardDescription>
+        <CardTitle className="text-2xl font-semibold sm:text-3xl">Reset your password</CardTitle>
+        <CardDescription className="text-base">We&apos;ll email you a link to set a new one.</CardDescription>
       </CardHeader>
       <CardContent>
         <form action={formAction} className="flex flex-col gap-4">
@@ -52,7 +52,7 @@ export default function RequestResetPage() {
             <Input id="email" name="email" type="email" autoComplete="email" required />
           </div>
 
-          <Button type="submit" disabled={pending}>
+          <Button type="submit" size="lg" className="h-12 text-base" disabled={pending}>
             {pending ? "Sending..." : "Send reset link"}
           </Button>
         </form>

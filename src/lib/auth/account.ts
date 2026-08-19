@@ -27,7 +27,6 @@ export async function createAccount(input: SignUpInput) {
       firstName: input.firstName,
       email: input.email,
       passwordHash,
-      grade: input.grade,
       ageConfirmed: input.ageConfirmed,
       legalAcceptances: {
         create: [

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { FileText, UploadCloud } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 import type { QuestionListFilters, QuestionListRow } from "@/lib/content/list-questions";
 import {
   CATEGORY_LABELS,
@@ -12,6 +14,7 @@ import {
 } from "@/lib/content/labels";
 import { CATEGORY_ORDER, DIFFICULTY_ORDER } from "@/lib/content/constants";
 import { Button } from "@/components/ui/button";
+import { LinkButton } from "@/components/ui/link-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -45,7 +48,9 @@ import {
   archiveQuestionAction,
   bulkArchiveAction,
   bulkDeleteAction,
+  bulkEstimateDifficultyAction,
   bulkPublishAction,
+  bulkSetDifficultyAction,
   bulkUnpublishAction,
   deleteQuestionAction,
   duplicateQuestionAction,
@@ -53,6 +58,13 @@ import {
   restoreQuestionAction,
   unpublishQuestionAction,
 } from "../actions";
+
+// Bounded, not unbounded — matches the CONCURRENCY pool already established
+// in bulk-upload-form.tsx for the same underlying reason: enough parallelism
+// to meaningfully cut total wall-clock time (an 18-minute, ~50-question
+// sequential run was the real complaint this fixes), without firing dozens
+// of simultaneous DeepSeek requests at once.
+const DIFFICULTY_ESTIMATE_CONCURRENCY = 3;
 
 function statusVariant(status: string): "default" | "secondary" | "destructive" {
   if (status === "PUBLISHED") return "default";
@@ -84,6 +96,19 @@ export function QuestionsTable({
   const [, startTransition] = useTransition();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // The row a plain (non-shift) checkbox click last landed on — the anchor a
+  // subsequent shift-click range-selects from, mirroring Finder/Gmail-style
+  // range selection. Stays put across repeated shift-clicks (only a plain
+  // click moves it), so "click one, shift-click ten rows down, shift-click
+  // three rows further" keeps extending from the same start rather than the
+  // most recent click.
+  const [selectionAnchor, setSelectionAnchor] = useState<number | null>(null);
+  // Unlike the other bulk actions (near-instant DB writes), estimating runs
+  // one real AI call per selected question — tracked as {done, total} rather
+  // than a plain boolean so the dropdown can show live progress ("12/50")
+  // instead of a static "Estimating…" with no indication of whether it's
+  // working or stuck on a batch that can run for several minutes.
+  const [estimateProgress, setEstimateProgress] = useState<{ done: number; total: number } | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState(filters.search ?? "");
 
@@ -125,6 +150,7 @@ export function QuestionsTable({
       filters.familyMembership ||
       filters.videoStatus ||
       filters.writtenExplanationStatus ||
+      filters.reviewStatus ||
       filters.search,
   );
 
@@ -133,19 +159,32 @@ export function QuestionsTable({
     router.push(pathname);
   }
 
-  function toggleRow(id: string, checked: boolean) {
+  function toggleRow(id: string, index: number, checked: boolean, shiftKey: boolean) {
+    if (shiftKey && selectionAnchor !== null) {
+      // Extends (never shrinks) the selection with every row between the
+      // anchor and this one, inclusive — same "shift-click adds a range"
+      // convention as Finder/Gmail, regardless of this particular
+      // checkbox's own checked/unchecked click state.
+      const [start, end] = selectionAnchor < index ? [selectionAnchor, index] : [index, selectionAnchor];
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (let i = start; i <= end; i++) next.add(rows[i].id);
+        return next;
+      });
+      return;
+    }
     setSelected((prev) => {
       const next = new Set(prev);
       if (checked) next.add(id);
       else next.delete(id);
       return next;
     });
+    setSelectionAnchor(index);
   }
 
   const selectedIds = useMemo(() => Array.from(selected), [selected]);
 
-  async function runBulk(action: (ids: string[]) => Promise<{ succeeded: string[]; failed: { questionId: string; reason?: string }[] }>) {
-    const result = await action(selectedIds);
+  function reportBulkResult(result: { succeeded: string[]; failed: { questionId: string; reason?: string }[] }) {
     if (result.failed.length === 0) {
       toast.add({ title: `Updated ${result.succeeded.length} question(s)`, type: "success" });
     } else {
@@ -163,15 +202,60 @@ export function QuestionsTable({
     router.refresh();
   }
 
+  async function runBulk(action: () => Promise<{ succeeded: string[]; failed: { questionId: string; reason?: string }[] }>) {
+    reportBulkResult(await action());
+  }
+
+  // Same cursor-based worker-pool shape as bulk-upload-form.tsx's runIndices
+  // — several requests in flight at once (see DIFFICULTY_ESTIMATE_CONCURRENCY
+  // above), each a single-question call so progress can be tracked and shown
+  // as each one finishes, rather than one opaque all-or-nothing call the
+  // client can't see inside of.
+  async function estimateDifficultyForSelection() {
+    const ids = selectedIds;
+    setEstimateProgress({ done: 0, total: ids.length });
+    let cursor = 0;
+    let done = 0;
+    const succeeded: string[] = [];
+    const failed: { questionId: string; reason?: string }[] = [];
+
+    async function worker() {
+      while (cursor < ids.length) {
+        const id = ids[cursor++];
+        const result = await bulkEstimateDifficultyAction([id]);
+        succeeded.push(...result.succeeded);
+        failed.push(...result.failed);
+        done++;
+        setEstimateProgress({ done, total: ids.length });
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(DIFFICULTY_ESTIMATE_CONCURRENCY, ids.length) }, () => worker()));
+
+    setEstimateProgress(null);
+    reportBulkResult({ succeeded, failed });
+  }
+
   const previewRow = rows.find((r) => r.id === previewId) ?? null;
   const previewIndex = previewRow ? rows.indexOf(previewRow) : -1;
 
+  // Carries the current filter/sort/search context into the editor page so
+  // its Previous/Next navigation stays scoped to this same view — e.g.
+  // filtering to "Needs Review" and clicking through every result in order,
+  // rather than always cycling the entire unfiltered question bank.
+  const qs = searchParams.toString();
+  function editHrefFor(id: string): string {
+    return `/owner/content/questions/${id}${qs ? `?${qs}` : ""}`;
+  }
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Questions</h1>
+      <PageHeader icon={FileText} title="Questions">
+        <LinkButton variant="outline" href="/owner/content/questions/bulk-upload">
+          <UploadCloud className="size-4" aria-hidden />
+          Bulk Upload
+        </LinkButton>
         <CreateQuestionDialog />
-      </div>
+      </PageHeader>
 
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border p-4">
         <div className="flex flex-col gap-1">
@@ -247,6 +331,15 @@ export function QuestionsTable({
           ]}
         />
         <FilterSelect
+          label="AI Review"
+          value={filters.reviewStatus}
+          onChange={(v) => updateParams({ reviewStatus: v })}
+          options={[
+            { value: "NEEDS_REVIEW", label: "Needs Review" },
+            { value: "REVIEWED", label: "Reviewed" },
+          ]}
+        />
+        <FilterSelect
           label="Sort"
           value={filters.sort}
           onChange={(v) => updateParams({ sort: v }, false)}
@@ -273,21 +366,39 @@ export function QuestionsTable({
       {selected.size > 0 && (
         <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 p-3">
           <span className="text-sm">{selected.size} selected</span>
-          <Button size="sm" variant="outline" onClick={() => runBulk(bulkPublishAction)}>
+          <Button size="sm" variant="outline" onClick={() => runBulk(() => bulkPublishAction(selectedIds))}>
             Publish
           </Button>
-          <Button size="sm" variant="outline" onClick={() => runBulk(bulkUnpublishAction)}>
+          <Button size="sm" variant="outline" onClick={() => runBulk(() => bulkUnpublishAction(selectedIds))}>
             Unpublish
           </Button>
-          <Button size="sm" variant="outline" onClick={() => runBulk(bulkArchiveAction)}>
+          <Button size="sm" variant="outline" onClick={() => runBulk(() => bulkArchiveAction(selectedIds))}>
             Archive
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button size="sm" variant="outline" disabled={estimateProgress !== null}>
+                  {estimateProgress ? `Estimating… (${estimateProgress.done}/${estimateProgress.total})` : "Set Difficulty"}
+                </Button>
+              }
+            />
+            <DropdownMenuContent>
+              {DIFFICULTY_ORDER.map((d) => (
+                <DropdownMenuItem key={d} onClick={() => runBulk(() => bulkSetDifficultyAction(selectedIds, d))}>
+                  {DIFFICULTY_LABELS[d]}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => estimateDifficultyForSelection()}>Estimate with AI</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             size="sm"
             variant="outline"
             onClick={() => {
               if (confirm(`Permanently delete ${selected.size} question(s)? This cannot be undone.`)) {
-                runBulk(bulkDeleteAction);
+                runBulk(() => bulkDeleteAction(selectedIds));
               }
             }}
           >
@@ -303,7 +414,7 @@ export function QuestionsTable({
             <TableHeader>
               <TableRow>
                 <TableHead className="w-8" />
-                <TableHead>Question</TableHead>
+                <TableHead className="w-72">Question</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Difficulty</TableHead>
                 <TableHead>Type</TableHead>
@@ -314,30 +425,44 @@ export function QuestionsTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => {
+              {rows.map((row, index) => {
                 const revision = row.currentDraftRevision ?? row.currentPublishedRevision;
                 return (
                   <TableRow key={row.id} className="cursor-pointer" onClick={() => setPreviewId(row.id)}>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Checkbox
                         checked={selected.has(row.id)}
-                        onCheckedChange={(checked) => toggleRow(row.id, checked === true)}
+                        onCheckedChange={(checked, eventDetails) => {
+                          const shiftKey = "shiftKey" in eventDetails.event && eventDetails.event.shiftKey === true;
+                          toggleRow(row.id, index, checked === true, shiftKey);
+                        }}
                         aria-label={`Select question ${row.id}`}
                       />
                     </TableCell>
-                    <TableCell className="max-w-xs">{plainTextPreview(revision?.questionText ?? "")}</TableCell>
+                    <TableCell className="max-w-0">
+                      {/* max-w-0 on the cell + a truncating div inside forces the column to the
+                          table's own auto-layout distribution instead of growing to fit this
+                          text's full intrinsic width — without it, a long preview pushes past
+                          its own cell into Category/Difficulty/Type instead of clipping. */}
+                      <div className="truncate" title={plainTextPreview(revision?.questionText ?? "")}>
+                        {plainTextPreview(revision?.questionText ?? "")}
+                      </div>
+                    </TableCell>
                     <TableCell className="whitespace-nowrap text-sm">{CATEGORY_LABELS[row.category]}</TableCell>
                     <TableCell className="text-sm">{DIFFICULTY_LABELS[row.difficulty]}</TableCell>
                     <TableCell className="whitespace-nowrap text-sm">{QUESTION_TYPE_LABELS[row.questionType]}</TableCell>
                     <TableCell>
-                      <Badge variant={statusVariant(row.status)}>{STATUS_LABELS[row.status]}</Badge>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge variant={statusVariant(row.status)}>{STATUS_LABELS[row.status]}</Badge>
+                        {revision?.aiGenerated && !revision.aiReviewedAt && <Badge variant="destructive">Needs Review</Badge>}
+                      </div>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{row.familyId ? "Yes" : "—"}</TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                       {formatDate(row.updatedAt)}
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
-                      <RowActions row={row} />
+                      <RowActions row={row} editHref={editHrefFor(row.id)} />
                     </TableCell>
                   </TableRow>
                 );
@@ -412,7 +537,7 @@ function FilterSelect({
       </Label>
       <Select value={value ?? "ANY"} onValueChange={(v) => onChange(v === "ANY" || v === null ? undefined : v)}>
         <SelectTrigger id={id} className="w-44">
-          <SelectValue />
+          <SelectValue>{(v: string) => (v === "ANY" ? "Any" : (options.find((o) => o.value === v)?.label ?? v))}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {allowClear && <SelectItem value="ANY">Any</SelectItem>}
@@ -427,7 +552,7 @@ function FilterSelect({
   );
 }
 
-function RowActions({ row }: { row: QuestionListRow }) {
+function RowActions({ row, editHref }: { row: QuestionListRow; editHref: string }) {
   const router = useRouter();
 
   async function run(action: () => Promise<{ error?: string }>, successMessage: string) {
@@ -449,7 +574,7 @@ function RowActions({ row }: { row: QuestionListRow }) {
 
   return (
     <div className="flex items-center gap-2">
-      <Link href={`/owner/content/questions/${row.id}`} className="text-sm underline">
+      <Link href={editHref} className="text-sm underline">
         Edit
       </Link>
       <DropdownMenu>

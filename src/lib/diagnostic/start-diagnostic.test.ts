@@ -70,11 +70,35 @@ describe("startOrResumeDiagnostic", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("throws GENERATION_FAILED without creating a session when a required pool has no content", async () => {
+  it("generates a session with zero attempts rather than throwing when no pool has content", async () => {
     mocked.diagnosticSession.findUnique.mockResolvedValue(null);
     mocked.question.findMany.mockResolvedValue([]);
 
-    await expect(startOrResumeDiagnostic("student1")).rejects.toThrow();
-    expect(mocked.diagnosticSession.create).not.toHaveBeenCalled();
+    const result = (await startOrResumeDiagnostic("student1")) as { attempts: unknown[] };
+
+    expect(result.attempts).toHaveLength(0);
+    expect(mocked.diagnosticSession.create).toHaveBeenCalled();
+  });
+
+  it("skips missing pools but still generates attempts for whatever content exists", async () => {
+    mocked.diagnosticSession.findUnique.mockResolvedValue(null);
+    // Only ADVANCED_MATH/HARD has content; every other (category, difficulty)
+    // pool is empty.
+    let counter = 0;
+    mocked.question.findMany.mockImplementation(({ where }: { where: { category: string; difficulty: string } }) => {
+      if (where.category === "ADVANCED_MATH" && where.difficulty === "HARD") {
+        counter++;
+        return Promise.resolve([{ id: `q${counter}`, currentPublishedRevisionId: `r${counter}` }]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const result = (await startOrResumeDiagnostic("student1")) as {
+      attempts: { category: string; difficulty: string }[];
+    };
+
+    expect(result.attempts).toHaveLength(1);
+    expect(result.attempts[0]).toMatchObject({ category: "ADVANCED_MATH", difficulty: "HARD" });
+    expect(mocked.diagnosticSession.create).toHaveBeenCalled();
   });
 });

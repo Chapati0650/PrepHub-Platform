@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Building2 } from "lucide-react";
 import { listOrganizations } from "@/lib/owner/organizations";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -9,6 +10,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 import { CreateOrganizationForm } from "./create-organization-form";
 
 function formatDate(date: Date): string {
@@ -22,13 +25,12 @@ export default async function OwnerSchoolsPage() {
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 p-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Schools</h1>
+      <PageHeader icon={Building2} title="Schools" description="Partner schools and districts using PrepHub.">
         <CreateOrganizationForm />
-      </div>
+      </PageHeader>
 
       {organizations.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No organizations yet.</p>
+        <EmptyState icon={Building2} title="No organizations yet" description="Create your first school or district to get started." />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <Table>

@@ -84,7 +84,7 @@ export async function loadDiagnosticQuestionDetailAction(attemptId: string) {
 
   const content = await getStudentQuestionContent(attempt.questionRevisionId);
   const feedback = await getStudentQuestionFeedback(attempt.questionRevisionId);
-  return { content, feedback };
+  return { content, feedback, studentAnswer: attempt.answer };
 }
 
 export async function completeDiagnosticAction(): Promise<

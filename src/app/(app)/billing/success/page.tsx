@@ -1,11 +1,10 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PartyPopper } from "lucide-react";
 import { auth } from "@/auth";
 import { reconcileCheckoutSession } from "@/lib/billing";
 import { BillingError } from "@/lib/billing/errors";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { LinkButton } from "@/components/ui/link-button";
 
 // Stripe's success_url target. In production the webhook (src/app/api/stripe/webhook)
 // is the source of truth for activating the subscription; this page independently
@@ -34,7 +33,7 @@ export default async function BillingSuccessPage({
               <CardDescription>{err.message}</CardDescription>
             </CardHeader>
             <CardContent>
-              <Button render={<Link href="/pricing">Back to Pricing</Link>} />
+              <LinkButton href="/pricing">Back to Pricing</LinkButton>
             </CardContent>
           </Card>
         </div>
@@ -52,7 +51,7 @@ export default async function BillingSuccessPage({
           <CardDescription>Your PrepHub subscription is active.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Button render={<Link href="/home">Go to Dashboard</Link>} />
+          <LinkButton href="/home">Go to Dashboard</LinkButton>
         </CardContent>
       </Card>
     </div>

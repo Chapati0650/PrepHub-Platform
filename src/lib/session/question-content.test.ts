@@ -102,6 +102,29 @@ describe("getStudentQuestionFeedback", () => {
     expect(result.correctChoiceId).toBe("c2");
   });
 
+  it("keys distractor explanations by choice id, excluding the correct choice and choices with no note", async () => {
+    mocked.questionRevision.findUniqueOrThrow.mockResolvedValue({
+      answerChoices: [
+        { id: "c1", isCorrect: false, distractorExplanation: "You may have forgotten to convert units." },
+        { id: "c2", isCorrect: true, distractorExplanation: null },
+        { id: "c3", isCorrect: false, distractorExplanation: null },
+        { id: "c4", isCorrect: false, distractorExplanation: "This doesn't match any step of the correct method." },
+      ],
+      acceptedAnswers: [],
+      writtenExplanation: null,
+      explanationSteps: [],
+      standaloneVideo: null,
+      question: { family: null },
+    });
+
+    const result = await getStudentQuestionFeedback("r1");
+
+    expect(result.distractorExplanationsByChoiceId).toEqual({
+      c1: "You may have forgotten to convert units.",
+      c4: "This doesn't match any step of the correct method.",
+    });
+  });
+
   it("maps explanation steps to their student-facing shape, in order", async () => {
     mocked.questionRevision.findUniqueOrThrow.mockResolvedValue({
       answerChoices: [{ id: "c1", isCorrect: true }],

@@ -17,6 +17,16 @@ enum Role {
   STUDENT
 }
 
+// Onboarding wizard's "how much time can you dedicate" answer — an input to
+// the recommended-pace display only, never to the adaptive ability system.
+enum StudyCommitment {
+  LIGHT // 10-15 min/day
+  MODERATE // 20-30 min/day
+  INTENSIVE // 30-60 min/day
+  FEW_TIMES_WEEK
+  UNSURE
+}
+
 model User {
   id   String @id @default(cuid())
   role Role   @default(STUDENT)
@@ -36,6 +46,13 @@ model User {
   tokenVersion Int @default(0)
 
   targetScore Int? // PRD-010 academic goal, editable any time
+
+  // Post-signup onboarding wizard (grade/target score/study commitment quiz
+  // shown before access selection). Null forever for OWNER/SCHOOL_ADMINISTRATOR
+  // (never routed through it) and for pre-migration students (backfilled to
+  // their createdAt so they're never retroactively forced into it).
+  onboardingCompletedAt DateTime?
+  studyCommitment       StudyCommitment?
 
   // PRD-010 §7 — the only notification that's actually a student-facing
   // toggle; "Streak Lost Email" is always-on and not independently disableable,
@@ -474,6 +491,19 @@ model Question {
   category     QuestionCategory
   difficulty   QuestionDifficulty
 
+  // SHA-256 of the exact source image bytes a bulk-uploaded question was
+  // transcribed from (a plain photo, one zip entry, or one rendered PDF
+  // page — see bulk-upload.ts). Null for hand-authored questions, which have
+  // no source image at all. Lets the bulk-upload pipeline recognize "this
+  // exact file was already processed" before spending an AI call on it,
+  // rather than after — added following a real incident where a false
+  // "Failed" status (since fixed) led to the same PDF pages being
+  // re-uploaded repeatedly, producing 125 duplicate questions across 41
+  // groups. Not unique: one page image can legitimately produce several
+  // Question rows (a page with multiple questions on it), all sharing the
+  // same source hash.
+  sourceImageHash String?
+
   familyId String?
   family   QuestionFamily? @relation(fields: [familyId], references: [id])
 
@@ -493,6 +523,7 @@ model Question {
   diagnosticAttempts DiagnosticAttempt[]
   finalizedAttempts  FinalizedAttempt[]
 
+  @@index([sourceImageHash])
   @@map("questions")
 }
 
@@ -525,6 +556,16 @@ model QuestionRevision {
   // any content edit (PRD-015 §5.5). Publishing requires this to be non-null.
   previewCompletedAt DateTime?
 
+  // Bulk-upload AI review gate: set on the initial revision created by the
+  // bulk-upload pipeline (src/lib/content/bulk-upload.ts). aiReviewedAt stays
+  // null — blocking publish (see getPublishIssues) — until the Owner
+  // explicitly confirms the AI-transcribed content and AI-suggested answer
+  // via "Mark as Reviewed." aiAnswerReasoning is shown to the Owner during
+  // review only, never to students.
+  aiGenerated       Boolean   @default(false)
+  aiReviewedAt      DateTime?
+  aiAnswerReasoning String?   @db.Text
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   publishedAt DateTime?
@@ -550,6 +591,15 @@ model QuestionAnswerChoice {
   order     Int // 0-3, display order
   text      String  @db.Text
   isCorrect Boolean @default(false)
+
+  // Null for the correct choice (never shown there) and for wrong choices
+  // that haven't been generated/written yet — the student-facing renderer
+  // just omits the note in that case, same as any other optional content
+  // field. Populated by generateDistractorExplanations (AI, reviewable by
+  // the Owner) or typed manually — a short, specific note on the likely
+  // mistake behind picking this particular wrong answer (a procedural slip,
+  // a classic distractor, or "unrelated to the correct method" for a guess).
+  distractorExplanation String? @db.Text
 
   imageId String?
   image   MediaAsset? @relation("AnswerChoiceImage", fields: [imageId], references: [id])

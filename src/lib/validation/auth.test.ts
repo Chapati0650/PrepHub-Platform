@@ -5,7 +5,6 @@ const validSignUp = {
   firstName: "Ada",
   email: "ada@example.com",
   password: "hunter22",
-  grade: 11,
   ageConfirmed: true,
   tosAccepted: true,
   privacyAccepted: true,
@@ -14,14 +13,6 @@ const validSignUp = {
 describe("signUpSchema", () => {
   it("accepts a fully valid signup", () => {
     expect(signUpSchema.safeParse(validSignUp).success).toBe(true);
-  });
-
-  it.each([9, 10, 11, 12])("accepts grade %i", (grade) => {
-    expect(signUpSchema.safeParse({ ...validSignUp, grade }).success).toBe(true);
-  });
-
-  it.each([8, 13, 0, -1])("rejects grade %i (PRD-001: only 9-12)", (grade) => {
-    expect(signUpSchema.safeParse({ ...validSignUp, grade }).success).toBe(false);
   });
 
   it("rejects a password under 8 characters", () => {

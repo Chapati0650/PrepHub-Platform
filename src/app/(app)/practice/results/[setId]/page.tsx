@@ -9,7 +9,7 @@ import { loadPracticeQuestionDetailAction } from "../../actions";
 // PRD-007 — Session Review & Results for one completed adaptive practice set.
 export default async function PracticeResultsPage({ params }: { params: Promise<{ setId: string }> }) {
   const session = await auth();
-  if (!session?.user) redirect("/home");
+  if (!session?.user?.id) redirect("/home");
   if (!canUseStudentExperience(session.user.role)) redirect("/home");
 
   const { setId } = await params;

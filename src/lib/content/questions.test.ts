@@ -1,8 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   archiveQuestion,
+  createQuestion,
   deleteQuestionPermanently,
   duplicateQuestionContent,
+  findQuestionIdByExactText,
+  findQuestionIdsByImageHash,
   publishQuestion,
   restoreQuestion,
   unpublishQuestion,
@@ -12,7 +15,7 @@ import { prisma } from "@/lib/prisma";
 
 vi.mock("@/lib/prisma", () => {
   const mockPrisma: Record<string, unknown> = {
-    question: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), delete: vi.fn() },
+    question: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), findFirst: vi.fn(), delete: vi.fn() },
     questionRevision: { create: vi.fn(), update: vi.fn() },
     questionAnswerChoice: { createMany: vi.fn(), deleteMany: vi.fn() },
     explanationStep: { createMany: vi.fn(), deleteMany: vi.fn() },
@@ -206,8 +209,127 @@ describe("deleteQuestionPermanently", () => {
   });
 });
 
-describe("updateDraftContent — editing a Published question creates a Draft Revision", () => {
-  it("clones the published revision instead of editing it in place", async () => {
+describe("createQuestion — calculator access is derived from category", () => {
+  it.each([
+    ["ALGEBRA", "ALLOWED"],
+    ["GEOMETRY_TRIGONOMETRY", "ALLOWED"],
+    ["ADVANCED_MATH", "ALLOWED"],
+    ["PROBLEM_SOLVING_DATA_ANALYSIS", "ALLOWED"],
+    ["READING_COMPREHENSION", "NOT_ALLOWED"],
+    ["GRAMMAR", "NOT_ALLOWED"],
+    ["VOCABULARY", "NOT_ALLOWED"],
+  ] as const)("sets calculatorSetting=%s → %s for %s", async (category, expected) => {
+    mocked.question.create.mockResolvedValue({ id: "q1" });
+    mocked.questionRevision.create.mockResolvedValue({ id: "r1" });
+    mocked.question.update.mockResolvedValue({});
+    mocked.question.findUnique.mockResolvedValue(draftQuestion({ category }));
+
+    await createQuestion({ questionType: "OPEN_ENDED_NUMERIC", category, difficulty: "MEDIUM" });
+
+    expect(mocked.questionRevision.create.mock.calls[0][0].data).toMatchObject({ calculatorSetting: expected });
+  });
+});
+
+describe("createQuestion — suggested time is derived from difficulty", () => {
+  it.each([
+    ["EASY", 60],
+    ["MEDIUM", 90],
+    ["HARD", 180],
+  ] as const)("sets suggestedTimeSeconds=%s → %s", async (difficulty, expected) => {
+    mocked.question.create.mockResolvedValue({ id: "q1" });
+    mocked.questionRevision.create.mockResolvedValue({ id: "r1" });
+    mocked.question.update.mockResolvedValue({});
+    mocked.question.findUnique.mockResolvedValue(draftQuestion({ difficulty }));
+
+    await createQuestion({ questionType: "OPEN_ENDED_NUMERIC", category: "ALGEBRA", difficulty });
+
+    expect(mocked.questionRevision.create.mock.calls[0][0].data).toMatchObject({ suggestedTimeSeconds: expected });
+  });
+});
+
+describe("createQuestion — sourceImageHash", () => {
+  it("stores the given hash on the question row", async () => {
+    mocked.question.create.mockResolvedValue({ id: "q1" });
+    mocked.questionRevision.create.mockResolvedValue({ id: "r1" });
+    mocked.question.update.mockResolvedValue({});
+    mocked.question.findUnique.mockResolvedValue(draftQuestion());
+
+    await createQuestion({ questionType: "OPEN_ENDED_NUMERIC", category: "ALGEBRA", difficulty: "MEDIUM", sourceImageHash: "abc123" });
+
+    expect(mocked.question.create.mock.calls[0][0].data).toMatchObject({ sourceImageHash: "abc123" });
+  });
+
+  it("defaults to null when no hash is given (hand-authored questions)", async () => {
+    mocked.question.create.mockResolvedValue({ id: "q1" });
+    mocked.questionRevision.create.mockResolvedValue({ id: "r1" });
+    mocked.question.update.mockResolvedValue({});
+    mocked.question.findUnique.mockResolvedValue(draftQuestion());
+
+    await createQuestion({ questionType: "OPEN_ENDED_NUMERIC", category: "ALGEBRA", difficulty: "MEDIUM" });
+
+    expect(mocked.question.create.mock.calls[0][0].data).toMatchObject({ sourceImageHash: null });
+  });
+});
+
+describe("findQuestionIdsByImageHash", () => {
+  it("returns the ids of every question matching that source image hash", async () => {
+    mocked.question.findMany.mockResolvedValue([{ id: "q1" }, { id: "q2" }]);
+
+    const ids = await findQuestionIdsByImageHash("abc123");
+
+    expect(ids).toEqual(["q1", "q2"]);
+    expect(mocked.question.findMany).toHaveBeenCalledWith({ where: { sourceImageHash: "abc123" }, select: { id: true } });
+  });
+
+  it("returns an empty array when nothing matches", async () => {
+    mocked.question.findMany.mockResolvedValue([]);
+    expect(await findQuestionIdsByImageHash("nope")).toEqual([]);
+  });
+});
+
+describe("findQuestionIdByExactText", () => {
+  it("returns the matching question's id when found", async () => {
+    mocked.question.findFirst.mockResolvedValue({ id: "q1" });
+
+    const id = await findQuestionIdByExactText("What is 2 + 2?");
+
+    expect(id).toBe("q1");
+  });
+
+  it("returns null when nothing matches", async () => {
+    mocked.question.findFirst.mockResolvedValue(null);
+    expect(await findQuestionIdByExactText("Nothing like this exists")).toBeNull();
+  });
+
+  it("returns null without querying at all for blank text", async () => {
+    expect(await findQuestionIdByExactText("   ")).toBeNull();
+    expect(mocked.question.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("trims surrounding whitespace before matching", async () => {
+    mocked.question.findFirst.mockResolvedValue({ id: "q1" });
+
+    await findQuestionIdByExactText("  What is 2 + 2?  \n");
+
+    const where = mocked.question.findFirst.mock.calls[0][0].where;
+    expect(where.OR[0].currentDraftRevision.questionText).toBe("What is 2 + 2?");
+  });
+
+  it("matches against the draft revision when one exists, and the published revision only when there is no draft", async () => {
+    mocked.question.findFirst.mockResolvedValue({ id: "q1" });
+
+    await findQuestionIdByExactText("What is 2 + 2?");
+
+    const where = mocked.question.findFirst.mock.calls[0][0].where;
+    expect(where.OR[0]).toEqual({ currentDraftRevision: { questionText: "What is 2 + 2?" } });
+    expect(where.OR[1]).toEqual({
+      AND: [{ currentDraftRevisionId: null }, { currentPublishedRevision: { questionText: "What is 2 + 2?" } }],
+    });
+  });
+});
+
+describe("updateDraftContent — editing a Published question", () => {
+  it("edits the published revision directly and stays Published, for a standalone question (Owner request: no Draft Revision buffer)", async () => {
     const published = draftQuestion({
       status: "PUBLISHED",
       currentDraftRevisionId: null,
@@ -216,8 +338,31 @@ describe("updateDraftContent — editing a Published question creates a Draft Re
       currentPublishedRevision: baseRevision,
     });
     mocked.question.findUnique.mockResolvedValueOnce(published).mockResolvedValueOnce(published);
+    mocked.questionRevision.update.mockResolvedValue({});
+
+    await updateDraftContent("q1", { questionText: "Updated text" });
+
+    expect(mocked.questionRevision.create).not.toHaveBeenCalled();
+    expect(mocked.question.update).not.toHaveBeenCalled();
+    expect(mocked.questionRevision.update.mock.calls[0][0]).toMatchObject({
+      where: { id: "r1" },
+      data: { questionText: "Updated text" },
+    });
+  });
+
+  it("still clones into a Draft Revision for a Published Question Family member, leaving the live version untouched until Republish", async () => {
+    const published = draftQuestion({
+      status: "PUBLISHED",
+      familyId: "fam1",
+      currentDraftRevisionId: null,
+      currentDraftRevision: null,
+      currentPublishedRevisionId: "r1",
+      currentPublishedRevision: baseRevision,
+    });
+    mocked.question.findUnique.mockResolvedValueOnce(published).mockResolvedValueOnce(published);
     mocked.questionRevision.create.mockResolvedValue({ id: "r2" });
     mocked.question.update.mockResolvedValue({});
+    mocked.questionFamily.update.mockResolvedValue({});
     mocked.questionRevision.update.mockResolvedValue({});
 
     await updateDraftContent("q1", { questionText: "Updated text" });
@@ -228,6 +373,10 @@ describe("updateDraftContent — editing a Published question creates a Draft Re
     expect(mocked.question.update.mock.calls[0][0].data).toMatchObject({
       currentDraftRevisionId: "r2",
       status: "DRAFT_REVISION",
+    });
+    expect(mocked.questionFamily.update).toHaveBeenCalledWith({
+      where: { id: "fam1" },
+      data: { status: "DRAFT_REVISION" },
     });
     // the actual patch is applied to the NEW cloned revision, not the old one
     expect(mocked.questionRevision.update.mock.calls[0][0]).toMatchObject({
@@ -255,7 +404,7 @@ describe("updateDraftContent — editing a Published question creates a Draft Re
     mocked.question.findUnique.mockResolvedValueOnce(draft).mockResolvedValueOnce(draft);
     mocked.questionRevision.update.mockResolvedValue({});
 
-    await updateDraftContent("q1", { suggestedTimeSeconds: 90 });
+    await updateDraftContent("q1", { questionText: "Updated" });
 
     expect(mocked.questionRevision.update.mock.calls[0][0].data).toMatchObject({ previewCompletedAt: null });
   });
@@ -263,6 +412,77 @@ describe("updateDraftContent — editing a Published question creates a Draft Re
   it("rejects edits to an archived question", async () => {
     mocked.question.findUnique.mockResolvedValue(draftQuestion({ status: "ARCHIVED" }));
     await expect(updateDraftContent("q1", { questionText: "x" })).rejects.toMatchObject({ code: "NOT_DRAFT" });
+  });
+
+  it("re-derives calculatorSetting from the question's current category on every save", async () => {
+    // Fixture's baseRevision hardcodes calculatorSetting: "NOT_ALLOWED", but
+    // draftQuestion()'s category defaults to ALGEBRA — a save should correct
+    // the mismatch rather than leave stale data in place.
+    const draft = draftQuestion();
+    mocked.question.findUnique.mockResolvedValueOnce(draft).mockResolvedValueOnce(draft);
+    mocked.questionRevision.update.mockResolvedValue({});
+
+    await updateDraftContent("q1", { questionText: "Edited" });
+
+    expect(mocked.questionRevision.update.mock.calls[0][0].data).toMatchObject({ calculatorSetting: "ALLOWED" });
+  });
+
+  it("re-derives calculatorSetting from an incoming category patch, not the old category", async () => {
+    const draft = draftQuestion({ category: "ALGEBRA" });
+    mocked.question.findUnique.mockResolvedValueOnce(draft).mockResolvedValueOnce(draft);
+    mocked.questionRevision.update.mockResolvedValue({});
+    mocked.question.update.mockResolvedValue({});
+
+    await updateDraftContent("q1", { category: "GRAMMAR" });
+
+    expect(mocked.questionRevision.update.mock.calls[0][0].data).toMatchObject({ calculatorSetting: "NOT_ALLOWED" });
+  });
+
+  it("re-derives suggestedTimeSeconds from the question's current difficulty on every save", async () => {
+    // Fixture's baseRevision hardcodes suggestedTimeSeconds: 60, but
+    // draftQuestion()'s difficulty defaults to MEDIUM (90s) — a save should
+    // correct the mismatch rather than leave stale data in place.
+    const draft = draftQuestion();
+    mocked.question.findUnique.mockResolvedValueOnce(draft).mockResolvedValueOnce(draft);
+    mocked.questionRevision.update.mockResolvedValue({});
+
+    await updateDraftContent("q1", { questionText: "Edited" });
+
+    expect(mocked.questionRevision.update.mock.calls[0][0].data).toMatchObject({ suggestedTimeSeconds: 90 });
+  });
+
+  it("re-derives suggestedTimeSeconds from an incoming difficulty patch, not the old difficulty", async () => {
+    const draft = draftQuestion({ difficulty: "MEDIUM" });
+    mocked.question.findUnique.mockResolvedValueOnce(draft).mockResolvedValueOnce(draft);
+    mocked.questionRevision.update.mockResolvedValue({});
+    mocked.question.update.mockResolvedValue({});
+
+    await updateDraftContent("q1", { difficulty: "HARD" });
+
+    expect(mocked.questionRevision.update.mock.calls[0][0].data).toMatchObject({ suggestedTimeSeconds: 180 });
+  });
+
+  it("forces distractorExplanation to null for the correct choice even if the caller passed one", async () => {
+    const draft = draftQuestion();
+    mocked.question.findUnique.mockResolvedValueOnce(draft).mockResolvedValueOnce(draft);
+    mocked.questionRevision.update.mockResolvedValue({});
+
+    await updateDraftContent("q1", {
+      answerChoices: [
+        { text: "A", isCorrect: true, imageId: null, distractorExplanation: "should be dropped" },
+        { text: "B", isCorrect: false, imageId: null, distractorExplanation: "a real mistake note" },
+        { text: "C", isCorrect: false, imageId: null },
+        { text: "D", isCorrect: false, imageId: null, distractorExplanation: null },
+      ],
+    });
+
+    const written = mocked.questionAnswerChoice.createMany.mock.calls[0][0].data;
+    expect(written.map((c: { distractorExplanation: string | null }) => c.distractorExplanation)).toEqual([
+      null,
+      "a real mistake note",
+      null,
+      null,
+    ]);
   });
 });
 

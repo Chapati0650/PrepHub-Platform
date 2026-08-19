@@ -7,6 +7,7 @@ import {
   createQuestion,
   updateDraftContent,
   markPreviewCompleted,
+  markAiReviewed,
   publishQuestion,
   unpublishQuestion,
   archiveQuestion,
@@ -16,6 +17,7 @@ import {
   getQuestionOrThrow,
   type QuestionContentPatch,
 } from "@/lib/content/questions";
+import { processBulkUploadImage, processBulkUploadPdfPage } from "@/lib/content/bulk-upload";
 import {
   createEmptyFamily,
   updateFamilyDetails,
@@ -28,10 +30,24 @@ import {
   restoreFamily,
   duplicateQuestionIntoFamily,
 } from "@/lib/content/families";
-import { bulkArchive, bulkDeletePermanently, bulkPublish, bulkUnpublish, type BulkResult } from "@/lib/content/bulk";
+import {
+  bulkArchive,
+  bulkDeletePermanently,
+  bulkEstimateDifficulty,
+  bulkPublish,
+  bulkSetDifficulty,
+  bulkUnpublish,
+  type BulkResult,
+} from "@/lib/content/bulk";
 import { uploadImage, uploadVideo } from "@/lib/content/media";
 import { transcribeQuestionImage, type QuestionTranscription } from "@/lib/content/transcribe";
-import { generateExplanationText, generateStepDiagram, type ExplanationStepResult } from "@/lib/content/generate-explanation";
+import {
+  generateExplanationText,
+  generateStepDiagram,
+  generateDistractorExplanations,
+  type ExplanationStepResult,
+  type DistractorExplanationResult,
+} from "@/lib/content/generate-explanation";
 import { ContentError } from "@/lib/content/errors";
 import { logUnauthorizedAccess } from "@/lib/logger";
 import type { QuestionCategory, QuestionDifficulty, QuestionType } from "@/generated/prisma/client";
@@ -328,6 +344,20 @@ export async function bulkDeleteAction(questionIds: string[]): Promise<BulkResul
   return result;
 }
 
+export async function bulkSetDifficultyAction(questionIds: string[], difficulty: QuestionDifficulty): Promise<BulkResult> {
+  await requireOwner();
+  const result = await bulkSetDifficulty(questionIds, difficulty);
+  revalidatePath("/owner/content/questions");
+  return result;
+}
+
+export async function bulkEstimateDifficultyAction(questionIds: string[]): Promise<BulkResult> {
+  await requireOwner();
+  const result = await bulkEstimateDifficulty(questionIds);
+  revalidatePath("/owner/content/questions");
+  return result;
+}
+
 // --- Media uploads -----------------------------------------------------------
 
 export type MediaUploadResult = { error?: string; mediaId?: string; status?: string; failureReason?: string | null };
@@ -392,6 +422,32 @@ export async function generateExplanationAction(input: ExplanationGenerationInpu
   }
 }
 
+export type GenerateDistractorExplanationsResult = { error?: string; distractors?: DistractorExplanationResult[] };
+
+// MULTIPLE_CHOICE only — needs the correct-answer steps already generated
+// (see generateDistractorExplanations's own comment for why: it's what lets
+// the model identify *where* a wrong answer diverges, instead of guessing at
+// student psychology from the bare question). Same review contract as the
+// rest of this file's generation actions: fills the per-choice draft fields
+// below for the Owner to review/edit, nothing publishes on its own.
+export async function generateDistractorExplanationsAction(
+  input: {
+    questionText: string;
+    category: string;
+    answerChoices: string[];
+    correctChoiceIndex: number;
+    correctExplanationSteps: string[];
+  },
+): Promise<GenerateDistractorExplanationsResult> {
+  await requireOwner();
+  try {
+    const distractors = await generateDistractorExplanations(input);
+    return { distractors };
+  } catch (err) {
+    return { error: toMessage(err) };
+  }
+}
+
 export type GenerateStepDiagramResult = { error?: string; imageId?: string | null };
 
 export async function generateStepDiagramAction(
@@ -427,4 +483,60 @@ export async function transcribeQuestionImageAction(formData: FormData): Promise
   } catch (err) {
     return { error: toMessage(err) };
   }
+}
+
+export type BulkUploadImageActionResult = { error?: string; questionId?: string; skipped?: boolean };
+
+// Called once per image, in a small client-side concurrency pool (see
+// bulk-upload-form.tsx) — not once per batch, since a single request running
+// ~20 sequential AI calls would run well past any reasonable request
+// timeout. Every question this creates lands DRAFT + aiGenerated: true;
+// publish is available immediately (see validation.ts) but reviewing first
+// is still recommended. `skipped: true` means this exact image was already
+// processed (see processBulkUploadImage's sourceImageHash check) — no new
+// AI call was made, questionId points at the existing question.
+export async function bulkUploadImageAction(formData: FormData): Promise<BulkUploadImageActionResult> {
+  await requireOwner();
+  const file = formData.get("file");
+  if (!(file instanceof File)) return { error: "No file provided." };
+
+  const result = await processBulkUploadImage({
+    buffer: Buffer.from(await file.arrayBuffer()),
+    mimeType: file.type,
+  });
+  if ("error" in result) return { error: result.error };
+  revalidatePath("/owner/content/questions");
+  return { questionId: result.questionId, skipped: result.skipped };
+}
+
+export type BulkUploadPdfPageActionResult = { questionIds: string[]; errors: string[]; skipped?: boolean };
+
+// Same concurrency-pool pattern as bulkUploadImageAction, one call per
+// rendered PDF page (see extract-pdf-pages.ts, which does the PDF-to-images
+// rendering client-side before this ever runs) — but a page can yield zero,
+// one, or several questions, so the result is a batch rather than a single
+// id (see processBulkUploadPdfPage).
+export async function bulkUploadPdfPageAction(formData: FormData): Promise<BulkUploadPdfPageActionResult> {
+  await requireOwner();
+  const file = formData.get("file");
+  if (!(file instanceof File)) return { questionIds: [], errors: ["No file provided."] };
+
+  const result = await processBulkUploadPdfPage({
+    buffer: Buffer.from(await file.arrayBuffer()),
+    mimeType: file.type,
+  });
+  if (result.questionIds.length > 0) revalidatePath("/owner/content/questions");
+  return result;
+}
+
+export async function markAiReviewedAction(questionId: string): Promise<ActionResult> {
+  await requireOwner();
+  try {
+    await markAiReviewed(questionId);
+  } catch (err) {
+    return { error: toMessage(err) };
+  }
+  revalidatePath(`/owner/content/questions/${questionId}`);
+  revalidatePath("/owner/content/questions");
+  return { success: true };
 }

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { GoogleIcon } from "@/components/google-icon";
 
 const initialState: ActionState = {};
 
@@ -17,12 +18,13 @@ export default function LoginPage() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-xl">Welcome back</CardTitle>
-        <CardDescription>Pick up right where you left off.</CardDescription>
+        <CardTitle className="text-2xl font-semibold sm:text-3xl">Welcome back</CardTitle>
+        <CardDescription className="text-base">Pick up right where you left off.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <form action={googleSignInAction}>
-          <Button type="submit" variant="outline" className="w-full">
+          <Button type="submit" variant="outline" size="lg" className="h-12 w-full gap-3 text-base">
+            <GoogleIcon className="size-5" />
             Continue with Google
           </Button>
         </form>
@@ -61,7 +63,7 @@ export default function LoginPage() {
             />
           </div>
 
-          <Button type="submit" disabled={pending}>
+          <Button type="submit" size="lg" className="h-12 text-base" disabled={pending}>
             {pending ? "Logging in..." : "Log in"}
           </Button>
         </form>

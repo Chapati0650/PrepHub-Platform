@@ -1,9 +1,12 @@
 import Link from "next/link";
+import { ArrowLeft, Building2 } from "lucide-react";
 import { getOrganizationDetail, listAllSchools } from "@/lib/owner/organizations";
 import { listMemberships } from "@/lib/owner/memberships";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 import { StatusActions } from "./status-actions";
 import { EditOrganizationForm } from "./edit-organization-form";
 import { CommunityGoalForm } from "./community-goal-form";
@@ -30,20 +33,19 @@ export default async function OrganizationDetailPage({
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-8">
       <div>
-        <Link href="/owner/schools" className="text-sm underline">
+        <Link href="/owner/schools" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="size-4" aria-hidden />
           Back to Schools
         </Link>
       </div>
 
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">{org.officialName}</h1>
-          <p className="text-sm text-muted-foreground">
-            {org.organizationType === "DISTRICT" ? "District" : "School"}
-          </p>
-        </div>
+      <PageHeader
+        icon={Building2}
+        title={org.officialName}
+        description={org.organizationType === "DISTRICT" ? "District" : "School"}
+      >
         <Badge variant={org.status === "ACTIVE" ? "default" : "secondary"}>{org.status}</Badge>
-      </div>
+      </PageHeader>
 
       <Card>
         <CardHeader>
@@ -120,7 +122,7 @@ export default async function OrganizationDetailPage({
           </CardHeader>
           <CardContent>
             {org.schools.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No schools added yet.</p>
+              <EmptyState icon={Building2} title="No schools added yet" />
             ) : (
               <ul className="flex flex-col gap-2">
                 {org.schools.map((school) => (

@@ -2,7 +2,7 @@ import type { QuestionDifficulty } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ALL_CATEGORIES } from "@/lib/adaptive/config";
 import { createRandom, generateSeed, shuffle } from "@/lib/adaptive/random";
-import { DiagnosticError } from "./errors";
+import { logDiagnosticIncompleteCoverage } from "@/lib/logger";
 import { selectDiagnosticQuestion } from "./question-selection";
 
 const DIAGNOSTIC_DIFFICULTIES: QuestionDifficulty[] = ["EASY", "MEDIUM", "HARD"];
@@ -45,8 +45,21 @@ export async function startOrResumeDiagnostic(studentId: string) {
     resolved.push({ ...slot, ...selected });
   }
 
+  // Deliberate override of PRD-012 §10-§11's "hard failure on any missing
+  // pool" — for a content bank that's still being built out (e.g. only one
+  // category published so far), a diagnostic that only covers what's
+  // actually available is more useful than refusing to generate anything at
+  // all. Missing (category, difficulty) slots are simply skipped rather than
+  // substituted with an adjacent difficulty; generate-diagnostic-prediction.ts
+  // and complete-diagnostic.ts already treat a missing attempt as answered
+  // incorrectly, so a partial diagnostic still produces a (conservative, but
+  // well-defined) initial Ability Score and Predicted Score instead of
+  // crashing on prediction generation.
   if (failures.length > 0) {
-    throw new DiagnosticError("GENERATION_FAILED", `Unable to select diagnostic questions for: ${failures.join(", ")}`);
+    logDiagnosticIncompleteCoverage("Diagnostic generated with incomplete question coverage", {
+      accountId: studentId,
+      missingPools: failures.join(", "),
+    });
   }
 
   // §12 — question order should feel smooth and not visibly group by

@@ -19,9 +19,13 @@ export type RevisionForValidation = QuestionRevision & {
 
 export type FamilyForValidation = QuestionFamily & { sharedVideo: MediaAsset | null };
 
-// PRD-013 §20 Publishing Checklist + PRD-015 §5.5 mandatory-preview and §9.3
-// video-readiness rules. Shared by preview (informational) and publish
-// (blocking) so the two surfaces can never drift apart.
+// PRD-013 §20 Publishing Checklist + PRD-015 §9.3 video-readiness rules.
+// Shared by preview (informational) and publish (blocking) so the two
+// surfaces can never drift apart. Deliberately does NOT include PRD-015
+// §5.5's mandatory-preview-before-publish or the bulk-upload AI-review gate
+// — both removed by owner request to prioritize publishing throughput over
+// a forced manual-review step; Student Preview and "Mark as Reviewed" are
+// still available, just optional.
 export function getPublishIssues(
   question: Question,
   revision: RevisionForValidation,
@@ -59,10 +63,6 @@ export function getPublishIssues(
     if (revision.standaloneVideo && revision.standaloneVideo.status !== "READY") {
       issues.push("The video explanation is still processing or failed to process.");
     }
-  }
-
-  if (!revision.previewCompletedAt) {
-    issues.push("Student Preview must be opened for the latest changes before publishing.");
   }
 
   if (question.status === "ARCHIVED") {

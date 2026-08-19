@@ -1,12 +1,15 @@
 import Link from "next/link";
+import { UserRound } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { canUseStudentExperience } from "@/lib/access";
 import { getAccessSummary } from "@/lib/entitlements";
 import { logOutAllDevicesAction } from "../actions";
 import { Button } from "@/components/ui/button";
+import { LinkButton } from "@/components/ui/link-button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { PageHeader } from "@/components/page-header";
 import { DeleteAccountForm } from "./delete-account-form";
 import { TargetScoreForm } from "./target-score-form";
 import { ProfileForm } from "./profile-form";
@@ -48,7 +51,7 @@ export default async function SettingsPage() {
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6 p-8">
-      <h1 className="text-2xl font-semibold">Account settings</h1>
+      <PageHeader icon={UserRound} title="Account settings" description="Manage your profile, goals, and how PrepHub reaches you." />
 
       {/* Appearance — a device/browser preference, not a student-specific
           feature, so it renders for every role (including Owner) rather
@@ -145,7 +148,9 @@ export default async function SettingsPage() {
                       Billing is managed by your school or district, not by you directly.
                     </p>
                   ) : (
-                    <Button variant="outline" render={<Link href="/billing">Manage Billing</Link>} />
+                    <LinkButton variant="outline" href="/billing">
+                      Manage Billing
+                    </LinkButton>
                   )}
                 </CardContent>
               </Card>

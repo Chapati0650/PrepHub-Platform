@@ -27,7 +27,6 @@ export async function signUpAction(_prev: ActionState, formData: FormData): Prom
     firstName: formData.get("firstName"),
     email: formData.get("email"),
     password: formData.get("password"),
-    grade: formData.get("grade"),
     ageConfirmed: formData.get("ageConfirmed") === "on",
     tosAccepted: formData.get("tosAccepted") === "on",
     privacyAccepted: formData.get("privacyAccepted") === "on",

@@ -1,7 +1,9 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { logExplanationGenerationFailure } from "@/lib/logger";
+import { AI_MODELS, getAnthropicClient } from "@/lib/ai/client";
+import { DEEPSEEK_MODELS, completeWithJson, getDeepSeekClient } from "@/lib/ai/deepseek-client";
+import { extractApiErrorMessage } from "@/lib/ai/api-error-message";
 import { ContentError } from "./errors";
 import { uploadImage } from "./media";
 
@@ -31,12 +33,22 @@ function choicesBlock(input: ExplanationGenerationInput): string {
 const LATEX_RULE =
   'Wrap every mathematical expression in $...$ for inline math or $$...$$ for a block equation — this platform ONLY renders math written this way, and write plain text otherwise (no markdown: no **bold**, no _italic_, no bullet lists, no headers — those show up to students as literal asterisks/underscores, not formatting).';
 
-function getClient(): Anthropic {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+// Used only by generateStepDiagram below (code execution stays on Claude —
+// DeepSeek's API has no equivalent hosted code-execution tool).
+function getDiagramClient(): Anthropic {
+  try {
+    return getAnthropicClient();
+  } catch {
+    throw new ContentError("EXPLANATION_GENERATION_FAILED", "Diagram generation isn't configured for this environment.");
+  }
+}
+
+function getTextClient() {
+  try {
+    return getDeepSeekClient();
+  } catch {
     throw new ContentError("EXPLANATION_GENERATION_FAILED", "Explanation generation isn't configured for this environment.");
   }
-  return new Anthropic({ apiKey });
 }
 
 // --- Text-only step generation ----------------------------------------------
@@ -49,7 +61,7 @@ const StepSchema = z.object({ text: z.string() });
 const TextGenerationSchema = z.object({ steps: z.array(StepSchema).min(1) });
 
 export async function generateExplanationText(input: ExplanationGenerationInput): Promise<ExplanationStepResult[]> {
-  const client = getClient();
+  const client = getTextClient();
 
   const prompt = `Write a step-by-step explanation for this SAT-prep question (category: ${input.category}), in the style of Brilliant.org — clear, numbered steps.
 
@@ -59,37 +71,99 @@ The correct answer is: ${correctAnswerText(input)}
 
 Rules:
 - ${LATEX_RULE}
-- Write 3-6 short steps. Each step is one clear idea, not a wall of text.
-- Explain why this specific correct answer is right. It has already been verified — do not independently re-derive an answer that might disagree with it; if your own reasoning seems to diverge, work backward from the given correct answer to find where your reasoning needs to change.`;
+- Each step does exactly ONE thing: one substitution, one algebraic manipulation, one simplification, or one conclusion — never more than one. If you notice a step doing two things (e.g. simplifying an expression AND THEN stating what it implies, or combining two algebraic operations), split it into two separate steps instead. A student should never have to follow more than one new idea per step.
+- Most questions need 4-8 steps at this granularity. Do not compress steps together just to keep the count low — a longer, more granular explanation is easier to follow than a short one that skips around.
+- Explain why this specific correct answer is right. It has already been verified — do not independently re-derive an answer that might disagree with it; if your own reasoning seems to diverge, work backward from the given correct answer to find where your reasoning needs to change.
 
-  let response;
+Respond with ONLY a json object, no other text, in exactly this shape:
+{"steps": [{"text": "<string>"}, ...]}`;
+
   try {
-    response = await client.messages.parse({
-      model: "claude-sonnet-5",
-      max_tokens: 4096,
-      messages: [{ role: "user", content: prompt }],
-      output_config: { format: zodOutputFormat(TextGenerationSchema) },
+    const result = await completeWithJson(client, {
+      model: DEEPSEEK_MODELS.explanationText,
+      prompt,
+      schema: TextGenerationSchema,
     });
+    return result.steps;
   } catch (err) {
-    logExplanationGenerationFailure("Anthropic API call failed during explanation text generation", {
+    logExplanationGenerationFailure("DeepSeek API call failed during explanation text generation", {
       error: err instanceof Error ? err.message : String(err),
     });
-    throw new ContentError("EXPLANATION_GENERATION_FAILED", "Explanation generation failed. You can try again or write it manually.");
+    const detail = extractApiErrorMessage(err);
+    throw new ContentError(
+      "EXPLANATION_GENERATION_FAILED",
+      detail ? `Explanation generation failed: ${detail}` : "Explanation generation failed. You can try again or write it manually.",
+    );
   }
+}
 
-  if (response.stop_reason === "refusal") {
-    logExplanationGenerationFailure("Explanation text generation was refused by the model's safety classifiers", {});
-    throw new ContentError("EXPLANATION_GENERATION_FAILED", "Explanation generation failed. You can try again or write it manually.");
-  }
+// --- Per-wrong-choice distractor explanations (MULTIPLE_CHOICE only) -------
+// Runs after the correct-answer steps exist, using them as context — telling
+// the model the verified correct method makes it far more reliable at
+// identifying *where* a specific wrong answer diverges from it, rather than
+// independently guessing at student psychology from the question alone.
 
-  if (!response.parsed_output) {
-    logExplanationGenerationFailure("Explanation text generation response did not match the expected schema", {
-      stopReason: response.stop_reason,
+export type DistractorExplanationInput = {
+  questionText: string;
+  category: string;
+  answerChoices: string[]; // exactly 4, in display order
+  correctChoiceIndex: number;
+  correctExplanationSteps: string[]; // the already-generated correct walkthrough
+};
+
+export type DistractorExplanationResult = { choiceIndex: number; explanation: string };
+
+const DistractorSchema = z.object({
+  distractors: z.array(z.object({ choiceIndex: z.number().int().min(0).max(3), explanation: z.string() })),
+});
+
+export async function generateDistractorExplanations(
+  input: DistractorExplanationInput,
+): Promise<DistractorExplanationResult[]> {
+  const client = getTextClient();
+
+  const prompt = `A student answered this SAT-prep multiple-choice question (category: ${input.category}) incorrectly. For each WRONG answer choice, write one short, specific note explaining the most likely mistake that leads a student to pick that particular wrong answer.
+
+Question: ${input.questionText}
+
+Answer choices:
+${input.answerChoices.map((c, i) => `${String.fromCharCode(65 + i)}) ${c}`).join("\n")}
+
+The correct answer is ${String.fromCharCode(65 + input.correctChoiceIndex)}) ${input.answerChoices[input.correctChoiceIndex]}, reached by:
+${input.correctExplanationSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}
+
+For each of the OTHER THREE choices (never the correct one), decide which of these best describes it and write the note accordingly:
+- A specific procedural slip: the student followed the correct method but made one identifiable error partway through (forgot to divide by something, missed a unit conversion, a sign error, stopped one step early, used the wrong quantity from the question). Name the specific slip — do not just say "a calculation error."
+- A classic distractor: a value that results from a common misreading of the question (e.g. it correctly answers a nearby but different question than the one actually asked). Say what it actually represents.
+- Unrelated to the correct method: this value doesn't correspond to any recognizable step or common misreading — likely a guess. Say so plainly, and point at the concept worth reviewing, rather than speculating about a specific mistake that probably isn't real.
+
+Rules:
+- ${LATEX_RULE}
+- One to two sentences per choice. Be specific about the exact misstep, not generic.
+- Address the student directly ("you may have...", "if you got this, check whether you..."). Supportive in tone, never judgmental.
+
+Respond with ONLY a json object, no other text, in exactly this shape:
+{"distractors": [{"choiceIndex": <0-based index>, "explanation": "<string>"}, ...]} — exactly one entry per WRONG choice (3 entries total); omit the correct choice's index entirely.`;
+
+  try {
+    const result = await completeWithJson(client, {
+      model: DEEPSEEK_MODELS.distractorAnalysis,
+      prompt,
+      schema: DistractorSchema,
     });
-    throw new ContentError("EXPLANATION_GENERATION_FAILED", "Explanation generation failed. You can try again or write it manually.");
+    return result.distractors;
+  } catch (err) {
+    logExplanationGenerationFailure("DeepSeek API call failed during distractor explanation generation", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    const detail = extractApiErrorMessage(err);
+    throw new ContentError(
+      "EXPLANATION_GENERATION_FAILED",
+      detail
+        ? `Distractor explanation generation failed: ${detail}`
+        : "Distractor explanation generation failed. You can try again or write them manually.",
+    );
   }
-
-  return response.parsed_output.steps;
 }
 
 // --- Per-step diagram generation (opt-in) -----------------------------------
@@ -105,7 +179,7 @@ export async function generateStepDiagram(
   input: ExplanationGenerationInput,
   stepText: string,
 ): Promise<string | null> {
-  const client = getClient();
+  const client = getDiagramClient();
 
   const prompt = `This is one step of a worked explanation for an SAT-prep question (category: ${input.category}). Generate a simple, clearly labeled diagram or chart with matplotlib that illustrates this specific step — a number line, a labeled geometric figure, a coordinate graph, or a small data table/bar chart, whichever fits. Keep it simple and readable at a small size (white background, minimal decoration). Save it as a PNG to /tmp/outputs/step.png.
 
@@ -126,7 +200,7 @@ or \`{"imageFile": null}\` if you didn't generate an image.`;
   try {
     response = await client.messages
       .stream({
-        model: "claude-opus-5",
+        model: AI_MODELS.diagramGeneration,
         max_tokens: 16000,
         tools: [{ type: "code_execution_20260521", name: "code_execution" }],
         messages: [{ role: "user", content: prompt }],
@@ -136,7 +210,11 @@ or \`{"imageFile": null}\` if you didn't generate an image.`;
     logExplanationGenerationFailure("Anthropic API call failed during step diagram generation", {
       error: err instanceof Error ? err.message : String(err),
     });
-    throw new ContentError("EXPLANATION_GENERATION_FAILED", "Diagram generation failed. You can try again or add an image manually.");
+    const detail = extractApiErrorMessage(err);
+    throw new ContentError(
+      "EXPLANATION_GENERATION_FAILED",
+      detail ? `Diagram generation failed: ${detail}` : "Diagram generation failed. You can try again or add an image manually.",
+    );
   }
 
   if (response.stop_reason === "refusal") {

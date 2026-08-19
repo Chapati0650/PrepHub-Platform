@@ -1,5 +1,8 @@
+import { ShieldCheck, Mail } from "lucide-react";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { getSchoolAccessInfo } from "@/lib/admin/access-info";
+import { PageHeader } from "@/components/page-header";
+import { Badge } from "@/components/ui/badge";
 
 const ACCESS_STATUS_LABELS: Record<string, string> = {
   SETUP: "Setting Up",
@@ -26,7 +29,7 @@ export default async function SchoolAccessPage() {
   if (!schoolId) {
     return (
       <div className="mx-auto flex max-w-lg flex-col items-center gap-4 p-8 text-center">
-        <h1 className="text-xl font-semibold">School Access & Support isn&apos;t available for this account.</h1>
+        <h1 className="text-xl sm:text-2xl">School Access & Support isn&apos;t available for this account.</h1>
         <p className="text-muted-foreground">
           This area is scoped to a single school. Contact PrepHub support if you believe this is unexpected.
         </p>
@@ -38,26 +41,28 @@ export default async function SchoolAccessPage() {
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8">
-      <div>
-        <p className="text-sm text-muted-foreground">Administrator</p>
-        <h1 className="text-2xl font-semibold">School Access & Support</h1>
-      </div>
+      <PageHeader eyebrow="Administrator" title="School Access & Support" icon={ShieldCheck} />
 
-      <div className="rounded-lg border border-border p-4 text-sm">
+      <div className="rounded-lg border border-border p-6">
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">School Access Status</span>
-          <span className="font-medium">{ACCESS_STATUS_LABELS[info.status] ?? info.status}</span>
+          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">School Access Status</p>
+          <Badge variant={info.status === "ACTIVE" ? "default" : "secondary"}>
+            {ACCESS_STATUS_LABELS[info.status] ?? info.status}
+          </Badge>
         </div>
-        <div className="mt-1 flex items-center justify-between">
-          <span className="text-muted-foreground">Student Access Period</span>
-          <span className="font-medium">
-            {formatMonthYear(info.contractStartDate)} – {formatMonthYear(info.contractEndDate)}
-          </span>
-        </div>
+        <p className="mt-2 font-heading text-2xl font-semibold tabular-nums">
+          {formatMonthYear(info.contractStartDate)} – {formatMonthYear(info.contractEndDate)}
+        </p>
+        <p className="mt-1 text-sm text-muted-foreground">Student Access Period</p>
       </div>
 
-      <div className="rounded-lg border border-border p-4">
-        <h2 className="mb-2 text-sm font-semibold">PrepHub Support</h2>
+      <div className="rounded-lg border border-border p-6">
+        <div className="mb-3 flex items-center gap-3">
+          <div className="inline-flex size-9 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+            <Mail className="size-4.5" aria-hidden />
+          </div>
+          <h2 className="text-base font-semibold">PrepHub Support</h2>
+        </div>
         <p className="text-sm text-muted-foreground">
           Support can help with administrator password resets, incorrect student email addresses or school associations,
           student access problems, technical issues, announcement-delivery problems, enrollment corrections, and other

@@ -59,6 +59,21 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Named type scale — generates text-caption/card-title/section/page-title/
+     hero utilities (Tailwind v4: any --text-* theme token becomes a text-*
+     class). Exists so hierarchy is a small fixed set of named steps chosen
+     once, not an arbitrary text-2xl/3xl/4xl picked fresh per page — that
+     drift is why page titles and card titles ended up looking like the same
+     visual weight. Values match what was already validated in
+     page-header.tsx/the Score Prediction hero, just named. */
+  --text-caption: 0.75rem; /* 12px — eyebrow labels, timestamps, meta */
+  --text-card-title: 1.125rem; /* 18px */
+  --text-section: 1.5rem; /* 24px — a heading within a page, not the page itself */
+  --text-page-title: 1.875rem; /* 30px, mobile */
+  --text-page-title-lg: 2.25rem; /* 36px, sm:+ */
+  --text-hero: 3.75rem; /* 60px, mobile — the one true hero number per screen */
+  --text-hero-lg: 4.5rem; /* 72px, sm:+ */
 }
 
 /*

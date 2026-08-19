@@ -1,5 +1,8 @@
+import { ClipboardList, BarChart3 } from "lucide-react";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { getAdminOverviewData } from "@/lib/admin/overview";
+import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 
 const ACCESS_STATUS_LABELS: Record<string, string> = {
   SETUP: "Setting Up",
@@ -24,7 +27,10 @@ export default async function AdminOverviewPage() {
   if (!schoolId) {
     return (
       <div className="mx-auto flex max-w-lg flex-col items-center gap-4 p-8 text-center">
-        <h1 className="text-xl font-semibold">Admin Overview isn&apos;t available for this account.</h1>
+        <div className="inline-flex size-10 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+          <ClipboardList className="size-5" aria-hidden />
+        </div>
+        <h1 className="text-xl sm:text-2xl">Admin Overview isn&apos;t available for this account.</h1>
         <p className="text-muted-foreground">
           This area is scoped to a single school. Contact PrepHub support if you believe this is unexpected.
         </p>
@@ -36,10 +42,7 @@ export default async function AdminOverviewPage() {
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8">
-      <div>
-        <p className="text-sm text-muted-foreground">Admin Overview</p>
-        <h1 className="text-2xl font-semibold">{data.schoolName}</h1>
-      </div>
+      <PageHeader eyebrow="Admin Overview" title={data.schoolName} icon={BarChart3} />
 
       {/* Enrollment & Registration */}
       <div>
@@ -66,10 +69,11 @@ export default async function AdminOverviewPage() {
       <div>
         <h2 className="mb-3 text-sm font-semibold">All-Time School Activity</h2>
         {data.stats.totalAdaptiveSessionsCompleted === 0 && data.stats.totalQuestionsAnswered === 0 ? (
-          <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
-            Your students have not completed any practice activity yet. School-wide progress will appear after students begin
-            studying.
-          </p>
+          <EmptyState
+            icon={BarChart3}
+            title="No activity yet"
+            description="Your students have not completed any practice activity yet. School-wide progress will appear after students begin studying."
+          />
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <Stat label="Questions Answered" value={data.stats.totalQuestionsAnswered.toLocaleString()} />
@@ -107,7 +111,7 @@ export default async function AdminOverviewPage() {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-border p-3 text-center">
-      <p className="text-lg font-semibold">{value}</p>
+      <p className="font-heading text-lg font-semibold tabular-nums">{value}</p>
       <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   );

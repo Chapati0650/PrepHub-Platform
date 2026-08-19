@@ -9,6 +9,7 @@ function makeQuestion(overrides: Partial<Question> = {}): Question {
     questionType: "MULTIPLE_CHOICE",
     category: "ALGEBRA",
     difficulty: "MEDIUM",
+    sourceImageHash: null,
     familyId: null,
     currentPublishedRevisionId: null,
     currentDraftRevisionId: "r1",
@@ -28,6 +29,7 @@ function makeChoices(overrides?: (Partial<QuestionAnswerChoice> | undefined)[]):
     text: `Choice ${order}`,
     isCorrect: order === 0,
     imageId: null,
+    distractorExplanation: null,
   }));
   if (!overrides) return base;
   return base.map((c, i) => ({ ...c, ...(overrides[i] ?? {}) }));
@@ -64,6 +66,9 @@ function makeRevision(overrides: Partial<RevisionForValidation> = {}): RevisionF
     writtenExplanation: null,
     standaloneVideoId: "v1",
     previewCompletedAt: new Date(),
+    aiGenerated: false,
+    aiReviewedAt: null,
+    aiAnswerReasoning: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     publishedAt: null,
@@ -192,14 +197,34 @@ describe("getPublishIssues — video is optional", () => {
   });
 });
 
-describe("getPublishIssues — preview and archive", () => {
-  it("flags a revision that hasn't been previewed since its latest edit", () => {
-    const issues = getPublishIssues(makeQuestion(), makeRevision({ previewCompletedAt: null }), null);
-    expect(issues).toContain("Student Preview must be opened for the latest changes before publishing.");
-  });
-
+describe("getPublishIssues — archive", () => {
   it("flags an archived question", () => {
     const issues = getPublishIssues(makeQuestion({ status: "ARCHIVED" }), makeRevision(), null);
     expect(issues).toContain("Archived questions cannot be published.");
+  });
+});
+
+describe("getPublishIssues — preview and AI review are optional, not blocking", () => {
+  it("does not require Student Preview to have been opened", () => {
+    const issues = getPublishIssues(makeQuestion(), makeRevision({ previewCompletedAt: null }), null);
+    expect(issues).toEqual([]);
+  });
+
+  it("does not flag unreviewed AI-generated content", () => {
+    const issues = getPublishIssues(
+      makeQuestion(),
+      makeRevision({ aiGenerated: true, aiReviewedAt: null }),
+      null,
+    );
+    expect(issues).toEqual([]);
+  });
+
+  it("does not flag reviewed AI-generated content either", () => {
+    const issues = getPublishIssues(
+      makeQuestion(),
+      makeRevision({ aiGenerated: true, aiReviewedAt: new Date() }),
+      null,
+    );
+    expect(issues).toEqual([]);
   });
 });

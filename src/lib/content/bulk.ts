@@ -1,12 +1,16 @@
 import { prisma } from "@/lib/prisma";
+import type { QuestionDifficulty } from "@/generated/prisma/client";
 import { ContentError } from "./errors";
+import { classifyQuestionDifficulty } from "./classify-difficulty";
 import {
   archiveQuestion,
   deleteQuestionPermanently,
+  getEditableRevision,
   getQuestionOrThrow,
   getQuestionPublishIssues,
   publishQuestion,
   unpublishQuestion,
+  updateDraftContent,
   type QuestionWithContent,
 } from "./questions";
 
@@ -60,6 +64,47 @@ export async function bulkUnpublish(questionIds: string[]): Promise<BulkResult> 
 
 export async function bulkArchive(questionIds: string[]): Promise<BulkResult> {
   return runBulk(questionIds, (question) => archiveQuestion(question.id));
+}
+
+// Lets an Owner apply a test's own published module structure (e.g. "the
+// first 7 Math Module 2 questions are Easy") across many freshly bulk-
+// uploaded questions at once, instead of opening each one individually just
+// to set this one field. Goes through updateDraftContent — the same path a
+// manual per-question edit uses — so suggestedTimeSeconds stays correctly
+// derived and, for a Published question, the new difficulty applies
+// immediately (see ensureDraftRevision), exactly as any other field change
+// would; this never bypasses those rules with a more "direct" update. Family
+// members are blocked for the same reason they're blocked from bulk
+// publish/unpublish: they don't own their own difficulty, the family does.
+export async function bulkSetDifficulty(questionIds: string[], difficulty: QuestionDifficulty): Promise<BulkResult> {
+  return runBulk(questionIds, (question) => updateDraftContent(question.id, { difficulty }), isFamilyBlocked);
+}
+
+// For content already sitting in the bank (typically pre-dating this
+// feature, or hand-authored/uploaded without a known module structure to
+// apply via bulkSetDifficulty above) — runs the same AI difficulty estimate
+// bulk-upload now uses for new questions, but against each selected
+// question's existing content, and sets each one individually rather than
+// applying one flat value to the whole selection. Deliberately does not
+// touch aiGenerated/aiAnswerReasoning: those track review status for the
+// question's original AI-authored content (if any), which this action
+// doesn't touch — only difficulty changes.
+export async function bulkEstimateDifficulty(questionIds: string[]): Promise<BulkResult> {
+  return runBulk(
+    questionIds,
+    async (question) => {
+      const revision = getEditableRevision(question);
+      if (!revision) throw new ContentError("REVISION_NOT_FOUND", "This question has no content to evaluate.");
+      const result = await classifyQuestionDifficulty({
+        questionText: revision.questionText,
+        category: question.category,
+        questionType: question.questionType,
+        answerChoices: question.questionType === "MULTIPLE_CHOICE" ? revision.answerChoices.map((c) => c.text) : null,
+      });
+      await updateDraftContent(question.id, { difficulty: result.difficulty });
+    },
+    isFamilyBlocked,
+  );
 }
 
 export async function bulkDeletePermanently(questionIds: string[]): Promise<BulkResult> {

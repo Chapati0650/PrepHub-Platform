@@ -3,7 +3,6 @@ export class DiagnosticError extends Error {
     public code:
       | "SESSION_NOT_FOUND"
       | "ALREADY_COMPLETED"
-      | "GENERATION_FAILED"
       | "ATTEMPT_NOT_FOUND"
       | "ANSWER_REQUIRED"
       | "QUESTIONS_REMAIN",

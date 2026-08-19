@@ -30,16 +30,20 @@ export async function generateDiagnosticPrediction(studentId: string) {
     byCategory.set(attempt.category, list);
   }
 
+  // A (category, difficulty) slot can be entirely absent when the diagnostic
+  // was generated with incomplete question coverage (see start-diagnostic.ts)
+  // — treated the same as complete-diagnostic.ts's initial-Ability-Score
+  // derivation: a missing result is scored as incorrect rather than blocking
+  // prediction generation outright. This keeps the prediction well-defined
+  // (if conservative) instead of a hard DIAGNOSTIC_INCOMPLETE failure for a
+  // content bank that's still being built out.
   const results: Record<QuestionCategory, DiagnosticCategoryResult> = {} as Record<QuestionCategory, DiagnosticCategoryResult>;
   for (const category of ALL_CATEGORIES) {
     const attempts = byCategory.get(category) ?? [];
     const easy = attempts.find((a) => a.difficulty === "EASY");
     const medium = attempts.find((a) => a.difficulty === "MEDIUM");
     const hard = attempts.find((a) => a.difficulty === "HARD");
-    if (!easy || !medium || !hard || easy.isCorrect === null || medium.isCorrect === null || hard.isCorrect === null) {
-      throw new ScoreError("DIAGNOSTIC_INCOMPLETE", `Category ${category} is missing a complete Easy/Medium/Hard result.`);
-    }
-    results[category] = { easyCorrect: easy.isCorrect, mediumCorrect: medium.isCorrect, hardCorrect: hard.isCorrect };
+    results[category] = { easyCorrect: !!easy?.isCorrect, mediumCorrect: !!medium?.isCorrect, hardCorrect: !!hard?.isCorrect };
   }
 
   const computed = computeDiagnosticPrediction(results);

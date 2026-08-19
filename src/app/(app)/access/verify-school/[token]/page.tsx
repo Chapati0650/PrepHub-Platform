@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { auth } from "@/auth";
 import { resolveVerificationToken } from "@/lib/school-verification";
 import { SchoolVerificationError } from "@/lib/school-verification/errors";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { LinkButton } from "@/components/ui/link-button";
 import { logoutAction } from "@/app/(app)/actions";
 import { CompleteVerification } from "./complete-verification";
 
@@ -34,7 +34,7 @@ export default async function VerifyTokenPage({
               <CardDescription>{err.message}</CardDescription>
             </CardHeader>
             <CardContent>
-              <Button render={<Link href="/access/verify-school">Send New Link</Link>} />
+              <LinkButton href="/access/verify-school">Send New Link</LinkButton>
             </CardContent>
           </Card>
         </div>

@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LatexText } from "@/components/content/latex-text";
+import { QuestionStatement } from "@/components/content/question-statement";
 import { ExplanationSteps } from "@/components/content/explanation-steps";
+import { DistractorNote } from "@/components/content/distractor-note";
 import { CALCULATOR_LABELS } from "@/lib/content/labels";
 import type { StudentQuestionContent, StudentQuestionFeedback } from "@/lib/session/question-content";
 import { Calculator } from "./calculator";
@@ -22,7 +24,15 @@ export type SessionRunnerItem = {
   skipped: boolean;
 };
 
-export type LoadedQuestion = { content: StudentQuestionContent; feedback: StudentQuestionFeedback | null };
+// studentAnswer is optional: the live runner already tracks it separately in
+// its own `items` state (see SessionRunnerItem), so its own loadQuestion
+// calls never populate this — only the results-review "detail" loaders do,
+// for QuestionDetail below to look up the right distractor note.
+export type LoadedQuestion = {
+  content: StudentQuestionContent;
+  feedback: StudentQuestionFeedback | null;
+  studentAnswer?: string | null;
+};
 
 export type SessionRunnerProps = {
   title: string;
@@ -123,7 +133,7 @@ export function SessionRunner(props: SessionRunnerProps) {
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4 sm:p-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">{props.title}</h1>
+        <h1 className="text-xl">{props.title}</h1>
         <span className="text-sm text-muted-foreground">
           Question {position + 1} of {items.length}
         </span>
@@ -150,12 +160,12 @@ export function SessionRunner(props: SessionRunnerProps) {
               even as the app's base font-size tightened for density elsewhere
               (globals.css) — this is the one place that should read generously,
               not compactly. */}
-          <LatexText text={loaded.content.questionText} className="text-lg leading-relaxed" />
-
-          {loaded.content.questionImageId && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={`/api/media/${loaded.content.questionImageId}`} alt="" className="mt-3 max-w-full rounded" />
-          )}
+          <QuestionStatement
+            text={loaded.content.questionText}
+            imageId={loaded.content.questionImageId}
+            mediaBasePath="/api/media"
+            textClassName="text-lg leading-relaxed"
+          />
 
           {loaded.content.calculatorSetting === "ALLOWED" && (
             <div className="mt-4">
@@ -224,6 +234,11 @@ export function SessionRunner(props: SessionRunnerProps) {
               {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && loaded.feedback && (
                 <p className="text-sm text-muted-foreground">Accepted answer: {loaded.feedback.acceptedAnswers[0]}</p>
               )}
+              {!currentItem.isCorrect &&
+                currentItem.studentAnswer &&
+                loaded.feedback?.distractorExplanationsByChoiceId[currentItem.studentAnswer] && (
+                  <DistractorNote text={loaded.feedback.distractorExplanationsByChoiceId[currentItem.studentAnswer]} />
+                )}
               {loaded.feedback && loaded.feedback.explanationSteps.length > 0 ? (
                 <ExplanationSteps steps={loaded.feedback.explanationSteps} mediaBasePath="/api/media" />
               ) : (

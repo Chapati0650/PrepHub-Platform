@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
+import { Users2, Megaphone } from "lucide-react";
 import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { getSchoolCommunityData } from "@/lib/community/school-community-data";
+import { PageHeader } from "@/components/page-header";
 
 function formatMetricValue(metric: string, value: number): string {
   if (metric === "STUDY_HOURS") return `${value.toLocaleString()} hours`;
@@ -15,7 +17,7 @@ function formatMetricValue(metric: string, value: number): string {
 // students have no school to show a community for.
 export default async function SchoolCommunityPage() {
   const session = await auth();
-  if (!session?.user) redirect("/home");
+  if (!session?.user?.id) redirect("/home");
   if (!canUseStudentExperience(session.user.role)) redirect("/home");
 
   // PRD-011 §6/§7: an Administrator gets the School Community page too, but
@@ -38,7 +40,10 @@ export default async function SchoolCommunityPage() {
   if (!schoolId) {
     return (
       <div className="mx-auto flex max-w-lg flex-col items-center gap-4 p-8 text-center">
-        <h1 className="text-xl font-semibold">School Community is available for school-sponsored students.</h1>
+        <div className="inline-flex size-10 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+          <Users2 className="size-5" aria-hidden />
+        </div>
+        <h1 className="text-xl sm:text-2xl">School Community is available for school-sponsored students.</h1>
         <p className="text-muted-foreground">
           This page shows your school&apos;s collective progress. It becomes available once you&apos;re verified with a partner
           school.
@@ -52,10 +57,7 @@ export default async function SchoolCommunityPage() {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8">
       {/* School Identity */}
-      <div>
-        <p className="text-sm text-muted-foreground">School Community</p>
-        <h1 className="text-2xl font-semibold">{data.schoolName}</h1>
-      </div>
+      <PageHeader eyebrow="School Community" title={data.schoolName} icon={Users2} />
 
       {/* School Progress */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -90,9 +92,10 @@ export default async function SchoolCommunityPage() {
       {data.updates.length > 0 && (
         <div className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold">Community Updates</h2>
-          <ul className="flex flex-col gap-1.5">
+          <ul className="flex flex-col gap-2">
             {data.updates.map((update) => (
-              <li key={update} className="rounded-md bg-muted p-2 text-sm">
+              <li key={update} className="flex items-start gap-2.5 rounded-md bg-muted p-2.5 text-sm">
+                <Megaphone className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
                 {update}
               </li>
             ))}
@@ -124,7 +127,7 @@ export default async function SchoolCommunityPage() {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-border p-3 text-center">
-      <p className="text-lg font-semibold">{value}</p>
+      <p className="font-heading text-lg font-semibold tabular-nums">{value}</p>
       <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   );

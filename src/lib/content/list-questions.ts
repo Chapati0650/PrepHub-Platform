@@ -25,6 +25,7 @@ export type QuestionListFilters = {
   familyMembership?: "IN_FAMILY" | "NOT_IN_FAMILY";
   videoStatus?: "PRESENT" | "MISSING";
   writtenExplanationStatus?: "PRESENT" | "MISSING";
+  reviewStatus?: "NEEDS_REVIEW" | "REVIEWED";
   sort?: QuestionListSort;
   page?: number;
   pageSize?: 25 | 50 | 100;
@@ -125,6 +126,32 @@ export function buildWhere(filters: QuestionListFilters): Prisma.QuestionWhereIn
     });
   }
 
+  if (filters.reviewStatus) {
+    // Only ever true for bulk-uploaded questions (aiGenerated) — ordinary
+    // human-authored questions match neither branch, same as how videoStatus
+    // above scopes to whichever revision is currently editable (draft if one
+    // exists, else published).
+    const needsReview: Prisma.QuestionWhereInput = {
+      OR: [
+        { currentDraftRevisionId: { not: null }, currentDraftRevision: { aiGenerated: true, aiReviewedAt: null } },
+        {
+          currentDraftRevisionId: null,
+          currentPublishedRevision: { aiGenerated: true, aiReviewedAt: null },
+        },
+      ],
+    };
+    const reviewed: Prisma.QuestionWhereInput = {
+      OR: [
+        { currentDraftRevisionId: { not: null }, currentDraftRevision: { aiGenerated: true, aiReviewedAt: { not: null } } },
+        {
+          currentDraftRevisionId: null,
+          currentPublishedRevision: { aiGenerated: true, aiReviewedAt: { not: null } },
+        },
+      ],
+    };
+    clauses.push(filters.reviewStatus === "NEEDS_REVIEW" ? needsReview : reviewed);
+  }
+
   return { AND: clauses };
 }
 
@@ -149,7 +176,13 @@ function buildOrderBy(sort: QuestionListSort | undefined): Prisma.QuestionOrderB
   }
 }
 
-function sortByFixedOrder(rows: QuestionListRow[], sort: QuestionListSort | undefined): QuestionListRow[] {
+// Generic over the row shape (not just the full QuestionListRow) so
+// listQuestionIds below can reuse the exact same ordering on a lighter
+// {id, category, difficulty}-only query instead of duplicating this logic.
+function sortByFixedOrder<T extends { category: QuestionCategory; difficulty: QuestionDifficulty }>(
+  rows: T[],
+  sort: QuestionListSort | undefined,
+): T[] {
   if (sort === "CATEGORY") {
     return [...rows].sort((a, b) => CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category));
   }
@@ -189,4 +222,54 @@ export async function listQuestions(
     prisma.question.count({ where }),
   ]);
   return { rows, totalCount };
+}
+
+// Every matching id, in the exact same order listQuestions would render
+// them, but unpaginated and with no revision/family data — powers the
+// question editor's Previous/Next navigation (see [id]/page.tsx), which
+// needs to find a question's neighbors across the whole filtered set, not
+// just whatever page the Owner happened to click in from.
+export async function listQuestionIds(filters: QuestionListFilters): Promise<string[]> {
+  const where = buildWhere(filters);
+
+  if (filters.sort === "CATEGORY" || filters.sort === "DIFFICULTY") {
+    const all = await prisma.question.findMany({
+      where,
+      select: { id: true, category: true, difficulty: true },
+      orderBy: { updatedAt: "desc" },
+    });
+    return sortByFixedOrder(all, filters.sort).map((r) => r.id);
+  }
+
+  const rows = await prisma.question.findMany({ where, select: { id: true }, orderBy: buildOrderBy(filters.sort) });
+  return rows.map((r) => r.id);
+}
+
+type SearchParams = Record<string, string | string[] | undefined>;
+
+function one(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+// Shared by the Questions table page and the question editor page (for
+// Previous/Next navigation) so both parse the same URL query params into
+// filters identically — they must agree on what "the current filtered view"
+// means, or Next could jump somewhere the table itself would never show.
+export function parseQuestionListFilters(searchParams: SearchParams): QuestionListFilters {
+  const page = Number(one(searchParams.page) ?? "1");
+  const pageSize = Number(one(searchParams.pageSize) ?? "50");
+  return {
+    search: one(searchParams.search),
+    category: one(searchParams.category) as QuestionListFilters["category"],
+    difficulty: one(searchParams.difficulty) as QuestionListFilters["difficulty"],
+    questionType: one(searchParams.questionType) as QuestionListFilters["questionType"],
+    status: one(searchParams.status) as QuestionListFilters["status"],
+    familyMembership: one(searchParams.familyMembership) as QuestionListFilters["familyMembership"],
+    videoStatus: one(searchParams.videoStatus) as QuestionListFilters["videoStatus"],
+    writtenExplanationStatus: one(searchParams.writtenExplanationStatus) as QuestionListFilters["writtenExplanationStatus"],
+    reviewStatus: one(searchParams.reviewStatus) as QuestionListFilters["reviewStatus"],
+    sort: (one(searchParams.sort) as QuestionListSort | undefined) ?? "UPDATED_DESC",
+    page: Number.isFinite(page) && page > 0 ? page : 1,
+    pageSize: [25, 50, 100].includes(pageSize) ? (pageSize as 25 | 50 | 100) : 50,
+  };
 }

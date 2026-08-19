@@ -1,7 +1,21 @@
 import Link from "next/link";
+import { LayoutGrid } from "lucide-react";
 import { getContentCoverage } from "@/lib/content/coverage";
 import { CATEGORY_ORDER, DIFFICULTY_ORDER } from "@/lib/content/constants";
 import { CATEGORY_LABELS, DIFFICULTY_LABELS } from "@/lib/content/labels";
+import { PageHeader } from "@/components/page-header";
+
+// Graduated coverage-strength tint — same idea as the coverage matrix always
+// had (a color signal on hasNoPublished), extended to more than one step so
+// "barely covered" and "well covered" read differently at a glance, not just
+// "covered vs. not." Deliberately subtle opacity steps, not a full-saturation
+// wash, per this app's "color applied precisely" convention.
+function coverageTint(publishedCount: number): string {
+  if (publishedCount === 0) return "bg-destructive/5";
+  if (publishedCount <= 2) return "";
+  if (publishedCount <= 5) return "bg-primary/[0.05]";
+  return "bg-primary/[0.1]";
+}
 
 // PRD-015 §11: Category × Difficulty matrix.
 export default async function ContentCoveragePage() {
@@ -11,7 +25,7 @@ export default async function ContentCoveragePage() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 p-8">
-      <h1 className="text-2xl font-semibold">Content Coverage</h1>
+      <PageHeader icon={LayoutGrid} title="Content Coverage" description="Where the question bank is strong, and where it still needs work." />
 
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full border-collapse text-sm">
@@ -37,9 +51,9 @@ export default async function ContentCoveragePage() {
                     <td key={difficulty} className="p-3 align-top">
                       <Link
                         href={`/owner/content/questions?${params.toString()}`}
-                        className={`flex flex-col gap-0.5 rounded-md p-2 hover:bg-muted ${hasNoPublished ? "bg-destructive/5" : ""}`}
+                        className={`flex flex-col gap-0.5 rounded-md p-2 hover:bg-muted ${coverageTint(cell.publishedCount)}`}
                       >
-                        <span className={hasNoPublished ? "font-medium text-destructive" : "font-medium"}>
+                        <span className={`tabular-nums ${hasNoPublished ? "font-medium text-destructive" : "font-medium"}`}>
                           {cell.publishedCount} published
                         </span>
                         <span className="text-xs text-muted-foreground">{cell.draftCount} draft/revision</span>

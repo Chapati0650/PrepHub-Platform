@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Maximize2, Minimize2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LatexText } from "@/components/content/latex-text";
+import { QuestionStatement } from "@/components/content/question-statement";
 import { ExplanationSteps } from "@/components/content/explanation-steps";
+import { DistractorNote } from "@/components/content/distractor-note";
 import { getPublishIssues } from "@/lib/content/validation";
 import { CALCULATOR_LABELS } from "@/lib/content/labels";
 import type { QuestionListRow } from "@/lib/content/list-questions";
@@ -30,6 +33,16 @@ export function StudentPreviewSheet({
   const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(null);
   const [numericAnswer, setNumericAnswer] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  // Full Screen is a per-preview-session choice, not per-question — it stays
+  // on while browsing Previous/Next within the same open preview, and only
+  // resets the next time the sheet is opened fresh (adjusted during render,
+  // same pattern as interactionResetKey below, rather than an effect).
+  const [fullScreen, setFullScreen] = useState(false);
+  const [openResetKey, setOpenResetKey] = useState(open);
+  if (openResetKey !== open) {
+    setOpenResetKey(open);
+    if (!open) setFullScreen(false);
+  }
 
   // PRD-015 §5.3: reset interaction state whenever a different question opens —
   // adjusted during render per React's guidance, rather than in an effect.
@@ -53,16 +66,24 @@ export function StudentPreviewSheet({
   if (!revision) return null;
 
   const issues = getPublishIssues(row, revision, row.family);
+  const selectedChoice =
+    row.questionType === "MULTIPLE_CHOICE" ? revision.answerChoices.find((c) => c.id === selectedChoiceId) : undefined;
   const isCorrect =
     row.questionType === "MULTIPLE_CHOICE"
-      ? (revision.answerChoices.find((c) => c.id === selectedChoiceId)?.isCorrect ?? false)
+      ? (selectedChoice?.isCorrect ?? false)
       : revision.acceptedAnswers.some((a) => a.trim().toLowerCase() === numericAnswer.trim().toLowerCase());
 
   const explanationVideo = row.family?.sharedVideo ?? revision.standaloneVideo;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
+      <SheetContent
+        className={
+          fullScreen
+            ? "w-full overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-none"
+            : "w-full overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
+        }
+      >
         <SheetHeader>
           <SheetTitle>Student Preview</SheetTitle>
           <SheetDescription>
@@ -71,13 +92,28 @@ export function StudentPreviewSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex flex-col gap-4 p-4">
-          <div className="flex items-center justify-between">
-            <Button size="sm" variant="outline" disabled={!onPrevious} onClick={onPrevious}>
-              Previous
-            </Button>
-            <Button size="sm" variant="outline" disabled={!onNext} onClick={onNext}>
-              Next
+        <div className={fullScreen ? "mx-auto flex w-full max-w-3xl flex-col gap-4 p-4" : "flex flex-col gap-4 p-4"}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" disabled={!onPrevious} onClick={onPrevious}>
+                Previous
+              </Button>
+              <Button size="sm" variant="outline" disabled={!onNext} onClick={onNext}>
+                Next
+              </Button>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => setFullScreen((f) => !f)}>
+              {fullScreen ? (
+                <>
+                  <Minimize2 className="size-4" aria-hidden />
+                  Exit Full Screen
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="size-4" aria-hidden />
+                  Full Screen
+                </>
+              )}
             </Button>
           </div>
 
@@ -96,16 +132,11 @@ export function StudentPreviewSheet({
 
           <div className="rounded-lg border border-border p-4">
             <p className="mb-2 text-xs text-muted-foreground">{CALCULATOR_LABELS[revision.calculatorSetting]}</p>
-            <LatexText text={revision.questionText} className="text-base" />
-
-            {revision.questionImage && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={`/api/owner/media/${revision.questionImage.id}`}
-                alt=""
-                className="mt-3 max-w-full rounded"
-              />
-            )}
+            <QuestionStatement
+              text={revision.questionText}
+              imageId={revision.questionImage?.id ?? null}
+              mediaBasePath="/api/owner/media"
+            />
 
             <div className="mt-4 flex flex-col gap-2">
               {row.questionType === "MULTIPLE_CHOICE" ? (
@@ -163,6 +194,9 @@ export function StudentPreviewSheet({
                 <p className={`text-sm font-medium ${isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
                   {isCorrect ? "Correct!" : "Incorrect."}
                 </p>
+                {!isCorrect && selectedChoice?.distractorExplanation && (
+                  <DistractorNote text={selectedChoice.distractorExplanation} />
+                )}
                 {revision.explanationSteps.length > 0 ? (
                   <ExplanationSteps steps={revision.explanationSteps} mediaBasePath="/api/owner/media" />
                 ) : (

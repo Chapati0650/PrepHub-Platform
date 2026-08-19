@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { getStudentQuestionContent, getStudentQuestionFeedback } from "@/lib/session/question-content";
+import { finalizeDiagnosticCompletion } from "@/lib/diagnostic/complete-diagnostic";
 import { IntroScreens } from "./intro-screens";
 import { DiagnosticRunner } from "./diagnostic-runner";
 import { beginDiagnosticAction } from "./actions";
@@ -11,7 +12,7 @@ import { beginDiagnosticAction } from "./actions";
 // Not Started (intro), In Progress (resume the runner), Completed (results).
 export default async function DiagnosticPage() {
   const session = await auth();
-  if (!session?.user) redirect("/home");
+  if (!session?.user?.id) redirect("/home");
   if (!canUseStudentExperience(session.user.role)) redirect("/home");
 
   const diagnostic = await prisma.diagnosticSession.findUnique({
@@ -24,6 +25,16 @@ export default async function DiagnosticPage() {
   }
 
   if (diagnostic.status === "COMPLETED") {
+    redirect("/diagnostic/results");
+  }
+
+  // Content-coverage fallback (see start-diagnostic.ts): if literally nothing
+  // was published anywhere, the session can exist with zero attempts. There's
+  // nothing to run — complete it immediately (every category falls back to
+  // its conservative "missing = incorrect" Ability Score) instead of the
+  // runner crashing on an empty question list.
+  if (diagnostic.attempts.length === 0) {
+    await finalizeDiagnosticCompletion(session.user.id);
     redirect("/diagnostic/results");
   }
 

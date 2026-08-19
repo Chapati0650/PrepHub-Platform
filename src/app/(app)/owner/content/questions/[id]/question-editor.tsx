@@ -3,32 +3,26 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ArrowLeft, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LatexText } from "@/components/content/latex-text";
+import { QuestionStatement } from "@/components/content/question-statement";
 import { toast } from "@/components/ui/toast";
 import { ExplanationSteps } from "@/components/content/explanation-steps";
 import { getPublishIssues, type RevisionForValidation } from "@/lib/content/validation";
-import { CATEGORY_LABELS, DIFFICULTY_LABELS, STATUS_LABELS } from "@/lib/content/labels";
+import {
+  CATEGORY_ORDER,
+  DIFFICULTY_ORDER,
+  getCalculatorSettingForCategory,
+  getSuggestedTimeForDifficulty,
+} from "@/lib/content/constants";
+import { CATEGORY_LABELS, CALCULATOR_LABELS, DIFFICULTY_LABELS, STATUS_LABELS } from "@/lib/content/labels";
 import type { QuestionContentPatch, QuestionWithContent } from "@/lib/content/questions";
 import type { MediaAsset } from "@/generated/prisma/client";
 import { MediaUploadField } from "../../media-upload-field";
@@ -36,8 +30,10 @@ import { StudentPreviewSheet } from "../student-preview-sheet";
 import {
   archiveQuestionAction,
   generateExplanationAction,
+  generateDistractorExplanationsAction,
   generateStepDiagramAction,
   getQuestionAction,
+  markAiReviewedAction,
   markPreviewCompletedAction,
   publishQuestionAction,
   restoreQuestionAction,
@@ -73,7 +69,20 @@ function readyMediaStub(id: string): MediaAsset {
   };
 }
 
-export function QuestionEditor({ question: initialQuestion }: { question: QuestionWithContent }) {
+export type QuestionEditorNavigation = {
+  prevHref: string | null;
+  nextHref: string | null;
+  position: number;
+  total: number;
+};
+
+export function QuestionEditor({
+  question: initialQuestion,
+  navigation,
+}: {
+  question: QuestionWithContent;
+  navigation?: QuestionEditorNavigation | null;
+}) {
   const router = useRouter();
   const [question, setQuestion] = useState(initialQuestion);
   const revision = question.currentDraftRevision ?? question.currentPublishedRevision!;
@@ -82,8 +91,10 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
   const isEditable = !isArchived;
 
   const [questionText, setQuestionText] = useState(revision.questionText);
-  const [calculatorSetting, setCalculatorSetting] = useState(revision.calculatorSetting);
-  const [suggestedTimeSeconds, setSuggestedTimeSeconds] = useState(revision.suggestedTimeSeconds);
+  const [category, setCategory] = useState(question.category);
+  const [difficulty, setDifficulty] = useState(question.difficulty);
+  const calculatorSetting = getCalculatorSettingForCategory(category);
+  const suggestedTimeSeconds = getSuggestedTimeForDifficulty(difficulty);
   const [writtenExplanation, setWrittenExplanation] = useState(revision.writtenExplanation ?? "");
   const [explanationSteps, setExplanationSteps] = useState(
     revision.explanationSteps.map((s) => ({ text: s.text, imageId: s.imageId as string | null })),
@@ -91,9 +102,20 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
   const [acceptedAnswersText, setAcceptedAnswersText] = useState(revision.acceptedAnswers.join("\n"));
   const [choices, setChoices] = useState(
     revision.answerChoices.length === 4
-      ? revision.answerChoices.map((c) => ({ text: c.text, isCorrect: c.isCorrect, imageId: c.imageId as string | null }))
-      : Array.from({ length: 4 }, () => ({ text: "", isCorrect: false, imageId: null as string | null })),
+      ? revision.answerChoices.map((c) => ({
+          text: c.text,
+          isCorrect: c.isCorrect,
+          imageId: c.imageId as string | null,
+          distractorExplanation: c.distractorExplanation as string | null,
+        }))
+      : Array.from({ length: 4 }, () => ({
+          text: "",
+          isCorrect: false,
+          imageId: null as string | null,
+          distractorExplanation: null as string | null,
+        })),
   );
+  const [generatingDistractors, setGeneratingDistractors] = useState(false);
   const [questionImageId, setQuestionImageId] = useState<string | null>(revision.questionImageId);
   const [standaloneVideoId, setStandaloneVideoId] = useState<string | null>(revision.standaloneVideoId);
 
@@ -102,7 +124,23 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewQuestion, setPreviewQuestion] = useState(initialQuestion);
   const [actionPending, setActionPending] = useState(false);
-  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const [navigating, setNavigating] = useState(false);
+
+  // A status-changing action (archive, publish, unpublish...) can move this
+  // question out of whatever filtered list it was opened from — e.g.
+  // archiving drops it out of the default view, which excludes ARCHIVED — so
+  // the router.refresh() that follows recomputes `navigation` as null even
+  // though nothing about "what's next in the list" actually became unknown.
+  // Keep the last real navigation around (reset only when a genuinely
+  // different question mounts, since this component is keyed by question.id)
+  // so Previous/Next stay usable instead of vanishing right when they're
+  // most useful — moving on to the next question in a batch right after
+  // archiving/publishing this one.
+  const [navigationSnapshot, setNavigationSnapshot] = useState<QuestionEditorNavigation | null>(navigation ?? null);
+  if (navigation && navigation !== navigationSnapshot) {
+    setNavigationSnapshot(navigation);
+  }
+  const effectiveNavigation = navigation ?? navigationSnapshot;
 
   const [transcribing, setTranscribing] = useState(false);
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
@@ -162,7 +200,7 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
   function buildExplanationGenerationInput() {
     return {
       questionText,
-      category: CATEGORY_LABELS[question.category],
+      category: CATEGORY_LABELS[category],
       questionType: question.questionType as "MULTIPLE_CHOICE" | "OPEN_ENDED_NUMERIC",
       answerChoices: question.questionType === "MULTIPLE_CHOICE" ? choices.map((c) => c.text) : null,
       correctChoiceIndex: question.questionType === "MULTIPLE_CHOICE" ? choices.findIndex((c) => c.isCorrect) : null,
@@ -185,6 +223,39 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
     const next = result.steps!.map((s) => ({ text: s.text, imageId: null as string | null }));
     setExplanationSteps(next);
     queueSave({ explanationSteps: next });
+
+    // Best-effort, MULTIPLE_CHOICE only — needs the steps just generated
+    // above as context (see generateDistractorExplanations). A failure here
+    // doesn't roll back the correct-answer explanation that already saved
+    // successfully; the Owner can retry from "Generate distractor notes"
+    // below, or write them by hand.
+    if (question.questionType === "MULTIPLE_CHOICE") {
+      void handleGenerateDistractors(next.map((s) => s.text));
+    }
+  }
+
+  async function handleGenerateDistractors(correctExplanationSteps: string[]) {
+    const correctChoiceIndex = choices.findIndex((c) => c.isCorrect);
+    if (correctChoiceIndex === -1 || correctExplanationSteps.length === 0) return;
+
+    setGenerateExplanationError(null);
+    setGeneratingDistractors(true);
+    const result = await generateDistractorExplanationsAction({
+      questionText,
+      category: CATEGORY_LABELS[category],
+      answerChoices: choices.map((c) => c.text),
+      correctChoiceIndex,
+      correctExplanationSteps,
+    });
+    setGeneratingDistractors(false);
+    if (result.error) {
+      setGenerateExplanationError(result.error);
+      return;
+    }
+    const byIndex = new Map(result.distractors!.map((d) => [d.choiceIndex, d.explanation]));
+    const next = choices.map((c, i) => ({ ...c, distractorExplanation: byIndex.get(i) ?? c.distractorExplanation }));
+    setChoices(next);
+    queueSave({ answerChoices: next });
   }
 
   // Separate, opt-in, and meaningfully more expensive than text generation
@@ -233,8 +304,12 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
       return false;
     }
     setSaveState("saved");
-    // A save can silently flip status (e.g. editing a Published question
-    // starts a Draft Revision) — refresh so the badge/action buttons stay truthful.
+    // A save can silently flip status — a Question Family member still
+    // starts that family's Draft Revision on first edit (see
+    // ensureDraftRevision), and Published standalone questions publish the
+    // edit immediately but the badge/aiAnswerReasoning banner can still
+    // depend on freshly-saved fields — so refresh either way to keep the
+    // badge/action buttons truthful.
     await refreshQuestion();
     return true;
   }
@@ -268,6 +343,21 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
     setPreviewOpen(true);
   }
 
+  // Flushes any pending debounced edit before leaving — a plain <Link> would
+  // unmount this component immediately on click, discarding whatever hasn't
+  // hit the 1500ms debounce yet (same risk queueSave/flush already guards
+  // against for Preview/Publish).
+  async function goToQuestion(href: string | null) {
+    if (!href) return;
+    setNavigating(true);
+    const flushed = await flush();
+    if (!flushed) {
+      setNavigating(false);
+      return;
+    }
+    router.push(href);
+  }
+
   async function runStatusAction(action: (id: string) => Promise<{ error?: string }>, successMessage: string) {
     setActionPending(true);
     const result = await action(question.id);
@@ -279,6 +369,18 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
     toast.add({ title: successMessage, type: "success" });
     await refreshQuestion();
     router.refresh();
+  }
+
+  // Publishes immediately on click, no confirmation step — flush() persists
+  // any pending edit first since the server action publishes whatever's
+  // currently saved, not whatever's still sitting in local state.
+  async function publishNow() {
+    const flushed = await flush();
+    if (!flushed) return;
+    await runStatusAction(
+      publishQuestionAction,
+      question.status === "DRAFT_REVISION" ? "Question republished" : "Question published",
+    );
   }
 
   // The publish checklist must reflect what's currently typed, not just the
@@ -307,6 +409,7 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
       text: c.text,
       isCorrect: c.isCorrect,
       imageId: c.imageId,
+      distractorExplanation: c.distractorExplanation,
     })),
   };
   const publishIssues = getPublishIssues(question, liveRevision, question.family);
@@ -318,8 +421,12 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link href="/owner/content/questions" className="text-sm underline">
-            ← Questions
+          <Link
+            href="/owner/content/questions"
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="size-4" aria-hidden />
+            Questions
           </Link>
           <Badge variant={question.status === "PUBLISHED" ? "default" : "secondary"}>
             {STATUS_LABELS[question.status]}
@@ -330,8 +437,57 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
             </Link>
           )}
         </div>
-        <SaveStatusIndicator state={saveState} error={saveError} onRetry={() => void flush()} />
+        <div className="flex items-center gap-3">
+          <SaveStatusIndicator state={saveState} error={saveError} onRetry={() => void flush()} />
+          {canPublish && (
+            <Button size="sm" disabled={actionPending || publishIssues.length > 0} onClick={() => void publishNow()}>
+              {question.status === "DRAFT_REVISION" ? "Republish" : "Publish"}
+            </Button>
+          )}
+        </div>
       </div>
+
+      {effectiveNavigation && (effectiveNavigation.prevHref || effectiveNavigation.nextHref) && (
+        <div className="flex items-center justify-center gap-3 rounded-md border border-border py-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!effectiveNavigation.prevHref || navigating}
+            onClick={() => void goToQuestion(effectiveNavigation.prevHref)}
+          >
+            <ChevronLeft className="size-4" aria-hidden />
+            Previous
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Question {effectiveNavigation.position} of {effectiveNavigation.total}
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!effectiveNavigation.nextHref || navigating}
+            onClick={() => void goToQuestion(effectiveNavigation.nextHref)}
+          >
+            Next
+            <ChevronRight className="size-4" aria-hidden />
+          </Button>
+        </div>
+      )}
+
+      {revision.aiGenerated && !revision.aiReviewedAt && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+          <Sparkles className="size-3.5 shrink-0" aria-hidden />
+          <span>Created by bulk upload — not required before publishing.</span>
+          {revision.aiAnswerReasoning && <span className="italic">{revision.aiAnswerReasoning}</span>}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto h-6 px-2 text-xs"
+            onClick={() => runStatusAction(markAiReviewedAction, "Marked as reviewed")}
+          >
+            Mark as Reviewed
+          </Button>
+        </div>
+      )}
 
       {isArchived && (
         <Alert>
@@ -389,18 +545,58 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
 
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-1">
-              <Label>Category</Label>
-              <p className="text-sm text-muted-foreground">
-                {CATEGORY_LABELS[question.category]}
-                {isFamilyMember && " (set by the family)"}
-              </p>
+              <Label htmlFor="questionCategory">Category</Label>
+              {isFamilyMember ? (
+                <p className="text-sm text-muted-foreground">{CATEGORY_LABELS[category]} (set by the family)</p>
+              ) : (
+                <Select
+                  value={category}
+                  disabled={!isEditable}
+                  onValueChange={(v) => {
+                    const next = v as typeof category;
+                    setCategory(next);
+                    queueSave({ category: next });
+                  }}
+                >
+                  <SelectTrigger id="questionCategory">
+                    <SelectValue>{(v: typeof category) => CATEGORY_LABELS[v]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORY_ORDER.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {CATEGORY_LABELS[c]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div className="flex flex-col gap-1">
-              <Label>Difficulty</Label>
-              <p className="text-sm text-muted-foreground">
-                {DIFFICULTY_LABELS[question.difficulty]}
-                {isFamilyMember && " (set by the family)"}
-              </p>
+              <Label htmlFor="questionDifficulty">Difficulty</Label>
+              {isFamilyMember ? (
+                <p className="text-sm text-muted-foreground">{DIFFICULTY_LABELS[difficulty]} (set by the family)</p>
+              ) : (
+                <Select
+                  value={difficulty}
+                  disabled={!isEditable}
+                  onValueChange={(v) => {
+                    const next = v as typeof difficulty;
+                    setDifficulty(next);
+                    queueSave({ difficulty: next });
+                  }}
+                >
+                  <SelectTrigger id="questionDifficulty">
+                    <SelectValue>{(v: typeof difficulty) => DIFFICULTY_LABELS[v]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DIFFICULTY_ORDER.map((d) => (
+                      <SelectItem key={d} value={d}>
+                        {DIFFICULTY_LABELS[d]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </div>
 
@@ -418,6 +614,7 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
               placeholder="Supports LaTeX: $x^2$ inline, $$\frac{1}{2}$$ block"
             />
             <LatexHint />
+            <UnderlineHint />
           </div>
 
           <div className="flex flex-col gap-2">
@@ -439,45 +636,36 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="calculatorSetting">Calculator</Label>
-              <Select
-                value={calculatorSetting}
-                onValueChange={(v) => {
-                  const value = v as "ALLOWED" | "NOT_ALLOWED";
-                  setCalculatorSetting(value);
-                  queueSave({ calculatorSetting: value });
-                }}
-              >
-                <SelectTrigger id="calculatorSetting" disabled={!isEditable}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALLOWED">Calculator Allowed</SelectItem>
-                  <SelectItem value="NOT_ALLOWED">Calculator Not Allowed</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="flex flex-col gap-1">
+              <Label>Calculator</Label>
+              <p className="text-sm text-muted-foreground">
+                {CALCULATOR_LABELS[calculatorSetting]}
+                <span className="block text-xs">Determined by category — Desmos is allowed on all Math questions.</span>
+              </p>
             </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="suggestedTime">Suggested time (seconds)</Label>
-              <Input
-                id="suggestedTime"
-                type="number"
-                min={1}
-                disabled={!isEditable}
-                value={suggestedTimeSeconds}
-                onChange={(e) => {
-                  const value = Number(e.target.value) || 0;
-                  setSuggestedTimeSeconds(value);
-                  queueSave({ suggestedTimeSeconds: value });
-                }}
-              />
+            <div className="flex flex-col gap-1">
+              <Label>Suggested time</Label>
+              <p className="text-sm text-muted-foreground">
+                {suggestedTimeSeconds} seconds
+                <span className="block text-xs">Determined by difficulty — Easy 60s, Medium 90s, Hard 180s.</span>
+              </p>
             </div>
           </div>
 
           {question.questionType === "MULTIPLE_CHOICE" ? (
             <div className="flex flex-col gap-3">
-              <Label>Answer choices</Label>
+              <div className="flex items-center justify-between gap-3">
+                <Label>Answer choices</Label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={!isEditable || explanationSteps.length === 0 || !choices.some((c) => c.isCorrect) || generatingDistractors}
+                  onClick={() => void handleGenerateDistractors(explanationSteps.map((s) => s.text))}
+                >
+                  {generatingDistractors ? "Generating…" : "Generate distractor notes"}
+                </Button>
+              </div>
               <LatexHint />
               {choices.map((choice, index) => (
                 <div key={index} className="flex flex-col gap-2 rounded-md border border-border p-3">
@@ -525,6 +713,26 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
                     }}
                     accept="image/png,image/jpeg,image/webp"
                   />
+                  {!choice.isCorrect && (
+                    <div className="flex flex-col gap-1">
+                      <Label htmlFor={`distractor-${index}`} className="text-xs text-muted-foreground">
+                        Why students often pick this (shown only to a student who chooses it)
+                      </Label>
+                      <Textarea
+                        id={`distractor-${index}`}
+                        rows={2}
+                        disabled={!isEditable}
+                        value={choice.distractorExplanation ?? ""}
+                        placeholder="e.g. You may have forgotten to convert units before comparing."
+                        onChange={(e) => {
+                          const value = e.target.value || null;
+                          const next = choices.map((c, i) => (i === index ? { ...c, distractorExplanation: value } : c));
+                          setChoices(next);
+                          queueSave({ answerChoices: next });
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -705,18 +913,6 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
             <Button variant="outline" onClick={openPreview}>
               Open Student Preview
             </Button>
-            {canPublish && (
-              <Button
-                disabled={actionPending}
-                onClick={async () => {
-                  await flush();
-                  await refreshQuestion();
-                  setPublishDialogOpen(true);
-                }}
-              >
-                {question.status === "DRAFT_REVISION" ? "Republish" : "Publish"}
-              </Button>
-            )}
             {canUnpublish && (
               <Button
                 variant="outline"
@@ -742,11 +938,11 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
         <div className="flex flex-col gap-2">
           <Label>Preview</Label>
           <div className="rounded-lg border border-border p-4">
-            <LatexText text={questionText || "(no question text yet)"} className="text-base" />
-            {questionImageId && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={mediaUrl(questionImageId)!} alt="" className="mt-3 max-w-full rounded" />
-            )}
+            <QuestionStatement
+              text={questionText || "(no question text yet)"}
+              imageId={questionImageId}
+              mediaBasePath="/api/owner/media"
+            />
             {question.questionType === "MULTIPLE_CHOICE" && (
               <div className="mt-4 flex flex-col gap-2">
                 {choices.map((choice, i) => (
@@ -788,57 +984,6 @@ export function QuestionEditor({ question: initialQuestion }: { question: Questi
       </div>
 
       <StudentPreviewSheet row={previewQuestion} open={previewOpen} onOpenChange={setPreviewOpen} />
-
-      <Dialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirm publish</DialogTitle>
-            <DialogDescription>
-              This makes the question eligible for new diagnostics and practice sets. Existing Active
-              Practice Sets are never affected.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-1 text-sm">
-            <p>
-              <span className="text-muted-foreground">Category:</span> {CATEGORY_LABELS[question.category]}
-            </p>
-            <p>
-              <span className="text-muted-foreground">Difficulty:</span> {DIFFICULTY_LABELS[question.difficulty]}
-            </p>
-            <p>
-              <span className="text-muted-foreground">Correct answer:</span>{" "}
-              {question.questionType === "MULTIPLE_CHOICE"
-                ? (choices.find((c) => c.isCorrect)?.text ?? "None selected")
-                : acceptedAnswersText.split("\n")[0]}
-            </p>
-          </div>
-          {publishIssues.length > 0 && (
-            <Alert variant="destructive">
-              <AlertDescription>
-                <ul className="list-inside list-disc">
-                  {publishIssues.map((issue) => (
-                    <li key={issue}>{issue}</li>
-                  ))}
-                </ul>
-              </AlertDescription>
-            </Alert>
-          )}
-          <DialogFooter>
-            <Button
-              disabled={publishIssues.length > 0 || actionPending}
-              onClick={async () => {
-                setPublishDialogOpen(false);
-                await runStatusAction(
-                  publishQuestionAction,
-                  question.status === "DRAFT_REVISION" ? "Question republished" : "Question published",
-                );
-              }}
-            >
-              Confirm {question.status === "DRAFT_REVISION" ? "Republish" : "Publish"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -853,6 +998,19 @@ function LatexHint() {
     <p className="text-xs text-muted-foreground">
       Math must be wrapped in <code className="rounded bg-muted px-1 py-0.5">$...$</code> to render — e.g.{" "}
       <code className="rounded bg-muted px-1 py-0.5">$5x^2$</code>, not <code className="rounded bg-muted px-1 py-0.5">5x^2</code>.
+    </p>
+  );
+}
+
+// Same persistent-caption reasoning as LatexHint above — for questions that
+// ask about "the underlined portion" (a common Reading & Writing format),
+// without a visible caption an Owner has no way to discover this syntax
+// exists at all, and the question is unanswerable to a student without it.
+function UnderlineHint() {
+  return (
+    <p className="text-xs text-muted-foreground">
+      Mark underlined text with <code className="rounded bg-muted px-1 py-0.5">[[...]]</code> — e.g.{" "}
+      <code className="rounded bg-muted px-1 py-0.5">the [[underlined portion]] of the text</code>.
     </p>
   );
 }

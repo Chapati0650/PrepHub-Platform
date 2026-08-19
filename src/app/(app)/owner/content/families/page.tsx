@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Boxes } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { listQuestions } from "@/lib/content/list-questions";
 import { FAMILY_ELIGIBLE_CATEGORIES, FAMILY_VERSION_COUNT } from "@/lib/content/constants";
@@ -12,6 +13,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 import { CreateFamilyDialog } from "./create-family-dialog";
 import { GroupQuestionsDialog } from "./group-questions-dialog";
 
@@ -39,16 +42,15 @@ export default async function QuestionFamiliesPage() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 p-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Question Families</h1>
+      <PageHeader icon={Boxes} title="Question Families">
         <div className="flex gap-2">
           <GroupQuestionsDialog eligibleQuestions={eligibleQuestions} />
           <CreateFamilyDialog />
         </div>
-      </div>
+      </PageHeader>
 
       {families.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No Question Families yet.</p>
+        <EmptyState icon={Boxes} title="No Question Families yet" description="Group existing questions or create an empty family to get started." />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <Table>

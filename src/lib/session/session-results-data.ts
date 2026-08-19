@@ -21,7 +21,10 @@ export type SessionResultsData = {
 // timestamps we do have rather than adding storage purely for a stat.
 function timeStats(startedAt: Date, completedAt: Date, questionCount: number) {
   const totalSessionTime = Math.max(0, Math.round((completedAt.getTime() - startedAt.getTime()) / 1000));
-  return { totalTimeSeconds: totalSessionTime, avgTimeSeconds: Math.round(totalSessionTime / questionCount) };
+  return {
+    totalTimeSeconds: totalSessionTime,
+    avgTimeSeconds: questionCount === 0 ? 0 : Math.round(totalSessionTime / questionCount),
+  };
 }
 
 export async function getDiagnosticResultsData(studentId: string): Promise<SessionResultsData> {
@@ -44,7 +47,7 @@ export async function getDiagnosticResultsData(studentId: string): Promise<Sessi
     stats: {
       correct,
       total: session.attempts.length,
-      accuracy: Math.round((correct / session.attempts.length) * 100),
+      accuracy: session.attempts.length === 0 ? 0 : Math.round((correct / session.attempts.length) * 100),
       ...timeStats(session.startedAt, session.completedAt ?? new Date(), session.attempts.length),
     },
     mastery: ALL_CATEGORIES.map((category) => ({

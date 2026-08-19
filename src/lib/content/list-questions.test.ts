@@ -44,4 +44,22 @@ describe("buildWhere", () => {
     expect(andClauses({ familyMembership: "IN_FAMILY" })).toContainEqual({ familyId: { not: null } });
     expect(andClauses({ familyMembership: "NOT_IN_FAMILY" })).toContainEqual({ familyId: null });
   });
+
+  it("maps NEEDS_REVIEW to aiGenerated-and-unreviewed on whichever revision is editable", () => {
+    const clause = andClauses({ reviewStatus: "NEEDS_REVIEW" }).find((c) => "OR" in c) as { OR: unknown[] };
+    expect(clause).toBeDefined();
+    expect(clause.OR).toEqual([
+      { currentDraftRevisionId: { not: null }, currentDraftRevision: { aiGenerated: true, aiReviewedAt: null } },
+      { currentDraftRevisionId: null, currentPublishedRevision: { aiGenerated: true, aiReviewedAt: null } },
+    ]);
+  });
+
+  it("maps REVIEWED to aiGenerated-and-reviewed on whichever revision is editable", () => {
+    const clause = andClauses({ reviewStatus: "REVIEWED" }).find((c) => "OR" in c) as { OR: unknown[] };
+    expect(clause).toBeDefined();
+    expect(clause.OR).toEqual([
+      { currentDraftRevisionId: { not: null }, currentDraftRevision: { aiGenerated: true, aiReviewedAt: { not: null } } },
+      { currentDraftRevisionId: null, currentPublishedRevision: { aiGenerated: true, aiReviewedAt: { not: null } } },
+    ]);
+  });
 });

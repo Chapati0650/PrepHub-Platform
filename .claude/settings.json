@@ -3,7 +3,8 @@
     "allow": [
       "Bash(npm -v)",
       "Bash(npm --version)",
-      "Bash(npm run typecheck)"
+      "Bash(npm run typecheck)",
+      "Bash(node check-landing2.cjs)"
     ]
   }
 }

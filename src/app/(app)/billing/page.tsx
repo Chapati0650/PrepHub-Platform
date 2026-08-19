@@ -1,13 +1,15 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { CreditCard, Receipt } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { LinkButton } from "@/components/ui/link-button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
+import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 import {
   CancelSubscriptionControl,
   ReactivateControl,
@@ -31,13 +33,14 @@ export default async function BillingPage() {
   if (!subscription) {
     return (
       <div className="mx-auto max-w-2xl p-8">
+        <PageHeader icon={CreditCard} title="Billing" className="mb-6" />
         <Card>
           <CardHeader>
-            <CardTitle>Billing</CardTitle>
+            <CardTitle>No subscription yet</CardTitle>
             <CardDescription>You don&apos;t have an individual subscription yet.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button render={<Link href="/pricing">View Plans</Link>} />
+            <LinkButton href="/pricing">View Plans</LinkButton>
           </CardContent>
         </Card>
       </div>
@@ -54,7 +57,7 @@ export default async function BillingPage() {
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6 p-8">
-      <h1 className="text-2xl font-semibold">Billing</h1>
+      <PageHeader icon={CreditCard} title="Billing" />
 
       {subscription.status === "PAST_DUE" && (
         <Alert variant="destructive">
@@ -101,7 +104,7 @@ export default async function BillingPage() {
           )}
           {subscription.status === "CANCELED" && <ReactivateControl />}
           {subscription.status === "EXPIRED" && (
-            <Button render={<Link href="/pricing">Subscribe Again</Link>} />
+            <LinkButton href="/pricing">Subscribe Again</LinkButton>
           )}
         </CardContent>
       </Card>
@@ -121,7 +124,7 @@ export default async function BillingPage() {
         </CardHeader>
         <CardContent>
           {invoices.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No invoices yet.</p>
+            <EmptyState icon={Receipt} title="No invoices yet" description="Your billing history will show up here after your first payment." />
           ) : (
             <ul className="flex flex-col gap-2">
               {invoices.map((invoice) => (

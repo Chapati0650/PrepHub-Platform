@@ -11,7 +11,7 @@ import { PracticeRunner } from "./practice-runner";
 // entry page (PRD-005 §7): never a direct link into a question.
 export default async function PracticeSessionPage() {
   const session = await auth();
-  if (!session?.user) redirect("/home");
+  if (!session?.user?.id) redirect("/home");
   if (!canUseStudentExperience(session.user.role)) redirect("/home");
   const studentId = session.user.id;
 

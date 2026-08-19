@@ -50,9 +50,20 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+// Routes where an active question (or a short linear flow) should dominate
+// the screen instead of competing with a persistent sidebar + nav links —
+// the Diagnostic and Practice Session runners, plus the post-signup
+// Onboarding wizard. Deliberately exact matches, not prefixes:
+// /diagnostic/results and /practice/results/[setId] are review/celebration
+// pages, not the focused question flow, so they keep the normal dashboard
+// shell. /diagnostic also serves the pre-session intro screens at the same
+// URL (see diagnostic/page.tsx) — those get focus mode too, since they're
+// part of the same distraction-free flow leading into the first question.
+const FOCUS_MODE_PATHS = new Set(["/diagnostic", "/practice/session", "/onboarding"]);
+
 function NavList({ sections, pathname, onNavigate }: { sections: NavItem[][]; pathname: string; onNavigate?: () => void }) {
   return (
-    <nav className="flex flex-col gap-4">
+    <nav className="flex flex-col gap-5">
       {sections.map((items, i) => (
         <div key={i} className="flex flex-col gap-0.5">
           {items.map((item) => {
@@ -65,13 +76,13 @@ function NavList({ sections, pathname, onNavigate }: { sections: NavItem[][]; pa
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+                  "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
                   active
                     ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
                 )}
               >
-                <Icon className="size-4 shrink-0" />
+                <Icon className={cn("size-4 shrink-0", active && "text-primary")} />
                 {item.label}
               </Link>
             );
@@ -94,6 +105,23 @@ export function AppShell({
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  if (FOCUS_MODE_PATHS.has(pathname)) {
+    return (
+      <div className="flex min-h-screen flex-col">
+        <header className="sticky top-0 z-10 flex items-center border-b border-border bg-background/85 px-4 py-3 backdrop-blur-sm">
+          <Link
+            href="/home"
+            className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <LogoMark className="size-6 text-primary" />
+            <span>Exit</span>
+          </Link>
+        </header>
+        <main className="flex-1">{children}</main>
+      </div>
+    );
+  }
+
   const isAdmin = role === "SCHOOL_ADMINISTRATOR";
   const isOwner = role === "OWNER";
   const isStudentExperience = role === "STUDENT" || isAdmin;
@@ -108,7 +136,7 @@ export function AppShell({
 
   const sidebarBody = (
     <>
-      <div className="flex flex-col gap-6 p-4">
+      <div className="flex flex-col gap-7 p-4 pt-5">
         <Link href="/home" className="px-1 transition-opacity hover:opacity-80">
           <Logo />
         </Link>

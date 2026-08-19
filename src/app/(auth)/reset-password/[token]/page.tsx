@@ -22,8 +22,8 @@ export default function ConfirmResetPage({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Set a new password</CardTitle>
-        <CardDescription>Choose a new password for your account.</CardDescription>
+        <CardTitle className="text-2xl font-semibold sm:text-3xl">Set a new password</CardTitle>
+        <CardDescription className="text-base">Choose a new password for your account.</CardDescription>
       </CardHeader>
       <CardContent>
         <form action={formAction} className="flex flex-col gap-4">
@@ -47,7 +47,7 @@ export default function ConfirmResetPage({
             />
           </div>
 
-          <Button type="submit" disabled={pending}>
+          <Button type="submit" size="lg" className="h-12 text-base" disabled={pending}>
             {pending ? "Saving..." : "Set new password"}
           </Button>
         </form>

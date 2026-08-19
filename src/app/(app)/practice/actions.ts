@@ -56,7 +56,7 @@ export async function loadPracticeQuestionDetailAction(slotId: string) {
 
   const content = await getStudentQuestionContent(slot.questionRevisionId);
   const feedback = await getStudentQuestionFeedback(slot.questionRevisionId);
-  return { content, feedback };
+  return { content, feedback, studentAnswer: slot.finalizedAttempt?.answer ?? null };
 }
 
 export async function savePracticeDraftAction(slotId: string, patch: { draftAnswer?: string | null; skipped?: boolean }) {

@@ -1,5 +1,7 @@
+import { IdCard } from "lucide-react";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { getStudentDirectory, type StudentDirectoryFilters } from "@/lib/admin/student-directory";
+import { PageHeader } from "@/components/page-header";
 import { StudentDirectoryTable } from "./student-directory-table";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -28,7 +30,7 @@ export default async function StudentDirectoryPage({ searchParams }: { searchPar
   if (!schoolId) {
     return (
       <div className="mx-auto flex max-w-lg flex-col items-center gap-4 p-8 text-center">
-        <h1 className="text-xl font-semibold">Student Directory isn&apos;t available for this account.</h1>
+        <h1 className="text-xl sm:text-2xl">Student Directory isn&apos;t available for this account.</h1>
         <p className="text-muted-foreground">
           This area is scoped to a single school. Contact PrepHub support if you believe this is unexpected.
         </p>
@@ -42,10 +44,7 @@ export default async function StudentDirectoryPage({ searchParams }: { searchPar
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-4 sm:p-8">
-      <div>
-        <p className="text-sm text-muted-foreground">Administrator</p>
-        <h1 className="text-2xl font-semibold">Student Directory</h1>
-      </div>
+      <PageHeader eyebrow="Administrator" title="Student Directory" icon={IdCard} />
       <StudentDirectoryTable students={students} filters={filters} currentYear={currentYear} />
     </div>
   );

@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdtemp, rm, writeFile as writeTempFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
 import ffmpegPath from "ffmpeg-static";
 import sharp from "sharp";
@@ -7,7 +10,7 @@ import { prisma } from "@/lib/prisma";
 import type { MediaAsset } from "@/generated/prisma/client";
 import { logMediaFailure } from "@/lib/logger";
 import { ContentError } from "./errors";
-import { deleteFromStorage, getLocalPathForProcessing, saveToStorage } from "./storage";
+import { deleteFromStorage, saveToStorage } from "./storage";
 
 const execFileAsync = promisify(execFile);
 
@@ -105,7 +108,7 @@ export async function uploadVideo(input: UploadInput): Promise<MediaAsset> {
 
   try {
     await saveToStorage(key, input.buffer);
-    const durationSeconds = await probeVideoDurationSeconds(key);
+    const durationSeconds = await probeVideoDurationSeconds(input.buffer, extension);
     if (durationSeconds > VIDEO_MAX_DURATION_SECONDS) {
       await deleteFromStorage(key);
       return await prisma.mediaAsset.update({
@@ -130,17 +133,28 @@ export async function uploadVideo(input: UploadInput): Promise<MediaAsset> {
   }
 }
 
-async function probeVideoDurationSeconds(key: string): Promise<number> {
+async function probeVideoDurationSeconds(buffer: Buffer, extension: string): Promise<number> {
   if (!ffmpegPath) throw new Error("ffmpeg binary unavailable");
-  const filePath = getLocalPathForProcessing(key);
 
-  // ffmpeg with no output file just prints container info (incl. Duration) to
-  // stderr and exits non-zero — that's expected; we only need the parsed text.
+  // ffmpeg needs a real file on disk to probe regardless of where the
+  // durable copy lives (see storage.ts's R2/local-disk split) — os.tmpdir()
+  // is writable even on a serverless host with no other persistent
+  // filesystem, and this copy only needs to survive this one probe.
+  const dir = await mkdtemp(path.join(tmpdir(), "prephub-video-"));
+  const filePath = path.join(dir, `probe.${extension}`);
+
   let stderr = "";
   try {
-    await execFileAsync(ffmpegPath, ["-i", filePath], { timeout: 30_000 });
-  } catch (err) {
-    stderr = typeof err === "object" && err && "stderr" in err ? String((err as { stderr: unknown }).stderr) : "";
+    await writeTempFile(filePath, buffer);
+    // ffmpeg with no output file just prints container info (incl. Duration) to
+    // stderr and exits non-zero — that's expected; we only need the parsed text.
+    try {
+      await execFileAsync(ffmpegPath, ["-i", filePath], { timeout: 30_000 });
+    } catch (err) {
+      stderr = typeof err === "object" && err && "stderr" in err ? String((err as { stderr: unknown }).stderr) : "";
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 
   const match = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);

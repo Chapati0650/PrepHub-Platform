@@ -4,6 +4,7 @@
 import { PrismaClient } from "../src/generated/prisma/client.js";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { hashPassword } from "../src/lib/password";
+import { getCalculatorSettingForCategory, getSuggestedTimeForDifficulty } from "../src/lib/content/constants";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
@@ -14,7 +15,13 @@ oneYearAgo.setFullYear(now.getFullYear() - 1);
 const oneYearFromNow = new Date(now);
 oneYearFromNow.setFullYear(now.getFullYear() + 1);
 
-async function main() {
+// Fabricated schools/districts for exercising PRD-002's directory-search and
+// selection flows in local dev and e2e — never real institutions. Split out
+// of main() so production seeding (see main() below) can skip it: running
+// this against a real production database would put fake "Frisco ISD" /
+// "Plano Academy" rows in front of real students searching the actual
+// school directory.
+async function seedSampleOrganizations() {
   // District with two schools — exercises the "select your school" step (§10).
   let friscoIsd = await prisma.organization.findFirst({
     where: { officialName: "Frisco ISD" },
@@ -106,6 +113,21 @@ async function main() {
       },
     });
   }
+}
+
+async function main() {
+  // NODE_ENV=production is what Railway/Render (and most PaaS deploys) set
+  // automatically for the real app — sample orgs and the 126-question dummy
+  // question bank are dev/e2e fixtures only, never appropriate for a real
+  // launch database. The Owner account below is the one thing every
+  // environment needs, so it's the only unconditional part of this script.
+  const isProduction = process.env.NODE_ENV === "production";
+
+  if (isProduction) {
+    console.log("NODE_ENV=production — skipping sample organizations and the dummy question bank.");
+  } else {
+    await seedSampleOrganizations();
+  }
 
   // PrepHub is single-owner (CLAUDE.md) — there's no signup flow for OWNER,
   // by design. This is the one and only place that account gets provisioned.
@@ -125,7 +147,9 @@ async function main() {
     console.log(`Owner account created: ${ownerEmail} / ${ownerPassword}`);
   }
 
-  await seedQuestionBank();
+  if (!isProduction) {
+    await seedQuestionBank();
+  }
 
   console.log("Seed complete.");
 }
@@ -148,8 +172,6 @@ const CATEGORIES = [
 ] as const;
 const DIFFICULTIES = ["EASY", "MEDIUM", "HARD"] as const;
 const QUESTIONS_PER_COMBO = 6;
-const SUGGESTED_TIME: Record<(typeof DIFFICULTIES)[number], number> = { EASY: 45, MEDIUM: 60, HARD: 90 };
-const CALCULATOR_ALLOWED_CATEGORIES = new Set(["ALGEBRA", "GEOMETRY_TRIGONOMETRY", "ADVANCED_MATH", "PROBLEM_SOLVING_DATA_ANALYSIS"]);
 
 async function seedQuestionBank() {
   for (const category of CATEGORIES) {
@@ -170,8 +192,8 @@ async function seedQuestionBank() {
             data: {
               questionId: question.id,
               questionText,
-              calculatorSetting: CALCULATOR_ALLOWED_CATEGORIES.has(category) ? "ALLOWED" : "NOT_ALLOWED",
-              suggestedTimeSeconds: SUGGESTED_TIME[difficulty],
+              calculatorSetting: getCalculatorSettingForCategory(category),
+              suggestedTimeSeconds: getSuggestedTimeForDifficulty(difficulty),
               writtenExplanation: `Choice ${correctIndex + 1} is correct because this is seeded practice content.`,
               previewCompletedAt: now,
               publishedAt: now,

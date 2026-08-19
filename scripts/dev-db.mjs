@@ -5,19 +5,27 @@
 // concurrent queries (Postgres error 08P01) — confirmed as a proxy-specific
 // issue, not present against this or any real hosted Postgres. See README.
 import EmbeddedPostgres from "embedded-postgres";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 const PORT = 5433;
+const databaseDir = path.join(process.cwd(), ".pgdata");
 
 const pg = new EmbeddedPostgres({
-  databaseDir: path.join(process.cwd(), ".pgdata"),
+  databaseDir,
   user: "postgres",
   password: "postgres",
   port: PORT,
   persistent: true,
 });
 
-await pg.initialise();
+// initialise() runs initdb unconditionally and fails against a non-empty
+// data directory — only call it the first time a cluster is created (no
+// PG_VERSION file yet). On every later run, the directory from the prior
+// session is reused as-is via start().
+if (!existsSync(path.join(databaseDir, "PG_VERSION"))) {
+  await pg.initialise();
+}
 await pg.start();
 
 try {

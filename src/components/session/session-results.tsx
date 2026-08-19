@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
+import { LinkButton } from "@/components/ui/link-button";
 import { Badge } from "@/components/ui/badge";
 import { LatexText } from "@/components/content/latex-text";
+import { QuestionStatement } from "@/components/content/question-statement";
 import { ExplanationSteps } from "@/components/content/explanation-steps";
+import { DistractorNote } from "@/components/content/distractor-note";
+import { ScorePrediction } from "@/components/score-prediction";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
 import type { SessionResultsData } from "@/lib/session/session-results-data";
 import type { LoadedQuestion } from "./session-runner";
@@ -68,7 +70,7 @@ export function SessionResults({
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8">
       {/* Celebration */}
       <div className="flex flex-col items-center gap-2 text-center">
-        <h1 className="text-2xl font-semibold">
+        <h1 className="text-2xl sm:text-3xl">
           {data.sourceType === "DIAGNOSTIC" ? "Diagnostic Complete" : "Session Complete"}
         </h1>
         {improved ? (
@@ -81,19 +83,19 @@ export function SessionResults({
       </div>
 
       {/* PrepHub Score Prediction */}
-      <div className="rounded-lg border border-border p-6 text-center">
-        <p className="mb-2 text-sm font-medium text-muted-foreground">
-          {data.sourceType === "DIAGNOSTIC" ? "Your Initial PrepHub Score Prediction" : "Your Updated PrepHub Score Prediction"}
-        </p>
+      <div className="flex flex-col items-center gap-3 text-center">
         {data.previousRange && (
-          <p className="mb-1 text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             Previous: {data.previousRange.min}–{data.previousRange.max}
           </p>
         )}
-        <p className="font-heading text-6xl font-semibold tabular-nums transition-all duration-700 ease-out sm:text-7xl">
-          {data.currentRange.min}–{data.currentRange.max}
-        </p>
-        <p className="mt-3 text-xs text-muted-foreground" title="An estimate based on your PrepHub performance. Your actual SAT score may vary.">
+        <ScorePrediction
+          min={data.currentRange.min}
+          max={data.currentRange.max}
+          label={data.sourceType === "DIAGNOSTIC" ? "Your Initial PrepHub Score Prediction" : "Your Updated PrepHub Score Prediction"}
+          className="items-center"
+        />
+        <p className="text-xs text-muted-foreground" title="An estimate based on your PrepHub performance. Your actual SAT score may vary.">
           An estimate based on your PrepHub performance. Your actual SAT score may vary.
         </p>
       </div>
@@ -178,8 +180,12 @@ export function SessionResults({
 
       {/* Navigation */}
       <div className="flex flex-col gap-3 border-t border-border pt-6 sm:flex-row-reverse">
-        <Button size="lg" render={<Link href={data.continueHref}>Continue Practice</Link>} />
-        <Button size="lg" variant="outline" render={<Link href={backHref}>Back to Dashboard</Link>} />
+        <LinkButton size="lg" href={data.continueHref}>
+          Continue Practice
+        </LinkButton>
+        <LinkButton size="lg" variant="outline" href={backHref}>
+          Back to Dashboard
+        </LinkButton>
       </div>
     </div>
   );
@@ -197,25 +203,27 @@ function Stat({ label, value }: { label: string; value: string }) {
 function QuestionDetail({ loaded, isCorrect }: { loaded: LoadedQuestion; isCorrect: boolean }) {
   return (
     <div className="flex flex-col gap-3 text-sm">
-      <LatexText text={loaded.content.questionText} />
-      {loaded.content.questionImageId && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/api/media/${loaded.content.questionImageId}`} alt="" className="max-w-full rounded" />
-      )}
+      <QuestionStatement text={loaded.content.questionText} imageId={loaded.content.questionImageId} mediaBasePath="/api/media" />
       {loaded.content.questionType === "MULTIPLE_CHOICE" && (
         <div className="flex flex-col gap-1.5">
-          {loaded.content.answerChoices.map((choice) => (
-            <div
-              key={choice.id}
-              className={`rounded-md border p-2 text-sm ${
-                loaded.feedback?.correctChoiceId === choice.id
-                  ? "border-2 border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50"
-                  : "border-border"
-              }`}
-            >
-              <LatexText text={choice.text} />
-            </div>
-          ))}
+          {loaded.content.answerChoices.map((choice) => {
+            const showCorrect = loaded.feedback?.correctChoiceId === choice.id;
+            const showWrongSelection = !showCorrect && loaded.studentAnswer === choice.id;
+            return (
+              <div
+                key={choice.id}
+                className={`rounded-md border p-2 text-sm ${
+                  showCorrect
+                    ? "border-2 border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50"
+                    : showWrongSelection
+                      ? "border-destructive bg-destructive/5"
+                      : "border-border"
+                }`}
+              >
+                <LatexText text={choice.text} />
+              </div>
+            );
+          })}
         </div>
       )}
       {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && loaded.feedback && (
@@ -224,6 +232,9 @@ function QuestionDetail({ loaded, isCorrect }: { loaded: LoadedQuestion; isCorre
       <p className={`font-medium ${isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
         {isCorrect ? "Correct" : "Incorrect"}
       </p>
+      {!isCorrect && loaded.studentAnswer && loaded.feedback?.distractorExplanationsByChoiceId[loaded.studentAnswer] && (
+        <DistractorNote text={loaded.feedback.distractorExplanationsByChoiceId[loaded.studentAnswer]} />
+      )}
       {loaded.feedback && loaded.feedback.explanationSteps.length > 0 ? (
         <ExplanationSteps steps={loaded.feedback.explanationSteps} mediaBasePath="/api/media" />
       ) : (
