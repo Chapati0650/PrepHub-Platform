@@ -1,5 +1,6 @@
+import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { authConfig } from "@/auth.config";
 
 // Deliberately named middleware.ts, not proxy.ts (Next.js 16's renamed
 // convention) — Netlify's Next.js Runtime (OpenNext-based) doesn't yet
@@ -9,6 +10,18 @@ import { auth } from "@/auth";
 // deprecated but still fully functional, so this trades a build-time
 // deprecation notice for an actually-working deployment. Revisit once
 // Netlify's adapter adds proxy.ts support.
+//
+// Uses its own NextAuth instance built from the Edge-safe authConfig, not
+// the full one exported by @/auth (which needs Postgres via the Prisma
+// adapter) — Netlify's adapter also doesn't support Node.js-runtime
+// middleware (confirmed the same way: every protected route 500'd even
+// after this file was renamed and explicit runtime: "nodejs" was set,
+// while everything middleware doesn't touch — static assets, _next/static —
+// worked fine). See auth.config.ts for why this doesn't weaken session
+// revocation: src/app/(app)/layout.tsx already independently re-checks the
+// full, DB-backed session on every protected page render.
+const { auth } = NextAuth(authConfig);
+
 const AUTH_ROUTES = new Set(["/login", "/signup", "/reset-password"]);
 
 export default auth((req) => {
@@ -29,11 +42,5 @@ export default auth((req) => {
 export const config = {
   // Skip static assets and Next internals; everything else (including API
   // routes) still goes through so /api/auth/* keeps working.
-  // Unlike proxy.ts, middleware.ts does NOT default to the Node.js runtime —
-  // that only became the automatic default in the proxy.ts rename (Next 16).
-  // Node.js middleware itself has been stable since 15.5, just opt-in here,
-  // and it's required: the jwt callback in src/auth.ts hits Postgres via the
-  // pg driver adapter, which doesn't work on the Edge runtime.
-  runtime: "nodejs",
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

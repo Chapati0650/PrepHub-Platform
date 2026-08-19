@@ -6,6 +6,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/password";
 import { sendWelcomeEmail } from "@/lib/auth/account";
+import { authConfig } from "./auth.config";
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -13,6 +14,7 @@ const credentialsSchema = z.object({
 });
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  ...authConfig,
   adapter: {
     ...PrismaAdapter(prisma),
     // PRD-001: the User model only ever stores a first name (no `name`
@@ -34,10 +36,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return { ...user, name: user.firstName };
     },
   },
-  // PRD-001: Credentials sign-in is incompatible with database sessions in Auth.js,
-  // so the whole app uses JWT sessions. "Log out all devices" / password changes /
-  // account deletion invalidate outstanding tokens via User.tokenVersion (see jwt callback).
-  session: { strategy: "jwt" },
+  // session/pages come from authConfig above. PRD-001: Credentials sign-in is
+  // incompatible with database sessions in Auth.js, so the whole app uses
+  // JWT sessions. "Log out all devices" / password changes / account
+  // deletion invalidate outstanding tokens via User.tokenVersion (see jwt
+  // callback below).
   providers: [
     Google({
       // PRD-001: a Google sign-in with a verified email that matches an existing
@@ -71,6 +74,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
   callbacks: {
+    ...authConfig.callbacks,
     async jwt({ token, user }) {
       if (user) {
         token.userId = user.id;
@@ -80,6 +84,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // Checked on every call so a revoked session (password change, "log out all
       // devices", account deletion) stops working immediately rather than at next
       // token expiry. Trades a DB read per request for correct instant revocation.
+      // Deliberately only wired up here, not in the Edge-safe authConfig middleware
+      // uses (see auth.config.ts) — src/app/(app)/layout.tsx already calls this full
+      // auth() on every protected page render, so revocation still takes effect on
+      // the very next real page load either way.
       const dbUser = await prisma.user.findUnique({
         where: { id: token.userId as string },
         select: { role: true, tokenVersion: true, deletedAt: true },
@@ -92,15 +100,5 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       token.tokenVersion = dbUser.tokenVersion;
       return token;
     },
-    async session({ session, token }) {
-      if (token.userId) {
-        session.user.id = token.userId as string;
-        session.user.role = token.role as string;
-      }
-      return session;
-    },
-  },
-  pages: {
-    signIn: "/login",
   },
 });
