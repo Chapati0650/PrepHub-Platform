@@ -29,10 +29,10 @@ export default async function RootPage() {
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
           <Logo size="lg" />
           <div className="flex items-center gap-2">
-            <LinkButton variant="ghost" className="rounded-xl" href="/login">
+            <LinkButton variant="ghost" className="rounded-xl" href="/login" hardNavigation>
               Log in
             </LinkButton>
-            <LinkButton className="rounded-xl" href="/signup">
+            <LinkButton className="rounded-xl" href="/signup" hardNavigation>
               Get started
             </LinkButton>
           </div>
@@ -49,10 +49,10 @@ export default async function RootPage() {
           after every session — so every minute you study actually moves your score.
         </p>
         <div className="flex flex-col gap-3 sm:flex-row">
-          <LinkButton size="lg" className="h-12 rounded-xl px-8 text-base" href="/signup">
+          <LinkButton size="lg" className="h-12 rounded-xl px-8 text-base" href="/signup" hardNavigation>
             Start your free Diagnostic
           </LinkButton>
-          <LinkButton size="lg" variant="outline" className="h-12 rounded-xl px-8 text-base" href="/login">
+          <LinkButton size="lg" variant="outline" className="h-12 rounded-xl px-8 text-base" href="/login" hardNavigation>
             Log in
           </LinkButton>
         </div>
@@ -102,7 +102,7 @@ export default async function RootPage() {
           <h2 className="font-heading text-3xl font-semibold tracking-tight sm:text-4xl">
             Ready to see where you stand?
           </h2>
-          <LinkButton size="lg" className="h-12 rounded-xl px-8 text-base" href="/signup">
+          <LinkButton size="lg" className="h-12 rounded-xl px-8 text-base" href="/signup" hardNavigation>
             Start your free Diagnostic
           </LinkButton>
         </div>

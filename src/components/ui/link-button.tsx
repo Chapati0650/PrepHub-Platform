@@ -21,10 +21,36 @@ export function LinkButton({
   variant,
   size,
   children,
+  hardNavigation,
   ...props
 }: LinkProps &
   Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "target" | "rel" | "aria-label"> &
-  VariantProps<typeof buttonVariants> & { className?: string; children?: ReactNode }) {
+  VariantProps<typeof buttonVariants> & {
+    className?: string
+    children?: ReactNode
+    // Forces a real browser navigation instead of next/link's client-side
+    // fetch()-based soft nav. Needed wherever the target might itself
+    // redirect again server-side (middleware's already-authenticated bounce,
+    // a stale-session check further down the chain, etc.) — confirmed live
+    // as a real bug: a multi-hop redirect chain silently produced a blank
+    // page when followed via soft nav, while the exact same chain works
+    // correctly and instantly as a sequence of real HTTP round trips. Use
+    // for any landing-page entry point into the auth flow.
+    hardNavigation?: boolean
+  }) {
+  if (hardNavigation) {
+    const { href, ...anchorProps } = props
+    return (
+      <a
+        data-slot="button"
+        className={cn(buttonVariants({ variant, size, className }))}
+        href={typeof href === "string" ? href : (href.pathname ?? undefined)}
+        {...anchorProps}
+      >
+        {children}
+      </a>
+    )
+  }
   return (
     <Link data-slot="button" className={cn(buttonVariants({ variant, size, className }))} {...props}>
       {children}
