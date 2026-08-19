@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
-import { signIn } from "next-auth/react";
+import { signInWithGoogle } from "@/lib/auth/client-google-sign-in";
 import { loginAction, type ActionState } from "../actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +23,8 @@ export default function LoginPage() {
         <CardDescription className="text-base">Pick up right where you left off.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        {/* Deliberately the client-side next-auth/react signIn(), not a
+        {/* Deliberately the client-side next-auth/react signIn() (wrapped in
+            signInWithGoogle, which signs out first — see that file), not a
             Server Action calling the server-side signIn() — a Server Action
             whose response is an *external* redirect (accounts.google.com)
             broke in production with "An unexpected response was received
@@ -39,7 +40,7 @@ export default function LoginPage() {
           variant="outline"
           size="lg"
           className="h-12 w-full gap-3 text-base"
-          onClick={() => signIn("google", { callbackUrl: "/home" })}
+          onClick={() => void signInWithGoogle("/home")}
         >
           <GoogleIcon className="size-5" />
           Continue with Google

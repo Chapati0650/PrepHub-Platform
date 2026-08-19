@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { signIn } from "next-auth/react";
+import { signInWithGoogle } from "@/lib/auth/client-google-sign-in";
 import { signUpAction, type ActionState } from "@/app/(auth)/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,16 +63,17 @@ export default function SignUpPage() {
           </div>
 
           <div className="flex flex-col gap-4">
-            {/* Client-side signIn(), not a Server Action — see login/page.tsx
-                for why: a Server Action's external redirect (to Google)
-                broke in production with "An unexpected response was
-                received from the server." */}
+            {/* signInWithGoogle (client-side signIn(), not a Server Action —
+                see login/page.tsx for why) also signs out first: Auth.js
+                silently *links* a new Google account to whoever's already
+                logged in, rather than switching to it — see that helper's
+                comment for the real incident this caused. */}
             <Button
               type="button"
               variant="outline"
               size="lg"
               className="h-12 w-full gap-3 text-base"
-              onClick={() => signIn("google", { callbackUrl: "/home" })}
+              onClick={() => void signInWithGoogle("/home")}
             >
               <GoogleIcon className="size-5" />
               Continue with Google
