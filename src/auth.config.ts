@@ -21,6 +21,14 @@ import type { NextAuthConfig } from "next-auth";
 // redirect and get caught one layer later at the layout instead — same
 // user-visible outcome (redirected to /login), same request.
 export const authConfig: NextAuthConfig = {
+  // Auth.js v5 only auto-trusts the incoming request's Host header when it
+  // detects it's running on Vercel (via process.env.VERCEL) — everywhere
+  // else, including Netlify, it rejects every request as an UntrustedHost
+  // security precaution unless this is explicitly opted into. Confirmed via
+  // a real deploy: every /api/auth/* call 500'd with exactly that error.
+  // Safe here since NEXTAUTH_URL is itself already an explicit, Owner-set
+  // trusted origin — this isn't blindly trusting arbitrary hosts.
+  trustHost: true,
   session: { strategy: "jwt" },
   providers: [],
   callbacks: {
