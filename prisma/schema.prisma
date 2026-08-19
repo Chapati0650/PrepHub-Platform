@@ -27,6 +27,10 @@ enum StudyCommitment {
   UNSURE
 }
 
+// A raw-SQL CHECK constraint (migrations/20260819222439_enforce_single_owner_email)
+// enforces role='OWNER' only for the one canonical Owner email at the
+// database level — not expressible in Prisma schema syntax, so it won't show
+// up here, but don't let a future `prisma migrate dev` drift-reset drop it.
 model User {
   id   String @id @default(cuid())
   role Role   @default(STUDENT)
