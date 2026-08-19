@@ -3,7 +3,6 @@
 import { useActionState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { signInWithGoogle } from "@/lib/auth/client-google-sign-in";
 import { signUpAction, type ActionState } from "@/app/(auth)/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,17 +62,16 @@ export default function SignUpPage() {
           </div>
 
           <div className="flex flex-col gap-4">
-            {/* signInWithGoogle (client-side signIn(), not a Server Action —
-                see login/page.tsx for why) also signs out first: Auth.js
-                silently *links* a new Google account to whoever's already
-                logged in, rather than switching to it — see that helper's
-                comment for the real incident this caused. */}
+            {/* A plain link to a Route Handler, not a client onClick — see
+                src/app/api/auth/google-sign-in for the full history of why
+                (a broken Server Action redirect, then a client-side
+                signOut()-then-signIn() timing gap that still let a stale
+                session from another tab get linked instead of switched). */}
             <Button
-              type="button"
               variant="outline"
               size="lg"
               className="h-12 w-full gap-3 text-base"
-              onClick={() => void signInWithGoogle("/home")}
+              render={<Link href="/api/auth/google-sign-in" />}
             >
               <GoogleIcon className="size-5" />
               Continue with Google

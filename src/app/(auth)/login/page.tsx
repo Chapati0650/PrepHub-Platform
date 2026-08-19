@@ -2,7 +2,6 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
-import { signInWithGoogle } from "@/lib/auth/client-google-sign-in";
 import { loginAction, type ActionState } from "../actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,24 +22,20 @@ export default function LoginPage() {
         <CardDescription className="text-base">Pick up right where you left off.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        {/* Deliberately the client-side next-auth/react signIn() (wrapped in
-            signInWithGoogle, which signs out first — see that file), not a
-            Server Action calling the server-side signIn() — a Server Action
-            whose response is an *external* redirect (accounts.google.com)
-            broke in production with "An unexpected response was received
-            from the server": Next.js's Server Action client runtime expects
-            an RSC-formatted same-app response, not an external redirect, and
-            Netlify's adapter surfaced that mismatch (no error server-side,
-            confirmed via real function logs — the request succeeded, the
-            client just couldn't parse the response). The client-side
-            signIn() does an ordinary window.location navigation instead,
-            sidestepping that whole class of problem. */}
+        {/* A plain link to a Route Handler, not a client onClick — two
+            earlier real incidents, see src/app/api/auth/google-sign-in for
+            the full history: (1) a Server Action whose response is an
+            external redirect broke on Netlify with "An unexpected response
+            was received from the server"; (2) even a client-side
+            signOut()-then-signIn() pair left a timing window where a stale
+            session from another tab could still get linked instead of
+            switched. A plain link to a server Route Handler that does both
+            steps in one request has no client-JS timing dependency at all. */}
         <Button
-          type="button"
           variant="outline"
           size="lg"
           className="h-12 w-full gap-3 text-base"
-          onClick={() => void signInWithGoogle("/home")}
+          render={<Link href="/api/auth/google-sign-in" />}
         >
           <GoogleIcon className="size-5" />
           Continue with Google
