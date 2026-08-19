@@ -1,9 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { uniqueEmail, getLatestEmailTo, signUpNewStudent } from "./helpers";
 
+// School/district access is hidden from the /access page's UI for now (Owner
+// request — launch is self-pay-only), but the underlying verify-school flow
+// is still fully functional, so these tests reach it by direct navigation
+// instead of clicking through the now-removed directory search UI.
 async function verifySchoolEmail(page: import("@playwright/test").Page, schoolEmail: string) {
-  await page.getByRole("link", { name: "Continue" }).click();
-  await expect(page).toHaveURL(/\/access\/verify-school$/);
+  await page.goto("/access/verify-school");
   await page.getByLabel("School Email").fill(schoolEmail);
   await page.getByRole("button", { name: "Verify School Email" }).click();
   await expect(page.getByText(/check your school email/i)).toBeVisible();
@@ -15,7 +18,11 @@ async function verifySchoolEmail(page: import("@playwright/test").Page, schoolEm
 }
 
 test.describe("district verification (PRD-002)", () => {
-  test("directory search: browsing and prefix filtering", async ({ page }) => {
+  // Skipped, not deleted: DirectorySearch (./directory-search.tsx) is no
+  // longer rendered anywhere now that school access is hidden from the
+  // /access page's UI, so there's currently no surface to exercise this
+  // browsing/filtering behavior on. The component itself is untouched.
+  test.skip("directory search: browsing and prefix filtering", async ({ page }) => {
     const email = uniqueEmail();
     await signUpNewStudent(page, { email, password: "hunter2222", grade: "10th" });
 
@@ -35,7 +42,7 @@ test.describe("district verification (PRD-002)", () => {
     const email = uniqueEmail();
     await signUpNewStudent(page, { email, password: "hunter2222", grade: "9th" });
 
-    await page.getByRole("link", { name: "View Plans" }).click();
+    await page.getByRole("link", { name: "Pay for PrepHub Myself" }).click();
     await expect(page).toHaveURL(/\/pricing$/);
   });
 
@@ -75,7 +82,7 @@ test.describe("district verification (PRD-002)", () => {
     const email = uniqueEmail();
     await signUpNewStudent(page, { email, password: "hunter2222", grade: "9th" });
 
-    await page.getByRole("link", { name: "Continue" }).click();
+    await page.goto("/access/verify-school");
     await page.getByLabel("School Email").fill("student@notapartner.example.com");
     await page.getByRole("button", { name: "Verify School Email" }).click();
 
@@ -97,7 +104,7 @@ test.describe("district verification (PRD-002)", () => {
     const secondPage = await secondContext.newPage();
     const secondEmail = uniqueEmail();
     await signUpNewStudent(secondPage, { email: secondEmail, password: "hunter2222", grade: "9th" });
-    await secondPage.getByRole("link", { name: "Continue" }).click();
+    await secondPage.goto("/access/verify-school");
     await secondPage.getByLabel("School Email").fill(sharedSchoolEmail);
     await secondPage.getByRole("button", { name: "Verify School Email" }).click();
 
