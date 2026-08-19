@@ -62,16 +62,22 @@ export default function SignUpPage() {
           </div>
 
           <div className="flex flex-col gap-4">
-            {/* A plain link to a Route Handler, not a client onClick — see
+            {/* A real <a> tag, not next/link's <Link> — see
                 src/app/api/auth/google-sign-in for the full history of why
-                (a broken Server Action redirect, then a client-side
-                signOut()-then-signIn() timing gap that still let a stale
-                session from another tab get linked instead of switched). */}
+                (a broken Server Action redirect, a client-side
+                signOut()-then-signIn() timing gap, and finally: even a plain
+                <Link> gets soft-navigated via fetch() by Next's client
+                router, which the browser's CORS policy then blocks the
+                moment the redirect chain reaches accounts.google.com —
+                confirmed live as a real blank-screen production bug. Only a
+                genuine full browser navigation can follow a redirect all the
+                way to an external origin. */}
             <Button
               variant="outline"
               size="lg"
               className="h-12 w-full gap-3 text-base"
-              render={<Link href="/api/auth/google-sign-in" />}
+              // eslint-disable-next-line @next/next/no-html-link-for-pages -- must bypass next/link's client-side routing; see comment above
+              render={<a href="/api/auth/google-sign-in" />}
             >
               <GoogleIcon className="size-5" />
               Continue with Google

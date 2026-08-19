@@ -22,20 +22,26 @@ export default function LoginPage() {
         <CardDescription className="text-base">Pick up right where you left off.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        {/* A plain link to a Route Handler, not a client onClick — two
-            earlier real incidents, see src/app/api/auth/google-sign-in for
-            the full history: (1) a Server Action whose response is an
-            external redirect broke on Netlify with "An unexpected response
-            was received from the server"; (2) even a client-side
-            signOut()-then-signIn() pair left a timing window where a stale
-            session from another tab could still get linked instead of
-            switched. A plain link to a server Route Handler that does both
-            steps in one request has no client-JS timing dependency at all. */}
+        {/* A real <a> tag, not next/link's <Link> — three real incidents now,
+            see src/app/api/auth/google-sign-in for the full history: (1) a
+            Server Action whose response is an external redirect broke on
+            Netlify with "An unexpected response was received from the
+            server"; (2) a client-side signOut()-then-signIn() pair left a
+            timing window where a stale session from another tab could still
+            get linked instead of switched; (3) even a plain <Link> to this
+            same Route Handler gets soft-navigated by Next's client router via
+            fetch() — confirmed live via a real browser: once the redirect
+            chain reaches accounts.google.com, the browser's CORS policy
+            blocks fetch() from following a cross-origin redirect, so the
+            whole flow silently dies with a blank screen. Only a genuine full
+            browser navigation (a plain <a>, never intercepted by the router)
+            can follow a redirect all the way to an external origin. */}
         <Button
           variant="outline"
           size="lg"
           className="h-12 w-full gap-3 text-base"
-          render={<Link href="/api/auth/google-sign-in" />}
+          // eslint-disable-next-line @next/next/no-html-link-for-pages -- must bypass next/link's client-side routing; see comment above
+          render={<a href="/api/auth/google-sign-in" />}
         >
           <GoogleIcon className="size-5" />
           Continue with Google
