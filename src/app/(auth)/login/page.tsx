@@ -2,7 +2,8 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
-import { loginAction, googleSignInAction, type ActionState } from "../actions";
+import { signIn } from "next-auth/react";
+import { loginAction, type ActionState } from "../actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,12 +23,27 @@ export default function LoginPage() {
         <CardDescription className="text-base">Pick up right where you left off.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <form action={googleSignInAction}>
-          <Button type="submit" variant="outline" size="lg" className="h-12 w-full gap-3 text-base">
-            <GoogleIcon className="size-5" />
-            Continue with Google
-          </Button>
-        </form>
+        {/* Deliberately the client-side next-auth/react signIn(), not a
+            Server Action calling the server-side signIn() — a Server Action
+            whose response is an *external* redirect (accounts.google.com)
+            broke in production with "An unexpected response was received
+            from the server": Next.js's Server Action client runtime expects
+            an RSC-formatted same-app response, not an external redirect, and
+            Netlify's adapter surfaced that mismatch (no error server-side,
+            confirmed via real function logs — the request succeeded, the
+            client just couldn't parse the response). The client-side
+            signIn() does an ordinary window.location navigation instead,
+            sidestepping that whole class of problem. */}
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className="h-12 w-full gap-3 text-base"
+          onClick={() => signIn("google", { callbackUrl: "/home" })}
+        >
+          <GoogleIcon className="size-5" />
+          Continue with Google
+        </Button>
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <div className="h-px flex-1 bg-border" />

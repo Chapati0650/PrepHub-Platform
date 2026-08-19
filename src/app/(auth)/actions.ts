@@ -18,10 +18,6 @@ const TOO_MANY_REQUESTS_MESSAGE = "Too many attempts. Please wait a few minutes 
 
 export type ActionState = { error?: string; success?: boolean };
 
-export async function googleSignInAction() {
-  await signIn("google", { redirectTo: "/home" });
-}
-
 export async function signUpAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = signUpSchema.safeParse({
     firstName: formData.get("firstName"),

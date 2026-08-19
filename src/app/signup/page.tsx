@@ -3,7 +3,8 @@
 import { useActionState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { signUpAction, googleSignInAction, type ActionState } from "@/app/(auth)/actions";
+import { signIn } from "next-auth/react";
+import { signUpAction, type ActionState } from "@/app/(auth)/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -62,12 +63,20 @@ export default function SignUpPage() {
           </div>
 
           <div className="flex flex-col gap-4">
-            <form action={googleSignInAction}>
-              <Button type="submit" variant="outline" size="lg" className="h-12 w-full gap-3 text-base">
-                <GoogleIcon className="size-5" />
-                Continue with Google
-              </Button>
-            </form>
+            {/* Client-side signIn(), not a Server Action — see login/page.tsx
+                for why: a Server Action's external redirect (to Google)
+                broke in production with "An unexpected response was
+                received from the server." */}
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className="h-12 w-full gap-3 text-base"
+              onClick={() => signIn("google", { callbackUrl: "/home" })}
+            >
+              <GoogleIcon className="size-5" />
+              Continue with Google
+            </Button>
 
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <div className="h-px flex-1 bg-border" />
