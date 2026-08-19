@@ -47,6 +47,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // PrepHub account must link to that account rather than create a duplicate.
       // Safe here because Google only reports emails it has itself verified.
       allowDangerousEmailAccountLinking: true,
+      // Without this, Google silently reuses whichever Google account is
+      // already active in the browser instead of showing the account
+      // picker — confirmed as the real cause of a report that every
+      // "different" account still landed on Owner in a normal (non-incognito)
+      // browser, while incognito (no existing Google session) worked fine:
+      // it wasn't linking accounts, it was silently authenticating as the
+      // same Google identity every time. Forces the chooser on every sign-in.
+      authorization: { params: { prompt: "select_account" } },
     }),
     Credentials({
       credentials: {
