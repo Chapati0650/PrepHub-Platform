@@ -1,6 +1,6 @@
-import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
-import { authConfig } from "@/auth.config";
+import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
 
 // Deliberately named middleware.ts, not proxy.ts (Next.js 16's renamed
 // convention) — Netlify's Next.js Runtime (OpenNext-based) doesn't yet
@@ -11,41 +11,45 @@ import { authConfig } from "@/auth.config";
 // deprecation notice for an actually-working deployment. Revisit once
 // Netlify's adapter adds proxy.ts support.
 //
-// Uses its own NextAuth instance built from the Edge-safe authConfig, not
-// the full one exported by @/auth (which needs Postgres via the Prisma
-// adapter) — Netlify's adapter also doesn't support Node.js-runtime
-// middleware (confirmed the same way: every protected route 500'd even
-// after this file was renamed and explicit runtime: "nodejs" was set,
-// while everything middleware doesn't touch — static assets, _next/static —
-// worked fine). See auth.config.ts for why this doesn't weaken session
-// revocation: src/app/(app)/layout.tsx already independently re-checks the
-// full, DB-backed session on every protected page render.
-const { auth } = NextAuth(authConfig);
-
+// Uses next-auth/jwt's getToken() directly, NOT the `auth((req) => {...})`
+// wrapper NextAuth(authConfig) previously produced — that wrapper isn't a
+// pure request gate, confirmed by reading its source
+// (node_modules/next-auth/lib/index.js's handleAuth): on every single
+// request it makes, it internally re-checks the session via an in-process
+// call to the /session action and unconditionally re-appends that action's
+// Set-Cookie headers to the final response, regardless of what the actual
+// route/action does. That's an automatic "rolling session" refresh, and it
+// runs on every request this middleware's matcher covers (which is nearly
+// everything) — including a Server Action that's deliberately calling
+// signOut() in the very same request. Confirmed live as the real cause of a
+// serious bug: "Log out of all devices" bumps tokenVersion and calls
+// signOut() correctly, but middleware's own wrapper independently re-issued
+// a fresh, still-valid session cookie for the same request, silently
+// undoing the logout — the account never actually got signed out, so the
+// very next login attempt (or even just revisiting the app) immediately
+// looked "logged in" again with stale, revoked credentials, surfacing as an
+// endless log-in-then-bounced-back loop no matter how many times the user
+// tried. getToken() only decodes the cookie already on the request — no
+// internal request, no Set-Cookie side effects — so it can't interfere with
+// whatever the actual page/action does with the session in the same request.
 const isAppRoute = (pathname: string) => pathname.startsWith("/home") || pathname.startsWith("/settings");
 
-// No isAuthRoute -> isAuthed -> redirect("/home") branch here on purpose —
-// removed after a real, confirmed infinite redirect loop: this middleware's
-// isAuthed check only decodes the JWT (no DB call, deliberately, to keep the
-// Edge runtime fast — see the file-level comment above), so it can't see a
-// revoked tokenVersion (password change, "log out all devices", account
-// deletion). A cookie left over from exactly that case still decodes fine
-// here, so visiting /login got bounced straight to /home — but /home's full,
-// DB-backed check in (app)/layout.tsx correctly sees the revoked token and
-// redirects right back to /login, which this middleware then bounces to
-// /home again, forever. Confirmed directly via curl -L: /home -> /login ->
-// /home -> /login until curl's own redirect-limit gave up, matching a real
-// blank-white-screen report. A genuinely-still-logged-in visitor seeing the
-// login form instead of an automatic bounce is a minor, harmless UX
-// redundancy; a loop that can strand any visitor on a blank page is not.
-export default auth((req) => {
+export default async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  const isAuthed = Boolean(req.auth?.user);
+  if (!isAppRoute(pathname)) return NextResponse.next();
 
-  if (isAppRoute(pathname) && !isAuthed) {
+  const token = await getToken({
+    req,
+    secret: process.env.AUTH_SECRET,
+    secureCookie: req.nextUrl.protocol === "https:",
+  });
+
+  if (!token) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
-});
+
+  return NextResponse.next();
+}
 
 export const config = {
   // Skip static assets and Next internals; everything else (including API
