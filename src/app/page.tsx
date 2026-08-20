@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Target, Sparkles, Lightbulb, Flame } from "lucide-react";
+import { Target, Sparkles, Lightbulb, Flame, Eye, BadgeCheck } from "lucide-react";
 import { auth } from "@/auth";
 import { LinkButton } from "@/components/ui/link-button";
 import { Logo } from "@/components/logo";
@@ -13,10 +13,13 @@ import { DiagnosticVisual, MasteryVisual } from "./landing-visuals";
 // whitespace) is modeled on brilliant.org per direct request; colors stay on
 // PrepHub's own teal/white tokens rather than borrowing Brilliant's palette.
 // Every visual below mocks a real product surface (Score Prediction, mastery
-// bars, step-by-step explanations, study streak). The trust line under the
-// hero CTAs (view count, Brilliant.org sponsorship) cites the Owner's real
-// PrepHub YouTube channel figures, per direct request — kept as plain quiet
-// text, not a badge/card, matching this page's restraint elsewhere.
+// bars, step-by-step explanations, study streak). The credibility stat cards
+// under the hero CTAs (view count, Brilliant.org sponsorship) cite the
+// Owner's real PrepHub YouTube channel figures. Styled as icon-over-stat
+// bordered cards specifically to match brilliant.org's own trust-stats
+// row (a real reference screenshot was provided), not this app's usual
+// restraint — the Owner wants these emphasized as a genuine visual moment,
+// not tucked away as fine print.
 export default async function RootPage() {
   const session = await auth();
   // `session.user.id` (not the bare `session.user` object) is the real
@@ -59,10 +62,17 @@ export default async function RootPage() {
           </LinkButton>
         </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
-          <span>8M+ views across platforms</span>
-          <span className="hidden h-1 w-1 rounded-full bg-border sm:block" aria-hidden />
-          <span>Sponsored by Brilliant.org</span>
+        <div className="grid w-full max-w-2xl grid-cols-1 gap-4 pt-2 sm:grid-cols-2">
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-8 shadow-sm">
+            <Eye className="size-6 text-muted-foreground" aria-hidden />
+            <p className="font-heading text-3xl font-semibold tabular-nums sm:text-4xl">8M+</p>
+            <p className="text-sm text-muted-foreground">Views across platforms</p>
+          </div>
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-8 shadow-sm">
+            <BadgeCheck className="size-6 text-muted-foreground" aria-hidden />
+            <p className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">Brilliant.org</p>
+            <p className="text-sm text-muted-foreground">Official sponsor</p>
+          </div>
         </div>
 
         <div className="mt-6 w-full max-w-sm rounded-2xl border border-border bg-card p-8 text-left shadow-sm">
