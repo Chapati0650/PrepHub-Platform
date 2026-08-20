@@ -13,8 +13,10 @@ import { DiagnosticVisual, MasteryVisual } from "./landing-visuals";
 // whitespace) is modeled on brilliant.org per direct request; colors stay on
 // PrepHub's own teal/white tokens rather than borrowing Brilliant's palette.
 // Every visual below mocks a real product surface (Score Prediction, mastery
-// bars, step-by-step explanations, study streak) — no fabricated user counts
-// or testimonials, since PrepHub has none to honestly cite yet.
+// bars, step-by-step explanations, study streak). The trust line under the
+// hero CTAs (view count, Brilliant.org sponsorship) cites the Owner's real
+// PrepHub YouTube channel figures, per direct request — kept as plain quiet
+// text, not a badge/card, matching this page's restraint elsewhere.
 export default async function RootPage() {
   const session = await auth();
   // `session.user.id` (not the bare `session.user` object) is the real
@@ -55,6 +57,12 @@ export default async function RootPage() {
           <LinkButton size="lg" variant="outline" className="h-12 rounded-xl px-8 text-base" href="/login" hardNavigation>
             Log in
           </LinkButton>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
+          <span>8M+ views across platforms</span>
+          <span className="hidden h-1 w-1 rounded-full bg-border sm:block" aria-hidden />
+          <span>Sponsored by Brilliant.org</span>
         </div>
 
         <div className="mt-6 w-full max-w-sm rounded-2xl border border-border bg-card p-8 text-left shadow-sm">
