@@ -28,9 +28,14 @@ export async function hasPaidAccess(userId: string): Promise<boolean> {
   );
 }
 
-type SubscriptionRow = Awaited<ReturnType<typeof prisma.subscription.findUnique>>;
+export type SubscriptionRow = Awaited<ReturnType<typeof prisma.subscription.findUnique>>;
 
-function hasActiveIndividualSubscription(subscription: SubscriptionRow): boolean {
+// Exported (not just used internally) so bulk/list views — e.g. the Owner's
+// platform-wide user directory — can reapply this exact rule in-memory over
+// a single batched query instead of either N+1-calling hasPaidAccess per
+// user or re-deriving the threshold logic themselves, which PRD-017 §12
+// forbids. Still the one place the rule itself is defined.
+export function hasActiveIndividualSubscription(subscription: SubscriptionRow): boolean {
   if (!subscription) return false;
   const now = new Date();
 
@@ -57,7 +62,7 @@ function hasActiveIndividualSubscription(subscription: SubscriptionRow): boolean
   return false;
 }
 
-type MembershipRow = Awaited<
+export type MembershipRow = Awaited<
   ReturnType<
     typeof prisma.studentMembership.findUnique<{
       where: { studentId: string };
@@ -66,7 +71,7 @@ type MembershipRow = Awaited<
   >
 >;
 
-function hasActiveSchoolEntitlement(membership: MembershipRow): boolean {
+export function hasActiveSchoolEntitlement(membership: MembershipRow): boolean {
   if (!membership) return false;
   if (membership.status !== "ACTIVE") return false;
   if (membership.organization.status !== "ACTIVE") return false;

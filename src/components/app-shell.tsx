@@ -42,6 +42,7 @@ const ADMIN_ITEMS: NavItem[] = [
 
 const OWNER_ITEMS: NavItem[] = [
   { href: "/owner/schools", label: "Schools", icon: Building2 },
+  { href: "/owner/users", label: "Users", icon: Users },
   { href: "/owner/content/questions", label: "Content", icon: FileText },
   { href: "/settings", label: "Account", icon: Settings },
 ];
