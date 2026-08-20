@@ -80,8 +80,19 @@ export function __resetRateLimitsForTests(): void {
 }
 
 // Best-effort client IP for rate-limit keying and abuse logging.
+// x-nf-client-connection-ip is checked first — Netlify's own header for the
+// true connecting client IP, set directly by its edge network rather than
+// relying on a proxy chain. Added after a real production incident: every
+// visitor was silently sharing one "unknown" bucket (x-forwarded-for/x-real-ip
+// were both absent under this host), so heavy automated testing against
+// production exhausted ACCOUNT_CREATION's 5-per-hour limit for literally
+// everyone — including real visitors on completely unrelated devices/networks
+// — which looked identical to a broken auth flow (stuck-on-login-forever)
+// rather than what it actually was.
 export async function getClientIp(): Promise<string> {
   const h = await headers();
+  const netlifyIp = h.get("x-nf-client-connection-ip");
+  if (netlifyIp) return netlifyIp.trim();
   const forwarded = h.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0].trim();
   return h.get("x-real-ip") ?? "unknown";
