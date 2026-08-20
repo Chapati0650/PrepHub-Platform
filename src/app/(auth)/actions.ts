@@ -63,7 +63,17 @@ export async function signUpAction(_prev: ActionState, formData: FormData): Prom
     redirect("/login");
   }
 
-  redirect("/home");
+  // Straight to /onboarding, not /home -> (/home redirects here anyway) —
+  // a freshly created account always has onboardingCompletedAt: null and
+  // diagnosticStatus: NOT_STARTED, so /home's own redirect here is
+  // guaranteed, not conditional. Skipping that extra hop removes one more
+  // link in exactly the kind of multi-hop-redirect-through-a-Server-Action
+  // chain that's caused several confirmed, real failures under this
+  // Netlify Next.js Runtime today (the OAuth external-redirect CORS
+  // failure, the /login<->/home infinite loop) — /onboarding is under the
+  // same (app) route group, so it's already independently auth-checked by
+  // (app)/layout.tsx regardless of how it's reached.
+  redirect("/onboarding");
 }
 
 export async function loginAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
