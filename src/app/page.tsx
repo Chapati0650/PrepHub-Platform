@@ -95,8 +95,8 @@ function Hero() {
             Your <Marker>personalized</Marker> study platform for the 2026 Digital SAT
           </h1>
           <p className="mt-6 max-w-xl text-lg text-muted-foreground sm:text-xl">
-            Crafted by perfect scorers for the new Digital SAT with AI-Adaptive practice, personalized
-            diagnostics, and lessons to help you achieve your dream score.
+            Crafted by perfect scorers for the new Digital SAT with AI-adaptive practice questions,
+            personalized diagnostics, and a handcrafted curriculum to help you achieve your dream score.
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
             <LinkButton size="cta" href="/signup" hardNavigation>
