@@ -127,10 +127,16 @@ surface file:
   bordered cards; a long list (question review, prediction history, weakest
   skills) is one `divide-y` list with a `border-y`, not one border per row.
   Individually boxed rows turn a 21-item review into a wall of outlines.
-  Settings is the same idea at page scale: a label column plus hairlines
-  (`SettingsSection` in `src/app/(app)/settings/page.tsx`), not a stack of
-  `<Card>`s each wrapped in a `<Separator>`, which was two kinds of chrome
-  doing one job.
+  Settings (`src/app/(app)/settings/page.tsx`) follows the oneprep.xyz
+  settings reference: a sticky left index (`settings-nav.tsx`, anchor links
+  whose highlight follows scroll position — position-based, not
+  IntersectionObserver, because the last section of a page never reaches a
+  reading line and a wheel-scroll to the bottom is indistinguishable from an
+  anchor click without the URL hash; the comments there record the cases)
+  and, per section, a heading + one-line description + bordered cards. The
+  profile card's stat tiles are `getDashboardData` — the same source as the
+  dashboard, so the two can't disagree — and "Strongest category" is simply
+  the max current mastery, not a new metric.
 - **Status screens are left-aligned, not centered.** A centered column of a
   glyph, a heading, a line of grey text and a button is the default shape of
   every generated confirmation/error/empty screen. The practice gateway
