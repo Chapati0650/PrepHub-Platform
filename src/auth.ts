@@ -98,7 +98,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // the very next real page load either way.
       const dbUser = await prisma.user.findUnique({
         where: { id: token.userId as string },
-        select: { role: true, tokenVersion: true, deletedAt: true },
+        select: { role: true, tokenVersion: true, deletedAt: true, firstName: true },
       });
       if (!dbUser || dbUser.deletedAt) return {};
       if (token.tokenVersion !== undefined && token.tokenVersion !== dbUser.tokenVersion) {
@@ -106,6 +106,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
       token.role = dbUser.role;
       token.tokenVersion = dbUser.tokenVersion;
+      // Refreshed from the DB rather than trusted from sign-in: both
+      // sign-in paths set `name: user.firstName`, but only on the *first*
+      // Google sign-up (createUser above). A returning Google user comes
+      // back through the adapter's getUser, which hands Auth.js the raw
+      // Prisma row — and User has no `name` column (PRD-001, first name
+      // only) — so token.name was undefined for every returning Google
+      // session and the app shell fell back to showing the email. Doing it
+      // here also means a first-name edit in Settings is reflected on the
+      // very next request instead of at the next sign-in.
+      token.name = dbUser.firstName;
       return token;
     },
   },

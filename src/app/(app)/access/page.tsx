@@ -1,5 +1,5 @@
-import { CreditCard, HelpCircle } from "lucide-react";
 import { ChoiceCard } from "@/components/choice-card";
+import { Marker } from "@/components/ui/marker";
 
 // PRD-002 §5: shown to a student who hasn't chosen an access method yet.
 //
@@ -11,20 +11,24 @@ import { ChoiceCard } from "@/components/choice-card";
 // access reopens; only the entry points on this page are removed.
 export default function AccessSelectionPage() {
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-10 p-8">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-10 p-6 sm:p-10">
       <div>
-        <h1 className="text-page-title">How would you like to access PrepHub?</h1>
-        <p className="mt-1 text-muted-foreground">Choose how you&apos;d like to use PrepHub. You can change this later.</p>
+        <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">One last step</p>
+        <h1 className="mt-3 text-display-sm text-balance">
+          How would you like to <Marker>access</Marker> PrepHub?
+        </h1>
+        <p className="mt-4 max-w-prose text-lg text-muted-foreground">
+          Choose how you&apos;d like to use PrepHub. You can change this later.
+        </p>
       </div>
 
-      <div className="flex flex-col gap-3">
-        <ChoiceCard
-          href="/pricing"
-          icon={CreditCard}
-          title="Pay for PrepHub Myself"
-          description="I'll use my own individual subscription."
-        />
-      </div>
+      <ChoiceCard
+        tone="primary"
+        href="/pricing"
+        title="Pay for PrepHub Myself"
+        description="I'll use my own individual subscription."
+        meta="$25/month at launch — 50% off, cancel anytime"
+      />
 
       {/* PRD-012 §5/§26: the diagnostic is free for every student, including
           those who haven't chosen an access method yet — it must remain
@@ -33,13 +37,13 @@ export default function AccessSelectionPage() {
           but visually separated and toned down from the access decision
           above, since it's an alternative path for the undecided rather
           than a second access method. */}
-      <div className="flex flex-col gap-3 border-t border-border pt-6">
+      <div className="flex flex-col gap-4 border-t border-border pt-8">
         <p className="text-sm text-muted-foreground">Not sure yet?</p>
         <ChoiceCard
           href="/diagnostic"
-          icon={HelpCircle}
           title="Take the Diagnostic First"
           description="See your predicted SAT score before deciding how you'd like to use PrepHub."
+          meta="Free · 21 questions"
         />
       </div>
     </div>
