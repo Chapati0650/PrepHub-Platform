@@ -1,13 +1,15 @@
 import { prisma } from "@/lib/prisma";
 
-// "Meet your teacher" — the reference's instructor card. The copy is the
-// Owner's own account of himself, used as he gave it; the view count is the
-// same 8M+ figure the public landing page already states, so the site never
-// makes two different claims about the same channel. The photo is the Owner
-// account's Google image when one is set, initials otherwise.
+// "Meet your teacher" — the reference's instructor card. The bio is the
+// Owner's own wording (2026-09-19), used as given apart from spelling. The
+// credentials list keeps the 8M+ views figure the public landing page
+// states, so the site never makes two different claims about the same
+// channel — the bio's "hundreds of thousands of students" is a different
+// measure, not a competing one. The photo is the Owner account's Google
+// image when one is set, initials otherwise.
 export const TEACHER = {
   name: "Prithviraj Chauhan",
-  bio: "Prithviraj built PrepHub and teaches every lesson in it. A perfect SAT and PSAT scorer and a National Merit Scholar, he first taught the test on YouTube, where the PrepHub channels have passed 8M+ views. Accepted to Johns Hopkins, UC Berkeley, Rice, UCLA, and more.",
+  bio: "Prithviraj is the founder of PrepHub and teaches every lesson in it. He's a perfect SAT and PSAT scorer, and a National Merit Scholar. He's reached hundreds of thousands of students through PrepHub, and received admission to Johns Hopkins, UC Berkeley, Rice, UCLA, and more.",
   credentials: ["Perfect SAT & PSAT scores", "National Merit Scholar", "8M+ views teaching the SAT"],
 } as const;
 
