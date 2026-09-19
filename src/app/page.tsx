@@ -186,9 +186,9 @@ async function CredibilityBand() {
 
         {/* The proof under the claim: three of the channel's own videos, on
             the same dark band as the number they back up. Thumbnails and
-            titles are YouTube's; the view count under each is live from the
-            Data API when a key is configured and simply absent when it
-            isn't — never a typed-in figure that quietly goes stale. */}
+            titles are YouTube's; the view count under each is the Owner's
+            figure (dated in lib/youtube/landing-videos.ts), replaced by the
+            live Data API count whenever a key is configured. */}
         <div className="mt-16 border-t border-surface-deep-foreground/15 pt-12">
           <div className="flex flex-wrap items-baseline justify-between gap-4">
             <h2 className="font-heading text-xl font-semibold tracking-tight sm:text-2xl">

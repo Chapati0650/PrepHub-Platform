@@ -4,22 +4,28 @@ import { youTubeThumbnailUrl } from "@/lib/curriculum/youtube";
 // from the (server) landing page and nowhere else; the client half of the
 // feature is src/app/landing-videos.tsx, which receives plain data.
 
-// The three channel videos featured on the public landing page, as the
-// Owner listed them (2026-09-19). Titles below are a fallback only — they
-// were real at the time of writing, and the live title from YouTube wins
-// whenever it can be fetched, so a renamed video renames itself here.
+// The three channel videos featured on the public landing page, in the
+// order the Owner listed them (most viewed first). Titles are a fallback
+// only — the live title from YouTube wins whenever it can be fetched, so a
+// renamed video renames itself here.
+//
+// `views` are the Owner's own figures, read off YouTube on 2026-09-19, by
+// the Owner's decision instead of a Data API key. They are a floor, not a
+// live number: when a YOUTUBE_API_KEY *is* configured the live count
+// replaces them, and until then they will drift low as the videos keep
+// accumulating views. Update the date here whenever they are refreshed.
 export const LANDING_VIDEOS = [
-  { id: "SAIZErXDrK0", fallbackTitle: "Solving the HARDEST SAT Math Questions ONLY using Desmos (From a 1600 Scorer)" },
-  { id: "n1Hva7ZCF_s", fallbackTitle: "We Got The December SAT Early..." },
-  { id: "xberKXWXfNU", fallbackTitle: "Every ACT Grammar Rule in 15 minutes" },
+  { id: "SAIZErXDrK0", views: 127_000, fallbackTitle: "Solving the HARDEST SAT Math Questions ONLY using Desmos (From a 1600 Scorer)" },
+  { id: "xberKXWXfNU", views: 75_000, fallbackTitle: "Every ACT Grammar Rule in 15 minutes" },
+  { id: "n1Hva7ZCF_s", views: 46_000, fallbackTitle: "We Got The December SAT Early..." },
 ] as const;
 
 export type LandingVideo = {
   id: string;
   title: string;
   thumbnailUrl: string;
-  /** Null when YOUTUBE_API_KEY isn't set or the request failed — the card then shows no count rather than a stale or invented one. */
-  viewCount: number | null;
+  /** Live from the Data API when YOUTUBE_API_KEY is set; otherwise the Owner-supplied figure above. */
+  viewCount: number;
 };
 
 // Both requests are cached by Next's data cache and refreshed in the
@@ -44,10 +50,10 @@ async function fetchTitle(id: string): Promise<string | null> {
 }
 
 // One request for all three videos. The YouTube Data API v3 key is a plain
-// API key (no OAuth), restricted to this API in Google Cloud; absent, view
-// counts are simply not shown. A failure here is logged nowhere on purpose —
-// it is decorative data on a marketing page, and a YouTube outage must not
-// page anyone or fail the request.
+// API key (no OAuth), restricted to this API in Google Cloud; absent, the
+// Owner-supplied figures above are shown instead. A failure here is logged
+// nowhere on purpose — it is decorative data on a marketing page, and a
+// YouTube outage must not page anyone or fail the request.
 async function fetchViewCounts(ids: readonly string[]): Promise<Map<string, number>> {
   const key = process.env.YOUTUBE_API_KEY;
   const counts = new Map<string, number>();
@@ -77,6 +83,6 @@ export async function getLandingVideos(): Promise<LandingVideo[]> {
     id: v.id,
     title: titles[i] ?? v.fallbackTitle,
     thumbnailUrl: youTubeThumbnailUrl(v.id),
-    viewCount: counts.get(v.id) ?? null,
+    viewCount: counts.get(v.id) ?? v.views,
   }));
 }

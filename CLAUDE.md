@@ -171,9 +171,12 @@ surface file:
   (`src/lib/youtube/landing-videos.ts`, `src/app/landing-videos.tsx`) follow
   the same rule: thumbnails and titles come from YouTube (oEmbed, cached a
   day, with the real titles as a fallback), and the per-video view count is
-  fetched live from the Data API (`YOUTUBE_API_KEY`, cached 6h) or **not
-  shown at all** — never a typed-in number that quietly goes stale. Every
-  fetch swallows failure: a YouTube outage must not fail the landing page.
+  the Owner's own figure (`views` in `LANDING_VIDEOS`, dated in the comment
+  there — the Owner chose this over a Data API key on 2026-09-19), replaced
+  by the live count whenever `YOUTUBE_API_KEY` is set (cached 6h). Those
+  typed-in figures only ever drift *low* as the videos accumulate views;
+  refresh them and the date together. Every fetch swallows failure: a
+  YouTube outage must not fail the landing page.
   Cards are lite embeds (thumbnail until clicked) so three players don't
   load on first paint.
 

@@ -9,7 +9,7 @@ export type LandingVideoCardProps = {
   id: string;
   title: string;
   thumbnailUrl: string;
-  viewCount: number | null;
+  viewCount: number;
 };
 
 // A "lite" embed: the card is a thumbnail until it is clicked, and only then
@@ -55,9 +55,7 @@ export function LandingVideoCard({ id, title, thumbnailUrl, viewCount }: Landing
       </div>
       <div className="min-w-0">
         <p className="line-clamp-2 font-medium text-surface-deep-foreground">{title}</p>
-        {viewCount !== null && (
-          <p className="mt-1 text-sm text-surface-deep-foreground/60 tabular-nums">{formatViewCount(viewCount)} views</p>
-        )}
+        <p className="mt-1 text-sm text-surface-deep-foreground/60 tabular-nums">{formatViewCount(viewCount)} views</p>
       </div>
     </div>
   );
