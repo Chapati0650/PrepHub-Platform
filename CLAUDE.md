@@ -167,7 +167,15 @@ surface file:
   only facts that are actually true (8M+ views across the PrepHub channels;
   Brilliant.org as a real sponsor). No invented testimonials, student names,
   university logo walls, or score-improvement statistics — not even as
-  placeholder copy.
+  placeholder copy. The three channel videos under the credibility band
+  (`src/lib/youtube/landing-videos.ts`, `src/app/landing-videos.tsx`) follow
+  the same rule: thumbnails and titles come from YouTube (oEmbed, cached a
+  day, with the real titles as a fallback), and the per-video view count is
+  fetched live from the Data API (`YOUTUBE_API_KEY`, cached 6h) or **not
+  shown at all** — never a typed-in number that quietly goes stale. Every
+  fetch swallows failure: a YouTube outage must not fail the landing page.
+  Cards are lite embeds (thumbnail until clicked) so three players don't
+  load on first paint.
 
 **Gotcha, confirmed by DOM inspection**: the `Card` component draws its edge
 with `ring-1 ring-foreground/10`, *not* a border. Zeroing only `border-0`

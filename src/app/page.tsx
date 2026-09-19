@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { LinkButton } from "@/components/ui/link-button";
 import { Marker } from "@/components/ui/marker";
+import { LandingVideoCard } from "./landing-videos";
+import { getLandingVideos } from "@/lib/youtube/landing-videos";
 import { Logo } from "@/components/logo";
 import { DiagnosticVisual, MasteryVisual } from "./landing-visuals";
 
@@ -157,7 +159,8 @@ function HeroVisual() {
 // instead carries the two credibility facts that are genuinely true. Same
 // design job — break the page out of white and hold real proof — without
 // implying an endorsement that doesn't exist.
-function CredibilityBand() {
+async function CredibilityBand() {
+  const videos = await getLandingVideos();
   return (
     <section className="bg-surface-deep text-surface-deep-foreground">
       <div className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-20">
@@ -178,6 +181,32 @@ function CredibilityBand() {
             <p className="mt-2 text-lg text-surface-deep-foreground/75">
               Official sponsor of the PrepHub channel.
             </p>
+          </div>
+        </div>
+
+        {/* The proof under the claim: three of the channel's own videos, on
+            the same dark band as the number they back up. Thumbnails and
+            titles are YouTube's; the view count under each is live from the
+            Data API when a key is configured and simply absent when it
+            isn't — never a typed-in figure that quietly goes stale. */}
+        <div className="mt-16 border-t border-surface-deep-foreground/15 pt-12">
+          <div className="flex flex-wrap items-baseline justify-between gap-4">
+            <h2 className="font-heading text-xl font-semibold tracking-tight sm:text-2xl">
+              The same teaching, <Marker>free on YouTube</Marker>.
+            </h2>
+            <a
+              href="https://www.youtube.com/@prephubtp"
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-surface-deep-foreground/70 underline-offset-4 hover:text-surface-deep-foreground hover:underline"
+            >
+              Visit the channel &rarr;
+            </a>
+          </div>
+          <div className="mt-8 grid grid-cols-1 gap-8 sm:grid-cols-3 sm:gap-6">
+            {videos.map((v) => (
+              <LandingVideoCard key={v.id} {...v} />
+            ))}
           </div>
         </div>
       </div>
