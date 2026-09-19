@@ -91,13 +91,12 @@ function Hero() {
     <section className="mx-auto w-full max-w-6xl px-6 pt-14 pb-20 sm:pt-20 sm:pb-28">
       <div className="grid items-center gap-14 lg:grid-cols-[1.15fr_0.85fr] lg:gap-16">
         <div>
-          <h1 className="font-heading text-display font-semibold tracking-tight text-balance sm:text-display-lg">
-            Know exactly what to{" "}
-            <Marker>study</Marker> next.
+          <h1 className="font-heading text-display-sm font-semibold tracking-tight text-balance sm:text-display">
+            Your <Marker>personalized</Marker> study platform for the 2026 Digital SAT
           </h1>
           <p className="mt-6 max-w-xl text-lg text-muted-foreground sm:text-xl">
-            One 21-question Diagnostic finds where you actually stand. After that, every Personalized
-            Practice Set is rebuilt around the categories costing you the most points.
+            Crafted by perfect scorers for the new Digital SAT with AI-Adaptive practice, personalized
+            diagnostics, and lessons to help you achieve your dream score.
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
             <LinkButton size="cta" href="/signup" hardNavigation>
@@ -376,12 +375,16 @@ function FeatureSections() {
 function ClosingCta() {
   return (
     <section className="mx-auto w-full max-w-3xl px-6 py-28 text-center sm:py-36">
-      <h2 className="font-heading text-display font-semibold tracking-tight text-balance sm:text-display-lg">
-        See where you actually <Marker>stand</Marker>.
+      {/* Same scale as the hero so the page's first and last statements
+          are the two largest things on it and nothing in between outranks
+          either. (The hero stepped down a notch for a longer headline; this
+          follows it.) */}
+      <h2 className="font-heading text-display-sm font-semibold tracking-tight text-balance sm:text-display">
+        Take our Diagnostic and get a <Marker>predicted score</Marker>.
       </h2>
       <p className="mx-auto mt-6 max-w-xl text-lg text-muted-foreground">
-        The Diagnostic takes one sitting and costs nothing. You will finish it knowing your
-        predicted score and the exact categories holding it down.
+        Our Diagnostic can be taken in one sitting and costs nothing. We&apos;ll also give you a free
+        test-analysis pointing out the exact categories dragging your score down.
       </p>
       <div className="mt-9 flex justify-center">
         <LinkButton size="cta" href="/signup" hardNavigation>
