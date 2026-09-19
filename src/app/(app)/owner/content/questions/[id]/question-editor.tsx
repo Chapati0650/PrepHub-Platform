@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
@@ -296,7 +297,20 @@ export function QuestionEditor({
     if (Object.keys(patch).length === 0) return true;
     pendingPatch.current = {};
     setSaveState("saving");
-    const result = await updateQuestionContentAction(question.id, patch);
+    let result: Awaited<ReturnType<typeof updateQuestionContentAction>>;
+    try {
+      result = await updateQuestionContentAction(question.id, patch);
+    } catch (err) {
+      // A *thrown* failure (as opposed to a returned `{ error }`) used to
+      // escape here: the patch had already been cleared above, the status
+      // stayed on "Saving…" forever, and the Owner's edits were gone. The
+      // common cause is a deploy landing while the editor is open — the
+      // action ID no longer exists — so say that, and keep the edits.
+      setSaveState("failed");
+      setSaveError(isStaleServerActionError(err) ? STALE_BUILD_MESSAGE : "Couldn't save. Check your connection and try again.");
+      pendingPatch.current = { ...patch, ...pendingPatch.current };
+      return false;
+    }
     if (result.error) {
       setSaveState("failed");
       setSaveError(result.error);

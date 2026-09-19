@@ -13,6 +13,7 @@ import { toast } from "@/components/ui/toast";
 import { extractImagesFromZip } from "@/lib/content/extract-zip-images";
 import { pickImagesFromDrive } from "@/lib/google/drive-picker";
 import { AbsoluteTimeoutError, SuspectedSleepError, raceAgainstSuspendOrTimeout } from "@/lib/content/suspend-detection";
+import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
 import { bulkUploadImageAction, bulkUploadPdfPageAction } from "../../actions";
 
 // One image ≈ transcribe + determine answer + write an explanation —
@@ -181,13 +182,18 @@ export function BulkUploadForm({ googleClientId }: { googleClientId: string | nu
     } catch (err) {
       const duplicateWarning = "It's possible this still finished on the server after all — check the Questions table before retrying, to avoid creating a duplicate.";
       errors = [
-        err instanceof SuspectedSleepError
-          ? `This browser tab (or the computer) appears to have been suspended mid-request. ${duplicateWarning}`
-          : err instanceof AbsoluteTimeoutError
-            ? `This took an unusually long time (over 30 minutes) without a suspend being detected — possibly a genuine server-side issue. ${duplicateWarning}`
-            : err instanceof Error
-              ? err.message
-              : "Something went wrong.",
+        // A deploy landed while this page was open. The action never ran, so
+        // — unlike the two cases below — there is no duplicate risk; the
+        // files already in the bank are skipped by hash on the retry anyway.
+        isStaleServerActionError(err)
+          ? STALE_BUILD_MESSAGE
+          : err instanceof SuspectedSleepError
+            ? `This browser tab (or the computer) appears to have been suspended mid-request. ${duplicateWarning}`
+            : err instanceof AbsoluteTimeoutError
+              ? `This took an unusually long time (over 30 minutes) without a suspend being detected — possibly a genuine server-side issue. ${duplicateWarning}`
+              : err instanceof Error
+                ? err.message
+                : "Something went wrong.",
       ];
     }
 
