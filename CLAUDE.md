@@ -673,6 +673,51 @@ when an uncontrolled field's `defaultValue` changes after a save re-render.
 so migrations do not run on deploy. Push code only after
 `prisma migrate deploy` has succeeded against production.
 
+## College Apps (2026-09-19, modeled on oneprep.xyz's College tab)
+
+Premium (included in the single rate), gated on `hasPaidAccess` in the page
+and in every action. `src/lib/college-apps/`, `src/lib/colleges/`,
+`src/app/(app)/college-apps/`, Owner CMS at `owner/content/supplements`.
+
+- **The college directory is a committed JSON, not a table**
+  (`src/lib/colleges/data/colleges.json`, ~1,900 bachelor's-granting U.S.
+  institutions from the Dept. of Education's College Scorecard: SAT 25th/75th
+  per section summed to a composite, admission rate, size, test policy).
+  Refreshed yearly by `node scripts/pull-colleges.mjs`, which downloads the
+  bulk CSV (the API's DEMO_KEY allows ten requests an hour) with a built-in
+  zip reader (shelling out to `tar` picked up Git Bash's on Windows). Searched
+  in memory server-side; the client gets results via a server action. Tracker
+  rows store the Scorecard id and denormalize the name.
+- **Score fit** (`score-fit.ts`, pure, tested) is the reason this lives in
+  PrepHub: the student's *live* Predicted SAT Score range against the
+  college's middle 50%. likely / target / reach by range position; "aim for"
+  is the 75th percentile, never below the student's own max. Drawn on the
+  same 400–1600 number line as the dashboard (`ScoreFitBar`).
+- **Prompts are copied, never referenced.** Platform essays (Common App,
+  UC PIQs, Coalition, ApplyTexas — `platform-prompts.ts`, VERIFY EVERY
+  AUGUST) are seeded as student-level items at onboarding; the Owner's
+  curated `CollegeSupplement` rows for the current `admissionsCycle()` are
+  copied into a student's checklist when they add the college. Editing the
+  curation never rewrites an existing student's list, and each student's
+  "done" is their own. One table (`ApplicationItem`) holds every checkable
+  thing; `applicationId` null = student-level (shared essays, FAFSA/CSS).
+- **Three tiers of "auto-fill"**, all honest: platform prompts from code;
+  Owner curation each August (`/owner/content/supplements`, with "copy from
+  last cycle"); and paste-to-parse (`parse-prompts.ts`, Anthropic,
+  extraction only — never writes or scores an essay; hidden when the key is
+  absent; parsed prompts are shown back for review before anything is saved).
+- **The grade decides the view.** Freshman/sophomore: `YEAR_CHECKLIST`
+  leads and the list is secondary. Junior/senior: the list leads,
+  deadline-first, with a countdown to the nearest one. Onboarding is the
+  same roulette as SAT onboarding (grade → platforms), focus-mode route.
+- **Gotcha, confirmed in a real browser: React 19 resets a form after a
+  `<form action>` completes**, and a reset puts a controlled `<select>` back
+  on its first `<option>` while React state still holds the saved value
+  (text inputs survive because React syncs their value attribute; selects
+  don't). Forms with selects submit through `onSubmit` + `startTransition(()
+  => action(fd))` instead — see `application-forms.tsx`.
+- Deploying needs migration `20260919221904_add_college_apps` on Neon first.
+
 ## Cross-phase fix: diagnostic must be reachable before access selection
 
 PRD-002 §5.1 sends every student with no subscription/membership to `/access`

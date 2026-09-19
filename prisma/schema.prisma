@@ -86,6 +86,9 @@ model User {
   predictionHistory    PredictionHistoryEntry[]
   clubSessions         ClubSession[]
   lessonProgress       LessonProgress[]
+  collegeAppsProfile   CollegeAppsProfile?
+  collegeApplications  CollegeApplication[]
+  applicationItems     ApplicationItem[]
   announcementsCreated Announcement[]
 
   @@map("users")
@@ -1032,4 +1035,149 @@ model LessonProgress {
 
   @@unique([studentId, lessonId])
   @@map("lesson_progress")
+}
+
+// ---------------------------------------------------------------------------
+// College Apps — the application tracker (2026-09-19, modeled on oneprep.xyz's
+// College tab; Premium, included in the single rate).
+//
+// The college directory itself is NOT a table: ~1,900 bachelor's-granting
+// institutions from the U.S. Dept. of Education's College Scorecard ship as
+// a committed JSON (src/lib/colleges/data/colleges.json), searched in memory,
+// refreshed yearly by scripts/pull-colleges.mjs. Rows here reference a
+// Scorecard id and denormalize the name so a student's list survives a
+// directory refresh that drops or renames a school.
+//
+// One checklist table (ApplicationItem) holds everything a student can tick
+// off: essay prompts, recommendation letters, score sends, fees. Items with a
+// null applicationId are student-level — the Common App personal statement
+// and UC PIQs are written once and reused, and FAFSA/CSS Profile aren't tied
+// to one college. Prompts are COPIED into a student's list when they add a
+// college (from the platform constants in code and the Owner's curated
+// CollegeSupplement rows), never referenced: a student's checklist must not
+// change under them when the Owner edits next year's supplements, and each
+// student's "done" is their own.
+// ---------------------------------------------------------------------------
+
+enum ApplicationPlatform {
+  COMMON_APP
+  UC_APPLICATION
+  COALITION
+  APPLY_TEXAS
+  OTHER
+}
+
+enum ApplicationPlan {
+  EARLY_DECISION
+  EARLY_DECISION_2
+  EARLY_ACTION
+  RESTRICTIVE_EARLY_ACTION
+  REGULAR_DECISION
+  ROLLING
+}
+
+enum ApplicationStatus {
+  RESEARCHING
+  APPLYING
+  SUBMITTED
+  ACCEPTED
+  WAITLISTED
+  DENIED
+  WITHDRAWN
+}
+
+enum ApplicationItemKind {
+  PROMPT
+  RECOMMENDATION
+  TEST_SCORES
+  FEE
+  FINANCIAL_AID
+  OTHER
+}
+
+enum ApplicationItemSource {
+  PLATFORM // Common App / UC / Coalition prompts from code constants
+  CURATED // the Owner's CollegeSupplement rows for that college + cycle
+  STUDENT // added by the student, by hand or from AI-parsed pasted text
+}
+
+// Set by the College Apps onboarding wizard. The grade decides the whole
+// view (a freshman gets a "this year" checklist, a senior gets the
+// deadline-first tracker); the platforms decide which shared essays are
+// seeded as student-level items.
+model CollegeAppsProfile {
+  id          String                @id @default(cuid())
+  userId      String                @unique
+  grade       Int // 9-12, the current school year
+  platforms   ApplicationPlatform[]
+  onboardedAt DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("college_apps_profiles")
+}
+
+model CollegeApplication {
+  id          String               @id @default(cuid())
+  studentId   String
+  collegeId   Int // College Scorecard institution id
+  collegeName String
+  platform    ApplicationPlatform?
+  plan        ApplicationPlan?
+  deadline    DateTime? // date only; stored at UTC midnight
+  status      ApplicationStatus    @default(RESEARCHING)
+  notes       String               @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  student User              @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  items   ApplicationItem[]
+
+  @@unique([studentId, collegeId])
+  @@index([studentId, deadline])
+  @@map("college_applications")
+}
+
+model ApplicationItem {
+  id            String                @id @default(cuid())
+  studentId     String
+  applicationId String? // null = student-level (shared essays, FAFSA, CSS Profile)
+  kind          ApplicationItemKind
+  source        ApplicationItemSource
+  title         String
+  detail        String                @default("") // the prompt text, the recommender's name, etc.
+  wordLimit     Int?
+  position      Int
+  doneAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  student     User                @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  application CollegeApplication? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([studentId, applicationId, position])
+  @@map("application_items")
+}
+
+// The Owner's yearly curation: one row per supplemental prompt per college
+// per admissions cycle (the cycle is the year applications are due, so the
+// 2026-27 season is cycle 2027). Entered each August from Common App; copied
+// into a student's checklist when they add the college.
+model CollegeSupplement {
+  id         String @id @default(cuid())
+  collegeId  Int
+  cycle      Int
+  title      String
+  promptText String
+  wordLimit  Int?
+  position   Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([collegeId, cycle, position])
+  @@map("college_supplements")
 }

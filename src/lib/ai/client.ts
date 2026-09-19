@@ -8,6 +8,9 @@ export const AI_MODELS = {
   transcription: "claude-fable-5",
   textGeneration: "claude-sonnet-5",
   diagramGeneration: "claude-opus-5",
+  // Extracting essay prompts from pasted supplement text (College Apps).
+  // Structured extraction from short text — Sonnet is plenty.
+  promptExtraction: "claude-sonnet-5",
 } as const;
 
 export function getAnthropicClient(): Anthropic {

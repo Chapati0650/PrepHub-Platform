@@ -21,6 +21,7 @@ import {
   ArrowRight,
   Trophy,
   BookOpen,
+  GraduationCap,
 } from "lucide-react";
 import { Logo, LogoMark } from "@/components/logo";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ const STUDENT_ITEMS: NavItem[] = [
   { href: "/practice", label: "Practice", icon: PencilLine },
   { href: "/800-club", label: "800 Club", icon: Trophy },
   { href: "/curriculum", label: "The Curriculum", icon: BookOpen },
+  { href: "/college-apps", label: "College Apps", icon: GraduationCap },
   { href: "/progress", label: "Progress", icon: TrendingUp },
   { href: "/community", label: "Community", icon: Users },
   { href: "/settings", label: "Profile", icon: UserRound },
@@ -66,7 +68,7 @@ function isActive(pathname: string, href: string): boolean {
 // shell. /diagnostic also serves the pre-session intro screens at the same
 // URL (see diagnostic/page.tsx) — those get focus mode too, since they're
 // part of the same distraction-free flow leading into the first question.
-const FOCUS_MODE_PATHS = new Set(["/diagnostic", "/practice/session", "/onboarding"]);
+const FOCUS_MODE_PATHS = new Set(["/diagnostic", "/practice/session", "/onboarding", "/college-apps/onboarding"]);
 // 800 Club sessions live at /800-club/session/<id> — the one focus route
 // with a dynamic segment, so it is matched by prefix rather than listed.
 const FOCUS_MODE_PREFIXES = ["/800-club/session/"];
