@@ -68,7 +68,9 @@ test.describe("Diagnostic + Practice loop (PRD-012, PRD-005, PRD-006, PRD-007)",
 
     // Resuming the dashboard now shows the diagnostic-completed state.
     await page.goto("/home");
-    await expect(page.getByRole("heading", { name: "Welcome back, Ada" })).toBeVisible();
+    // The greeting is time-of-day ("Good evening, Ada.") and decided on the
+    // client after hydration, so only the name is stable to assert on.
+    await expect(page.getByRole("heading", { name: /, Ada\.$/ })).toBeVisible();
     await expect(page.getByText("PrepHub Score Prediction")).toBeVisible();
     await expect(page.getByRole("link", { name: "Continue Practice" })).toBeVisible();
 

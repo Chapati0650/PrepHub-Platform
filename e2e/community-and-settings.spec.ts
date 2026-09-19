@@ -91,8 +91,13 @@ test.describe("School Community (PRD-009) and Profile & Settings (PRD-010)", () 
     await expect(studentPage.getByRole("heading", { name: "Plano Academy" })).toBeVisible();
     await expect(studentPage.getByText("Questions Answered", { exact: true })).toBeVisible();
     await expect(studentPage.getByText(/School Goal: 100,000 Questions Answered/)).toBeVisible();
-    // No individual data is ever shown — the page must never mention the student's own name/email.
-    await expect(studentPage.getByText(studentEmail)).not.toBeVisible();
+    // No individual data is ever shown — the community *content* must never
+    // mention the student's own name/email (PRD-009; enforced by
+    // getSchoolCommunityData's return type, which has no field that could
+    // carry one). Scoped to <main> because the app shell's account block
+    // shows the signed-in student their own email on every page — that is
+    // chrome identifying who is logged in, not community data.
+    await expect(studentPage.locator("main").getByText(studentEmail)).not.toBeVisible();
 
     // Dashboard shows the School Community shortcut for a school-sponsored student.
     await studentPage.goto("/home");

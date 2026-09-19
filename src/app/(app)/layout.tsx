@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { hasPaidAccess } from "@/lib/entitlements";
 import { logoutAction } from "./actions";
 import { AppShell } from "@/components/app-shell";
 
@@ -28,8 +29,23 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
+  const role = session.user.role ?? "STUDENT";
+
+  // The shell's Upgrade row and launch-pricing banner are purely
+  // presentational — nothing behind them is gated here — but they must still
+  // agree with the real entitlement, so the answer comes from the one
+  // entitlement service (CLAUDE.md invariant) rather than a second guess.
+  // Only students can be unpaid: administrators have inherent access and
+  // the Owner never buys the product.
+  const showUpgrade = role === "STUDENT" && !(await hasPaidAccess(session.user.id));
+
   return (
-    <AppShell role={session.user.role ?? "STUDENT"} logoutAction={logoutAction}>
+    <AppShell
+      role={role}
+      user={{ name: session.user.name ?? "", email: session.user.email ?? "" }}
+      showUpgrade={showUpgrade}
+      logoutAction={logoutAction}
+    >
       {children}
     </AppShell>
   );

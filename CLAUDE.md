@@ -192,9 +192,19 @@ no dark override is a light-mode-only bug, not just a missed enhancement).
 
 **Navigation shell**: `src/components/app-shell.tsx` (a client component,
 used from the server-component `src/app/(app)/layout.tsx`) is a persistent
-left sidebar on desktop (`sm:flex`, `w-60`) and a slide-out `Sheet` behind a
-hamburger button on mobile — replacing an earlier top horizontal header, per
-the Linear/Stripe reference. `children` renders exactly once in a single
+left sidebar on desktop (`sm:flex`, `w-64`) and a slide-out `Sheet` behind a
+hamburger button on mobile — replacing an earlier top horizontal header.
+**The sidebar is the deep-teal block in light mode too**, per the oneprep.xyz
+dashboard reference: every `--sidebar-*` token in `globals.css` aliases
+`--surface-deep`/`--marker` rather than defining a separate palette, so the
+sidebar can't drift from the landing band and auth panel. Its bottom holds
+an account block (initials, name, email, a Settings gear) and, for a student
+without paid access, an "Upgrade · 50% off" row. That same `showUpgrade`
+flag drives a one-line launch-pricing bar across the top of the content
+column — it is computed in the layout from `hasPaidAccess` (the one
+entitlement service), never inferred client-side, and it has **no
+countdown**: the discount has no announced end date, and a fake timer is the
+one kind of urgency this product must never show. `children` renders exactly once in a single
 shared content column; only the surrounding chrome (sidebar vs. mobile
 header+sheet) toggles by viewport — don't reintroduce a second `<main>` for
 mobile, which would double-run page-level data fetching and client state.
@@ -211,6 +221,21 @@ read as denser. The deliberate exception is question/answer text in the
 session runner (`session-runner.tsx`), sized up a step
 (`text-lg`/`p-4 text-base`) so it stays "large, comfortable" (the Brilliant
 reference) rather than shrinking along with everything else.
+
+**Dashboard** (`src/app/(app)/home/page.tsx`): built from bordered
+`rounded-2xl` modules (`Panel`) on the oneprep.xyz dashboard reference —
+greeting + the day's two actions, one bordered row of four stats, a numbered
+Strengths & Weaknesses list, a Score panel (prediction over target), and a
+Premium panel for unpaid students. This is the one interior surface where
+"prefer a rule to a box" yields to the reference: the border is each
+module's *only* chrome (no tint, no shadow, no icon), and the stat row is
+still rules inside one box, not four boxes. The greeting is time-of-day
+("Good evening, Ada.") and must be decided on the client — the server's
+clock is UTC — via the same `useSyncExternalStore` idiom as
+`theme-toggle.tsx` (see `home/greeting.tsx`); e2e asserts on `/, Ada\.$/`,
+not the salutation. Every number on it is real data from
+`getDashboardData`; a derived stat like "sets since diagnostic" was
+deliberately rejected because it would silently miscount an in-progress set.
 
 **Hero numbers**: the few numbers that matter most (dashboard's Score
 Prediction, the session-results Score Prediction) are set large and bold

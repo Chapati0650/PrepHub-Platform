@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { TrendingUp, Compass } from "lucide-react";
+import { TrendingUp, Check, ChevronRight, Pencil } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { needsAccessSelection } from "@/lib/access";
+import { hasPaidAccess } from "@/lib/entitlements";
 import { getDashboardData } from "@/lib/dashboard/dashboard-data";
 import { getActiveAnnouncementsForStudents, type AnnouncementEntry } from "@/lib/announcements";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
@@ -14,6 +15,7 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { ScorePrediction } from "@/components/score-prediction";
 import { Marker } from "@/components/ui/marker";
+import { Greeting } from "./greeting";
 
 function formatStudyTime(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
@@ -67,7 +69,7 @@ export default async function HomePage() {
 
   const isAdmin = session.user.role === "SCHOOL_ADMINISTRATOR";
   const isStudent = session.user.role === "STUDENT";
-  const [data, membership, adminAssignment, onboarding] = await Promise.all([
+  const [data, membership, adminAssignment, profile, paidAccess] = await Promise.all([
     getDashboardData(session.user.id),
     !isAdmin
       ? prisma.studentMembership.findUnique({ where: { studentId: session.user.id }, select: { status: true, schoolId: true } })
@@ -77,10 +79,15 @@ export default async function HomePage() {
           where: { userId: session.user.id, removedAt: null, organization: { organizationType: "SCHOOL" } },
         })
       : null,
-    isStudent
-      ? prisma.user.findUniqueOrThrow({ where: { id: session.user.id }, select: { onboardingCompletedAt: true } })
-      : null,
+    prisma.user.findUniqueOrThrow({
+      where: { id: session.user.id },
+      select: { onboardingCompletedAt: true, targetScore: true },
+    }),
+    // The Premium panel is presentational, but it must agree with the real
+    // entitlement — administrators have inherent access and never see it.
+    hasPaidAccess(session.user.id),
   ]);
+  const onboarding = isStudent ? profile : null;
   const communitySchoolId = membership?.status === "ACTIVE" ? membership.schoolId : adminAssignment?.organizationId;
   const hasSchoolCommunity = Boolean(communitySchoolId);
 
@@ -144,44 +151,29 @@ export default async function HomePage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-10 p-4 pb-16 sm:p-8">
+    <div className="mx-auto flex max-w-5xl flex-col gap-8 p-4 pb-16 sm:p-8">
       <AnnouncementsBanner announcements={announcements} />
 
-      {/* The one hero block on the page. Previously the greeting, the score,
-          the CTA and five more sections were siblings in a flat `gap-8`
-          column, all at the same weight - the "everything is equally
-          important" rhythm that makes a dashboard read as generated. Grouping
-          the score and the single action a student came here to take onto one
-          tinted block, and letting everything below it drop to quiet type, is
-          the whole hierarchy fix. */}
-      <section className="rounded-3xl bg-surface-tint p-6 sm:p-10">
-        <h1 className="text-page-title sm:text-page-title-lg">Welcome back, {data.firstName}.</h1>
-
-        <div className="mt-8 flex flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
-          {/* PrepHub Score Prediction - informational only, per PRD-004 §7 "Interaction" */}
-          {data.currentRange ? (
-            <ScorePrediction min={data.currentRange.min} max={data.currentRange.max} label="PrepHub Score Prediction" />
-          ) : (
-            <div>
-              <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                PrepHub Score Prediction
-              </p>
-              <p className="mt-2 font-heading text-hero font-semibold tabular-nums sm:text-hero-lg">&mdash;</p>
-            </div>
-          )}
-          {data.approximateImprovementSinceStart !== null && data.approximateImprovementSinceStart > 0 && (
-            <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-achievement/20 px-4 py-2 text-sm font-semibold text-achievement-foreground dark:text-achievement">
-              &uarr; {data.approximateImprovementSinceStart} pts since you started
-            </span>
-          )}
-        </div>
-
-        <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-3">
-          <LinkButton size="cta" href="/practice">
-            Continue Practice
-          </LinkButton>
+      {/* Greeting row — the reference's "Good late night, <name>" with the
+          day's two actions directly under it, and the streak where it keeps
+          its top-right badge. Continue Practice is the only cta-sized
+          control on the page. */}
+      <section>
+        <div>
+          <h1 className="text-page-title sm:text-page-title-lg">
+            <Greeting name={data.firstName} />
+          </h1>
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <LinkButton size="cta" href="/practice">
+              Continue Practice
+            </LinkButton>
+            <LinkButton size="cta" variant="outline" href="/progress">
+              View Progress
+              <ChevronRight className="size-4" aria-hidden />
+            </LinkButton>
+          </div>
           {data.recommendedPace && (
-            <p className="text-sm text-muted-foreground">
+            <p className="mt-4 text-sm text-muted-foreground">
               <span className="font-medium text-foreground">{data.recommendedPace.label}</span>{" "}
               {data.recommendedPace.description}
             </p>
@@ -189,66 +181,62 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Weekly Statistics. Three numbers in a row need separating, not
-          boxing - a rule between them says "these are three of the same
-          thing" where three bordered cards say "these are three features." */}
-      <section className="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-        <Stat label="Questions This Week" value={String(data.weeklyQuestionsCompleted)} />
-        <Stat label="Study Time This Week" value={formatStudyTime(data.weeklyStudyTimeSeconds)} />
-        <Stat label="Total Questions Answered" value={String(data.totalQuestionsAnswered)} />
+      {/* This week — one bordered row of four numbers, the reference's
+          Analytics strip. Cells divide with rules; the row is the only box. */}
+      <section className="flex flex-col gap-3">
+        <div className="flex items-baseline justify-between gap-4">
+          <SectionTitle>This Week</SectionTitle>
+          <Link href="/progress" className="text-sm text-muted-foreground underline-offset-4 hover:underline">
+            View all progress
+          </Link>
+        </div>
+        <div className="grid grid-cols-2 divide-border overflow-hidden rounded-2xl border border-border [&>*:nth-child(n+3)]:border-t sm:grid-cols-4 sm:divide-x sm:[&>*:nth-child(n+3)]:border-t-0">
+          <Stat label="Questions This Week" value={String(data.weeklyQuestionsCompleted)} />
+          <Stat label="Study Time This Week" value={formatStudyTime(data.weeklyStudyTimeSeconds)} />
+          <Stat label="Total Questions Answered" value={String(data.totalQuestionsAnswered)} />
+          <Stat label="Study Streak" value={`${data.studyStreak} day${data.studyStreak === 1 ? "" : "s"}`} />
+        </div>
       </section>
 
-      <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1.15fr_0.85fr]">
-        {/* Strengths & Weaknesses */}
-        <section className="flex flex-col gap-4">
-          <SectionTitle>Strengths &amp; Weaknesses</SectionTitle>
-          <div className="flex flex-col gap-3.5">
-            {ALL_CATEGORIES.map((category) => {
-              const entry = data.mastery.find((m) => m.category === category);
-              const value = entry?.currentMastery ?? 0;
-              return (
-                <div key={category}>
-                  <div className="mb-2 flex items-baseline justify-between gap-3 text-sm">
-                    <span>{CATEGORY_LABELS[category]}</span>
-                    <span className="font-semibold tabular-nums">{value}%</span>
-                  </div>
-                  <div
-                    className="h-2 w-full overflow-hidden rounded-full bg-muted"
-                    role="progressbar"
-                    aria-valuenow={value}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-label={`${CATEGORY_LABELS[category]} mastery`}
-                  >
-                    <div className="h-full rounded-full bg-primary" style={{ width: `${value}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.4fr_1fr]">
+        <div className="flex flex-col gap-6">
+          {/* Strengths & Weaknesses — the reference's numbered skill list.
+              Fixed category order (PRD-004), not weakest-first: the ordinal
+              is a stable reference for "your Grammar row", and the bar and
+              percentage already say which ones need work. */}
+          <Panel title="Strengths & Weaknesses" action={{ href: "/progress", label: "Weakest skills" }}>
+            <ol className="divide-y divide-border">
+              {ALL_CATEGORIES.map((category, i) => {
+                const entry = data.mastery.find((m) => m.category === category);
+                const value = entry?.currentMastery ?? 0;
+                return (
+                  <li key={category} className="flex items-center gap-4 py-3.5 first:pt-0 last:pb-0">
+                    <span className="w-6 shrink-0 font-heading text-sm font-semibold tabular-nums text-muted-foreground">
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
+                        <span className="truncate">{CATEGORY_LABELS[category]}</span>
+                        <span className="shrink-0 font-semibold tabular-nums">{value}%</span>
+                      </span>
+                      <span
+                        className="block h-2 w-full overflow-hidden rounded-full bg-muted"
+                        role="progressbar"
+                        aria-valuenow={value}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-label={`${CATEGORY_LABELS[category]} mastery`}
+                      >
+                        <span className="block h-full rounded-full bg-primary" style={{ width: `${value}%` }} />
+                      </span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          </Panel>
 
-        <div className="flex flex-col gap-10">
-          {/* Study Streak - the achievement accent stays reserved for a streak
-              that actually exists; a zero-day streak is plain type, not a
-              celebratory surface with nothing to celebrate. */}
-          <section className="flex flex-col gap-4">
-            <SectionTitle>Study Streak</SectionTitle>
-            <p
-              className={`font-heading text-display-sm font-semibold tabular-nums ${
-                data.studyStreak > 0 ? "text-achievement-foreground dark:text-achievement" : "text-muted-foreground"
-              }`}
-            >
-              {data.studyStreak}
-              <span className="ml-2 text-base font-normal text-muted-foreground">
-                day{data.studyStreak === 1 ? "" : "s"}
-              </span>
-            </p>
-          </section>
-
-          {/* Recent Improvements */}
-          <section className="flex flex-col gap-4">
-            <SectionTitle>Recent Improvements</SectionTitle>
+          <Panel title="Recent Improvements">
             {data.recentImprovements.length > 0 ? (
               <ul className="flex flex-col gap-2.5 border-l-2 border-marker pl-4">
                 {data.recentImprovements.map((improvement) => (
@@ -264,28 +252,114 @@ export default async function HomePage() {
                 description="Complete a few more Practice Sets and any real gains will show up here."
               />
             )}
-          </section>
+          </Panel>
+        </div>
 
-          {/* Only shown for accounts that predate the onboarding wizard - with
-              a pace set, it rides along with the CTA above instead. */}
-          {!data.recommendedPace && (
-            <EmptyState
-              icon={Compass}
-              title="No recommended pace yet"
-              description="New accounts get a personalized pace from a quick onboarding quiz - this account signed up before that existed."
-            />
+        <div className="flex flex-col gap-6">
+          {/* Score panel — Predicted over Target, the reference's score card.
+              The prediction keeps its hero scale so it stays the one number
+              on the page that reads first. */}
+          <Panel title="Your Score">
+            <div className="flex flex-col gap-6">
+              {data.currentRange ? (
+                <ScorePrediction min={data.currentRange.min} max={data.currentRange.max} label="PrepHub Score Prediction" />
+              ) : (
+                <div>
+                  <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                    PrepHub Score Prediction
+                  </p>
+                  <p className="mt-2 font-heading text-hero font-semibold tabular-nums">&mdash;</p>
+                </div>
+              )}
+              {data.approximateImprovementSinceStart !== null && data.approximateImprovementSinceStart > 0 && (
+                <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-achievement/20 px-3 py-1.5 text-sm font-semibold text-achievement-foreground dark:text-achievement">
+                  &uarr; {data.approximateImprovementSinceStart} pts since you started
+                </span>
+              )}
+              <div className="flex items-end justify-between gap-4 border-t border-border pt-5">
+                <div>
+                  <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">Target Score</p>
+                  <p className="mt-1 font-heading text-display-sm font-semibold tracking-tight tabular-nums">
+                    {profile.targetScore ?? <span className="text-muted-foreground">&mdash;</span>}
+                  </p>
+                </div>
+                <Link
+                  href="/settings"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-sm transition-colors hover:bg-muted"
+                >
+                  <Pencil className="size-3.5" aria-hidden />
+                  {profile.targetScore ? "Edit" : "Set target"}
+                </Link>
+              </div>
+            </div>
+          </Panel>
+
+          {/* Premium panel — the reference's "Reach your score goal faster
+              with Pro" card. Only for students who haven't paid, and only
+              claims what /pricing's table claims. "Faster" is the honest
+              framing: the free tier stops at the Diagnostic, so there is no
+              practice loop at all without Premium. */}
+          {!paidAccess && (
+            <section className="rounded-2xl bg-surface-tint p-6">
+              <p className="text-caption font-semibold tracking-[0.12em] text-primary uppercase">PrepHub Premium</p>
+              <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-balance">
+                {profile.targetScore ? `Reach ${profile.targetScore} faster with Premium.` : "Reach your target faster with Premium."}
+              </h2>
+              <ul className="mt-4 flex flex-col gap-2 text-sm">
+                {["Unlimited Personalized Practice Sets", "Prediction updated after every set", "Session Review with video explanations"].map((f) => (
+                  <li key={f} className="flex items-start gap-2.5">
+                    <Check className="mt-0.5 size-4 shrink-0 text-primary" strokeWidth={2.5} aria-hidden />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <LinkButton className="rounded-full px-5" href="/pricing">
+                  View plans
+                  <ChevronRight className="size-4" aria-hidden />
+                </LinkButton>
+                <span className="text-sm text-muted-foreground">50% off at launch</span>
+              </div>
+            </section>
           )}
 
-          {/* School Community Shortcut - PRD-004 §13: only shown when there's a
+          {/* School Community Shortcut — PRD-004 §13: only shown when there's a
               school to be a community about; kept small, never a dashboard focus. */}
           {hasSchoolCommunity && (
             <Link href="/community" className="text-sm underline underline-offset-4 hover:text-foreground">
-              View School Community →
+              View School Community &rarr;
             </Link>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+// A bordered module with a title row: the reference's dashboard is built
+// from these. The border is the module's only chrome — no tint, no shadow,
+// no icon in the corner — so the content inside is what carries weight.
+function Panel({
+  title,
+  action,
+  children,
+}: {
+  title: ReactNode;
+  action?: { href: string; label: string };
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl border border-border p-5 sm:p-6">
+      <div className="mb-5 flex items-baseline justify-between gap-4">
+        <h2 className="font-heading text-base font-semibold">{title}</h2>
+        {action && (
+          <Link href={action.href} className="shrink-0 text-sm text-muted-foreground underline-offset-4 hover:underline">
+            {action.label}
+          </Link>
+        )}
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -297,9 +371,9 @@ function SectionTitle({ children }: { children: ReactNode }) {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="py-4 sm:px-6 sm:py-0 sm:first:pl-0 sm:last:pr-0">
-      <p className="font-heading text-display-sm font-semibold tracking-tight tabular-nums">{value}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{label}</p>
+    <div className="p-5">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="mt-2 font-heading text-display-sm font-semibold tracking-tight tabular-nums">{value}</p>
     </div>
   );
 }

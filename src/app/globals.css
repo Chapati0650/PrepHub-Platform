@@ -150,16 +150,22 @@
      8-9px, buttons around 6px), not the generous "friendly app" rounding
      this started at — see the visual-design note in CLAUDE.md. */
   --radius: 0.375rem;
-  /* Sidebar reads one shade off pure white, distinguishing it from the
-     white content column without reaching for a border alone. */
-  --sidebar: oklch(0.97 0 0);
-  --sidebar-foreground: oklch(0.2 0 0);
-  --sidebar-primary: oklch(0.4231 0.0757 192.19);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.93 0.02 192.19);
-  --sidebar-accent-foreground: oklch(0.3169 0.0656 192.19);
-  --sidebar-border: oklch(0.9 0 0);
-  --sidebar-ring: oklch(0.5843 0.0906 192.19);
+  /* The sidebar is the deep-teal block, in light mode too — the oneprep.xyz
+     dashboard reference pairs a dark nav column with a white content area,
+     and it gives the app interior the same surface-deep band the landing
+     page and auth shell already carry. Every value aliases an existing
+     token rather than introducing a fifth teal: the active item's icon is
+     the marker cyan, the active pill is a translucent white, and the rest
+     is surface-deep and its foreground. (The previous one-shade-off-white
+     sidebar was distinguishable from the content column only by a border.) */
+  --sidebar: var(--surface-deep);
+  --sidebar-foreground: var(--surface-deep-foreground);
+  --sidebar-primary: var(--marker);
+  --sidebar-primary-foreground: var(--surface-deep);
+  --sidebar-accent: oklch(1 0 0 / 10%);
+  --sidebar-accent-foreground: oklch(0.99 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: var(--marker);
 }
 
 .dark {
@@ -196,14 +202,17 @@
   --chart-3: oklch(0.5843 0.0906 192.19);
   --chart-4: oklch(0.5372 0 0);
   --chart-5: oklch(0.7383 0 0);
-  --sidebar: oklch(0.2367 0 0);
-  --sidebar-foreground: oklch(0.9509 0 0);
-  --sidebar-primary: oklch(0.6664 0.1023 190.65);
-  --sidebar-primary-foreground: oklch(0.1544 0 0);
-  --sidebar-accent: oklch(0.3169 0.0325 192.19);
-  --sidebar-accent-foreground: oklch(0.851 0.0568 178.15);
+  /* Same aliasing as light mode, so the sidebar is the dark-mode
+     surface-deep rather than a separate neutral gray that no other surface
+     in the app uses. */
+  --sidebar: var(--surface-deep);
+  --sidebar-foreground: var(--surface-deep-foreground);
+  --sidebar-primary: var(--marker);
+  --sidebar-primary-foreground: var(--surface-deep);
+  --sidebar-accent: oklch(1 0 0 / 8%);
+  --sidebar-accent-foreground: oklch(0.99 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.6664 0.1023 190.65);
+  --sidebar-ring: var(--marker);
 }
 
 @layer base {
