@@ -612,6 +612,56 @@ The PRDs form these dependency layers — build top to bottom:
      Student Directory's inline edit row and the Announcements create form
      both needed the identical pattern.
 
+## 800 Club and The Curriculum (2026-09-19, modeled on oneprep.xyz)
+
+Two Premium surfaces added after the PRD build order, at the Owner's
+direction, on oneprep.xyz's "Challenge Questions" and "Masterclass".
+
+**800 Club** (`src/lib/club/`, `src/app/(app)/800-club/`) — hard-question
+sessions by section (Reading & Writing / Math). The pool is *published HARD
+questions in the section's categories* — no separate tag, by Owner decision;
+the Owner's own difficulty classification is what puts a question here.
+**Sessions live in their own tables (`ClubSession`/`ClubSlot`), never in
+`PracticeSet`.** Two reasons, both load-bearing: the app enforces "at most
+one ACTIVE PracticeSet per student" and `/practice` finds the active set by
+status alone, so a club session stored there would hijack the practice
+loop; and PRD-014's ability update / PRD-016's prediction must never see a
+hard-only sample. Nothing in `src/lib/adaptive` reads or writes club rows —
+the isolation is by data shape, not by a flag, and was verified in a real
+browser (dashboard prediction identical before and after a 10-question
+session). `select-questions.ts` is pure (unseen-first, never pads, seeded)
+and unit-tested. Sessions are `CLUB_SESSION_SIZE` (10) — shorter than a
+Practice Set on purpose. The runner is the shared `SessionRunner`; the
+results page is its own component because `SessionResults` is built around
+a prediction update that doesn't exist here, but it reuses the exported
+`QuestionDetail`. Gated on `hasPaidAccess` in both the page and the server
+action. `/800-club/session/<id>` is the one focus-mode route matched by
+prefix (`FOCUS_MODE_PREFIXES` in `app-shell.tsx`).
+
+**The Curriculum** (`src/lib/curriculum/`, `src/app/(app)/curriculum/`,
+`src/app/(app)/owner/content/curriculum/`) — the Owner's video course.
+`CurriculumModule` → ordered `Lesson`s; a lesson's video is a YouTube id
+(only the parsed 11-char id is stored — `youtube.ts`, unit-tested — and
+embedded from `youtube-nocookie.com` with `rel=0`) or an uploaded
+`MediaAsset` through the same `uploadVideoAction` the question editor uses.
+Students see published lessons only; playing a non-free lesson needs
+`hasPaidAccess`, decided in `getLessonForStudent`, and the gate is the data
+(`LessonView.video` is null) — the player is never rendered for a locked
+lesson, not hidden with CSS. `LessonProgress` is one row per (student,
+lesson), recorded once. Reordering is pure list math (`ordering.ts`,
+unit-tested) written as a whole renumbered set in one transaction so
+positions never gap or collide. A lesson can't be published without a
+playable video (`setLessonPublished`). The teacher card
+(`teacher-card.tsx`) is the Owner's own bio as given; its view count is the
+same 8M+ the landing page states so the site never makes two claims about
+one channel. The Owner CMS lesson editor is fully controlled — Base UI warns
+when an uncontrolled field's `defaultValue` changes after a save re-render.
+
+**Deploying either one needs a migration applied to Neon first**
+(`20260919165633_add_club_and_curriculum`) — the build is just `next build`,
+so migrations do not run on deploy. Push code only after
+`prisma migrate deploy` has succeeded against production.
+
 ## Cross-phase fix: diagnostic must be reachable before access selection
 
 PRD-002 §5.1 sends every student with no subscription/membership to `/access`

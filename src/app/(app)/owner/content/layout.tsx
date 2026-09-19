@@ -8,6 +8,7 @@ const TABS = [
   { href: "/owner/content/questions", label: "Questions" },
   { href: "/owner/content/families", label: "Question Families" },
   { href: "/owner/content/coverage", label: "Content Coverage" },
+  { href: "/owner/content/curriculum", label: "Curriculum" },
 ];
 
 // PRD-015 §3: three primary pages behind a persistent desktop nav — Questions

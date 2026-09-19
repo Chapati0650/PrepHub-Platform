@@ -227,7 +227,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function QuestionDetail({ loaded, isCorrect }: { loaded: LoadedQuestion; isCorrect: boolean }) {
+export function QuestionDetail({ loaded, isCorrect }: { loaded: LoadedQuestion; isCorrect: boolean }) {
   return (
     <div className="flex flex-col gap-3 text-sm">
       <QuestionStatement text={loaded.content.questionText} imageId={loaded.content.questionImageId} mediaBasePath="/api/media" />

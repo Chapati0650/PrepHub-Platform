@@ -19,6 +19,8 @@ import {
   Menu,
   ArrowUpCircle,
   ArrowRight,
+  Trophy,
+  BookOpen,
 } from "lucide-react";
 import { Logo, LogoMark } from "@/components/logo";
 import { Button } from "@/components/ui/button";
@@ -30,6 +32,8 @@ type NavItem = { href: string; label: string; icon: ComponentType<{ className?: 
 const STUDENT_ITEMS: NavItem[] = [
   { href: "/home", label: "Home", icon: LayoutDashboard },
   { href: "/practice", label: "Practice", icon: PencilLine },
+  { href: "/800-club", label: "800 Club", icon: Trophy },
+  { href: "/curriculum", label: "The Curriculum", icon: BookOpen },
   { href: "/progress", label: "Progress", icon: TrendingUp },
   { href: "/community", label: "Community", icon: Users },
   { href: "/settings", label: "Profile", icon: UserRound },
@@ -63,6 +67,13 @@ function isActive(pathname: string, href: string): boolean {
 // URL (see diagnostic/page.tsx) — those get focus mode too, since they're
 // part of the same distraction-free flow leading into the first question.
 const FOCUS_MODE_PATHS = new Set(["/diagnostic", "/practice/session", "/onboarding"]);
+// 800 Club sessions live at /800-club/session/<id> — the one focus route
+// with a dynamic segment, so it is matched by prefix rather than listed.
+const FOCUS_MODE_PREFIXES = ["/800-club/session/"];
+
+function isFocusMode(pathname: string): boolean {
+  return FOCUS_MODE_PATHS.has(pathname) || FOCUS_MODE_PREFIXES.some((p) => pathname.startsWith(p));
+}
 
 // Second and later sections get a small uppercase label (the reference
 // groups its nav the same way). The first never does: for a plain student
@@ -128,7 +139,7 @@ export function AppShell({
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  if (FOCUS_MODE_PATHS.has(pathname)) {
+  if (isFocusMode(pathname)) {
     // Onboarding is the one focus route with nowhere to exit *to*: /home
     // redirects a student who hasn't finished the wizard straight back here
     // (see home/page.tsx), so an "Exit" link there is a control that visibly
