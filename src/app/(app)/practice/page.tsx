@@ -1,11 +1,13 @@
+import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
-import { PencilLine, Lock, AlertCircle } from "lucide-react";
+import { Lock, AlertCircle } from "lucide-react";
 import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { hasPaidAccess } from "@/lib/entitlements";
 import { generatePracticeSet } from "@/lib/adaptive/generate-practice-set";
 import { LinkButton } from "@/components/ui/link-button";
+import { Marker } from "@/components/ui/marker";
 
 // PRD-005 — the thin gateway between the Dashboard and the active Practice
 // Session. Never opens a question directly; always shows set state first.
@@ -40,19 +42,26 @@ export default async function PracticePage() {
 
   if (generationFailed || !set) {
     return (
-      <div className="mx-auto flex max-w-lg flex-col items-center gap-4 p-8 text-center">
-        <div className="inline-flex size-10 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-          <AlertCircle className="size-5" aria-hidden />
-        </div>
-        <h1 className="text-xl sm:text-2xl">We&apos;re having trouble preparing your next practice set.</h1>
-        <p className="text-muted-foreground">Your progress is safe. Please try again in a moment.</p>
-        <div className="flex gap-3">
-          <LinkButton href="/practice">Try Again</LinkButton>
-          <LinkButton variant="outline" href="/home">
+      <PracticeShell>
+        <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+          <AlertCircle className="mr-1.5 inline size-3.5 align-[-0.15em]" aria-hidden />
+          Something went wrong
+        </p>
+        <h1 className="mt-3 text-display-sm text-balance">
+          We couldn&apos;t prepare your next practice set.
+        </h1>
+        <p className="mt-4 text-lg text-muted-foreground">
+          Your progress is safe &mdash; nothing you&apos;ve answered has been lost. Try again in a moment.
+        </p>
+        <div className="mt-8 flex flex-wrap items-center gap-3">
+          <LinkButton size="cta" href="/practice">
+            Try Again
+          </LinkButton>
+          <LinkButton size="cta" variant="outline" href="/home">
             Back to Dashboard
           </LinkButton>
         </div>
-      </div>
+      </PracticeShell>
     );
   }
 
@@ -60,51 +69,85 @@ export default async function PracticePage() {
 
   if (!paidAccess) {
     return (
-      <div className="mx-auto flex max-w-lg flex-col items-center gap-4 p-8 text-center">
-        <div className="inline-flex size-10 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-          <Lock className="size-5" aria-hidden />
+      <PracticeShell>
+        <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+          <Lock className="mr-1.5 inline size-3.5 align-[-0.15em]" aria-hidden />
+          Practice Set {set.setNumber}
+        </p>
+        <h1 className="mt-3 text-display-sm text-balance">
+          Your first personalized practice set is <Marker>ready</Marker>.
+        </h1>
+        <p className="mt-4 max-w-prose text-lg text-muted-foreground">
+          21 questions, chosen from how you actually performed on the Diagnostic &mdash; not a generic
+          practice test. Subscribe to open it.
+        </p>
+        <div className="mt-8">
+          <QuestionProgressPips total={set.slots.length} completed={0} dimmed />
         </div>
-        <h1 className="text-xl sm:text-2xl">Your first personalized practice set is ready.</h1>
-        <p className="text-muted-foreground">Subscribe to continue with 21 questions selected from your diagnostic performance.</p>
-        <QuestionProgressPips total={set.slots.length} completed={0} dimmed />
-        <LinkButton size="lg" href="/pricing">
-          View Plans
-        </LinkButton>
-      </div>
+        <div className="mt-8">
+          <LinkButton size="cta" href="/pricing">
+            View Plans
+          </LinkButton>
+        </div>
+      </PracticeShell>
     );
   }
 
   return (
-    <div className="mx-auto flex max-w-lg flex-col items-center gap-4 p-8 text-center">
-      <div className="inline-flex size-10 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-        <PencilLine className="size-5" aria-hidden />
+    <PracticeShell>
+      <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+        Personalized from your performance.
+      </p>
+      {/* The set number is the hero, at the same scale the dashboard gives the
+          Score Prediction. It is the one number this page exists to state, and
+          a student arriving here should see how far they have come before they
+          see the button. */}
+      <h1 className="mt-3 font-heading text-display font-semibold tracking-tight">
+        Practice Set <span className="tabular-nums">{set.setNumber}</span>
+      </h1>
+      <p className="mt-3 text-lg text-muted-foreground">
+        {questionsCompleted > 0
+          ? `${questionsCompleted} of ${set.slots.length} questions completed`
+          : `${set.slots.length} Questions`}
+      </p>
+      <div className="mt-8">
+        <QuestionProgressPips total={set.slots.length} completed={questionsCompleted} />
       </div>
-      <h1 className="text-xl sm:text-2xl">Practice Set {set.setNumber}</h1>
-      <p className="text-muted-foreground">21 Questions</p>
-      <QuestionProgressPips total={set.slots.length} completed={questionsCompleted} />
-      {questionsCompleted > 0 && (
-        <p className="text-sm text-muted-foreground">
-          {questionsCompleted} of {set.slots.length} questions completed
-        </p>
-      )}
-      <p className="text-sm">Personalized from your performance.</p>
-      <LinkButton size="lg" href="/practice/session">
-        {questionsCompleted > 0 ? "Continue Practice" : "Start Practice"}
-      </LinkButton>
+      <div className="mt-8">
+        <LinkButton size="cta" href="/practice/session">
+          {questionsCompleted > 0 ? "Continue Practice" : "Start Practice"}
+        </LinkButton>
+      </div>
+    </PracticeShell>
+  );
+}
+
+// All three states of this page share one shell so they cannot drift into
+// three different layouts. Left-aligned rather than centered: a centered
+// column with a glyph on top, a heading, a line of grey text and a button was
+// the shape all three took, and it is the shape every generated "status
+// screen" takes.
+function PracticeShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="mx-auto w-full max-w-2xl p-6 sm:p-10">
+      <div className="rounded-3xl bg-surface-tint p-8 sm:p-12">{children}</div>
     </div>
   );
 }
 
 // A real, at-a-glance visual for how far into the set you are — replaces a
-// bare "X of Y completed" line with something you can actually scan.
+// bare "X of Y completed" line with something you can actually scan. Bars
+// rather than dots: 21 dots read as decoration, 21 short bars read as a
+// sequence of questions, and the shape matches the segmented progress used in
+// the session runner itself.
 function QuestionProgressPips({ total, completed, dimmed = false }: { total: number; completed: number; dimmed?: boolean }) {
   return (
-    <div className="flex flex-wrap justify-center gap-1.5" aria-hidden>
+    <div className="flex flex-wrap gap-1.5" aria-hidden>
       {Array.from({ length: total }, (_, i) => (
         <span
           key={i}
-          className={`size-2.5 rounded-full ${
-            dimmed ? "bg-muted" : i < completed ? "bg-primary" : "bg-muted"
+          className={`h-1.5 w-6 rounded-full ${
+            dimmed ? "bg-foreground/10" : i < completed ? "bg-primary" : "bg-foreground/10"
           }`}
         />
       ))}

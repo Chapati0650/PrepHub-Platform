@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FileText, UploadCloud } from "lucide-react";
+import { UploadCloud } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import type { QuestionListFilters, QuestionListRow } from "@/lib/content/list-questions";
 import {
@@ -249,7 +249,7 @@ export function QuestionsTable({
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader icon={FileText} title="Questions">
+      <PageHeader title="Questions">
         <LinkButton variant="outline" href="/owner/content/questions/bulk-upload">
           <UploadCloud className="size-4" aria-hidden />
           Bulk Upload

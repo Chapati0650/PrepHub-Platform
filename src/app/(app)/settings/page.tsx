@@ -1,5 +1,5 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
-import { UserRound } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { canUseStudentExperience } from "@/lib/access";
@@ -7,8 +7,6 @@ import { getAccessSummary } from "@/lib/entitlements";
 import { logOutAllDevicesAction } from "../actions";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { PageHeader } from "@/components/page-header";
 import { DeleteAccountForm } from "./delete-account-form";
 import { TargetScoreForm } from "./target-score-form";
@@ -20,6 +18,40 @@ const PLAN_LABEL: Record<string, string> = { MONTHLY: "Monthly ($25/mo)", ANNUAL
 
 function initials(firstName: string): string {
   return firstName.trim().slice(0, 2).toUpperCase();
+}
+
+// One settings section: its name and explanation on the left, the control on
+// the right, with a rule between sections.
+//
+// Replaces a stack of <Card>s each separated by a <Separator>. That was two
+// kinds of chrome doing one job — every section was simultaneously boxed and
+// ruled off — and it gave a page of small toggles the same visual weight as a
+// dashboard of real content. A label column and a hairline is the settings
+// pattern in every product this app is aiming at, and it also puts the actual
+// controls in one aligned column instead of scattering them across eight boxes.
+function SettingsSection({
+  title,
+  description,
+  children,
+  titleClassName,
+}: {
+  title: string;
+  description?: ReactNode;
+  children: ReactNode;
+  titleClassName?: string;
+}) {
+  return (
+    <section className="grid grid-cols-1 gap-x-8 gap-y-4 border-b border-border py-8 first:pt-0 sm:grid-cols-[minmax(0,14rem)_1fr]">
+      <div>
+        <h2 className={`font-medium ${titleClassName ?? ""}`}>{title}</h2>
+        {description && <div className="mt-1 text-sm text-muted-foreground">{description}</div>}
+      </div>
+      {/* Capped: without a max width every input and the destructive button
+          stretched the full content column, which made a page of small
+          controls look like a page of full-bleed form fields. */}
+      <div className="min-w-0 max-w-md">{children}</div>
+    </section>
+  );
 }
 
 // PRD-010 — Profile & Settings. Sections follow the PRD's §12 grouping order:
@@ -50,165 +82,134 @@ export default async function SettingsPage() {
   ]);
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6 p-8">
-      <PageHeader icon={UserRound} title="Account settings" description="Manage your profile, goals, and how PrepHub reaches you." />
+    <div className="mx-auto flex max-w-3xl flex-col gap-10 p-4 pb-16 sm:p-8">
+      <PageHeader title="Account settings" description="Manage your profile, goals, and how PrepHub reaches you." />
 
-      {/* Appearance — a device/browser preference, not a student-specific
-          feature, so it renders for every role (including Owner) rather
-          than living inside the showStudentSections-gated block below. */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Appearance</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ThemeToggle />
-        </CardContent>
-      </Card>
-
-      <Separator />
-
-      {showStudentSections && user && (
-        <>
-          {/* Profile */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <div className="flex size-10 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-                  {initials(user.firstName)}
-                </div>
-                <div>
-                  <CardTitle>Profile</CardTitle>
-                  <CardDescription>{session?.user.email}</CardDescription>
-                </div>
+      <div className="flex flex-col">
+        {showStudentSections && user && (
+          <>
+            {/* Profile */}
+            <SettingsSection
+              title="Profile"
+              description={
+                <span className="flex items-center gap-2">
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-[0.7rem] font-semibold text-primary-foreground">
+                    {initials(user.firstName)}
+                  </span>
+                  <span className="truncate">{session?.user.email}</span>
+                </span>
+              }
+            >
+              <div className="flex flex-col gap-5">
+                <ProfileForm firstName={user.firstName} />
+                {membership?.status === "ACTIVE" && (
+                  <dl className="flex flex-col divide-y divide-border border-t border-border text-sm">
+                    <div className="flex justify-between gap-4 py-2.5">
+                      <dt className="text-muted-foreground">Verified school</dt>
+                      <dd className="text-right">{membership.school.officialName}</dd>
+                    </div>
+                    <div className="flex justify-between gap-4 py-2.5">
+                      <dt className="text-muted-foreground">Graduation year</dt>
+                      <dd className="text-right tabular-nums">{membership.expectedGraduationYear}</dd>
+                    </div>
+                  </dl>
+                )}
               </div>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <ProfileForm firstName={user.firstName} />
-              {membership?.status === "ACTIVE" && (
-                <dl className="grid grid-cols-2 gap-2 text-sm">
-                  <dt className="text-muted-foreground">Verified school</dt>
-                  <dd>{membership.school.officialName}</dd>
-                  <dt className="text-muted-foreground">Graduation year</dt>
-                  <dd>{membership.expectedGraduationYear}</dd>
-                </dl>
-              )}
-            </CardContent>
-          </Card>
+            </SettingsSection>
 
-          <Separator />
-
-          {/* Academic Goal */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Academic Goal</CardTitle>
-              <CardDescription>Set a target SAT score to track your progress toward it.</CardDescription>
-            </CardHeader>
-            <CardContent>
+            {/* Academic Goal */}
+            <SettingsSection
+              title="Academic Goal"
+              description="Set a target SAT score to track your progress toward it."
+            >
               <TargetScoreForm currentTargetScore={user.targetScore} />
-            </CardContent>
-          </Card>
+            </SettingsSection>
 
-          <Separator />
-
-          {/* Notifications */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Notifications</CardTitle>
-            </CardHeader>
-            <CardContent>
+            {/* Notifications */}
+            <SettingsSection title="Notifications" description="How PrepHub reminds you to practice.">
               <NotificationsForm dailyReminderEnabled={user.dailyReminderEnabled} />
-            </CardContent>
-          </Card>
+            </SettingsSection>
+          </>
+        )}
 
-          <Separator />
+        {/* Appearance — a device/browser preference, not a student-specific
+            feature, so it renders for every role (including Owner) rather
+            than living inside the showStudentSections-gated block above. */}
+        <SettingsSection title="Appearance" description="Applies to this browser only.">
+          <ThemeToggle />
+        </SettingsSection>
 
-          {/* Subscription — Administrators have inherent access (PRD-011 §7)
-              and no personal subscription/billing of their own to manage. */}
-          {!isAdmin && (
-            <>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Subscription</CardTitle>
-                  {accessSummary?.type === "SCHOOL" && (
-                    <CardDescription>Your access is provided by {accessSummary.organizationName}.</CardDescription>
-                  )}
-                  {accessSummary?.type === "INDIVIDUAL" && (
-                    <CardDescription>
+        {showStudentSections && user && (
+          <>
+            {/* Subscription — Administrators have inherent access (PRD-011 §7)
+                and no personal subscription/billing of their own to manage. */}
+            {!isAdmin && (
+              <SettingsSection
+                title="Subscription"
+                description={
+                  accessSummary?.type === "SCHOOL" ? (
+                    <>Your access is provided by {accessSummary.organizationName}.</>
+                  ) : accessSummary?.type === "INDIVIDUAL" ? (
+                    <>
                       {accessSummary.subscription.plan ? PLAN_LABEL[accessSummary.subscription.plan] : "—"} —{" "}
                       {accessSummary.subscription.status}
                       {accessSummary.subscription.currentPeriodEnd &&
                         ` · renews ${accessSummary.subscription.currentPeriodEnd.toLocaleDateString()}`}
-                    </CardDescription>
-                  )}
-                  {accessSummary?.type === "NONE" && <CardDescription>No active subscription.</CardDescription>}
-                </CardHeader>
-                <CardContent>
-                  {accessSummary?.type === "SCHOOL" ? (
-                    <p className="text-sm text-muted-foreground">
-                      Billing is managed by your school or district, not by you directly.
-                    </p>
+                    </>
                   ) : (
-                    <LinkButton variant="outline" href="/billing">
-                      Manage Billing
-                    </LinkButton>
-                  )}
-                </CardContent>
-              </Card>
+                    <>No active subscription.</>
+                  )
+                }
+              >
+                {accessSummary?.type === "SCHOOL" ? (
+                  <p className="text-sm text-muted-foreground">
+                    Billing is managed by your school or district, not by you directly.
+                  </p>
+                ) : (
+                  <LinkButton variant="outline" href="/billing">
+                    Manage Billing
+                  </LinkButton>
+                )}
+              </SettingsSection>
+            )}
 
-              <Separator />
-            </>
-          )}
+            {/* Legal */}
+            <SettingsSection title="Legal">
+              <div className="flex gap-5 text-sm">
+                <Link href="/terms" className="underline underline-offset-4">
+                  Terms of Service
+                </Link>
+                <Link href="/privacy" className="underline underline-offset-4">
+                  Privacy Policy
+                </Link>
+              </div>
+            </SettingsSection>
+          </>
+        )}
 
-          {/* Legal */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Legal</CardTitle>
-            </CardHeader>
-            <CardContent className="flex gap-4 text-sm">
-              <Link href="/terms" className="underline">
-                Terms of Service
-              </Link>
-              <Link href="/privacy" className="underline">
-                Privacy Policy
-              </Link>
-            </CardContent>
-          </Card>
-
-          <Separator />
-        </>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Sessions</CardTitle>
-          <CardDescription>
-            Log out of PrepHub on every device where you&apos;re currently signed in.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+        <SettingsSection
+          title="Sessions"
+          description="Log out of PrepHub on every device where you're currently signed in."
+        >
           <form action={logOutAllDevicesAction}>
             <Button type="submit" variant="outline">
               Log out of all devices
             </Button>
           </form>
-        </CardContent>
-      </Card>
+        </SettingsSection>
 
-      <Separator />
-
-      <Card className="border-destructive/50">
-        <CardHeader>
-          <CardTitle className="text-destructive">Delete account</CardTitle>
-          <CardDescription>
-            This permanently disables your account and removes personal information. Your
-            practice history is retained for records but is no longer linked to identifying
-            information. This cannot be undone.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+        {/* Deliberately still visually separated from everything above it —
+            this is the one irreversible control on the page, and the red
+            heading plus its own tinted block is the conventional signal for
+            that, not leftover card chrome. */}
+        <SettingsSection
+          title="Delete account"
+          titleClassName="text-destructive"
+          description="This permanently disables your account and removes personal information. Your practice history is retained for records but is no longer linked to identifying information. This cannot be undone."
+        >
           <DeleteAccountForm hasPassword={Boolean(user?.passwordHash)} />
-        </CardContent>
-      </Card>
+        </SettingsSection>
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import Link from "next/link";
 import { loginAction, type ActionState } from "../actions";
 import { Button } from "@/components/ui/button";
+import { LinkButton } from "@/components/ui/link-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -18,7 +19,7 @@ export default function LoginPage() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-2xl font-semibold sm:text-3xl">Welcome back</CardTitle>
+        <CardTitle className="text-display-sm font-semibold">Welcome back</CardTitle>
         <CardDescription className="text-base">Pick up right where you left off.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -36,16 +37,16 @@ export default function LoginPage() {
             whole flow silently dies with a blank screen. Only a genuine full
             browser navigation (a plain <a>, never intercepted by the router)
             can follow a redirect all the way to an external origin. */}
-        <Button
+        <LinkButton
           variant="outline"
           size="lg"
-          className="h-12 w-full gap-3 text-base"
-          // eslint-disable-next-line @next/next/no-html-link-for-pages -- must bypass next/link's client-side routing; see comment above
-          render={<a href="/api/auth/google-sign-in" />}
+          className="h-12 w-full gap-3 rounded-full text-base"
+          href="/api/auth/google-sign-in"
+          hardNavigation
         >
           <GoogleIcon className="size-5" />
           Continue with Google
-        </Button>
+        </LinkButton>
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <div className="h-px flex-1 bg-border" />
@@ -81,7 +82,7 @@ export default function LoginPage() {
             />
           </div>
 
-          <Button type="submit" size="lg" className="h-12 text-base" disabled={pending}>
+          <Button type="submit" size="lg" className="h-12 rounded-full text-base" disabled={pending}>
             {pending ? "Logging in..." : "Log in"}
           </Button>
         </form>

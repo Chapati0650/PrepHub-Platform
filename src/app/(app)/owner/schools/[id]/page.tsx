@@ -40,7 +40,6 @@ export default async function OrganizationDetailPage({
       </div>
 
       <PageHeader
-        icon={Building2}
         title={org.officialName}
         description={org.organizationType === "DISTRICT" ? "District" : "School"}
       >

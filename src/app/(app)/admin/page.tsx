@@ -42,7 +42,7 @@ export default async function AdminOverviewPage() {
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8">
-      <PageHeader eyebrow="Admin Overview" title={data.schoolName} icon={BarChart3} />
+      <PageHeader eyebrow="Admin Overview" title={data.schoolName} />
 
       {/* Enrollment & Registration */}
       <div>

@@ -57,7 +57,7 @@ export default async function SchoolCommunityPage() {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8">
       {/* School Identity */}
-      <PageHeader eyebrow="School Community" title={data.schoolName} icon={Users2} />
+      <PageHeader eyebrow="School Community" title={data.schoolName} />
 
       {/* School Progress */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">

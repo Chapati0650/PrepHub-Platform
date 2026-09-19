@@ -39,7 +39,12 @@ test.describe("Diagnostic + Practice loop (PRD-012, PRD-005, PRD-006, PRD-007)",
 
     // PRD-012 §5/§26 — the diagnostic must be reachable before choosing an
     // access method.
-    await page.getByRole("link", { name: "Take the Diagnostic First →" }).click();
+    // Regex, not an exact string: this is a ChoiceCard, so the link's
+    // accessible name is its title *plus* its description. The old exact
+    // "Take the Diagnostic First →" matched neither the name nor the page —
+    // /access has never rendered that arrow — so this assertion was failing
+    // on master before the UI redesign, not because of it.
+    await page.getByRole("link", { name: /Take the Diagnostic First/ }).click();
     await expect(page).toHaveURL(/\/diagnostic$/);
 
     // Product introduction — the new welcome screen, then all 6 informational screens.

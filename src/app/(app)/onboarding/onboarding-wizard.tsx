@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import type { ComponentType } from "react";
-import { CalendarDays, Check, Flag, GraduationCap, HelpCircle, Rocket, Timer } from "lucide-react";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { IconBadge } from "@/components/icon-badge";
-import { ONBOARDING_SCORE_RANGES } from "@/lib/onboarding/target-score-options";
+import { Marker } from "@/components/ui/marker";
 import { STUDY_COMMITMENT_OPTIONS, getRecommendedPace } from "@/lib/onboarding/study-commitment";
+import { GoalScorePicker } from "./goal-score-picker";
 import { completeOnboardingAction } from "./actions";
 import type { StudyCommitment } from "@/generated/prisma/client";
 
@@ -18,34 +17,39 @@ const GRADES = [
 ] as const;
 const STEP_COUNT = 4; // Welcome, Grade, Target Score, Study Commitment
 
-// Mirrors the three upcoming questions 1:1 — the same icon reappears as each
-// step's own heading badge below, so the welcome screen doubles as a real
-// preview instead of generic filler copy.
+// Mirrors the three upcoming questions 1:1, so the welcome screen doubles as
+// a real preview instead of generic filler copy. Each one used to carry the
+// same Lucide glyph that reappeared as its step's heading badge; the ordinal
+// does that job now (see CLAUDE.md — decorative icon tiles were the loudest
+// element in every wizard step and told the student nothing).
 const WELCOME_ITEMS = [
-  { icon: GraduationCap, title: "Your grade", body: "So PrepHub can pace your plan around your timeline." },
-  { icon: Flag, title: "Your target score", body: "So your progress is measured against a real goal." },
-  { icon: Timer, title: "Your study commitment", body: "So PrepHub can recommend a pace that fits your schedule." },
+  { title: "Your grade", body: "So PrepHub can pace your plan around your timeline." },
+  { title: "Your target score", body: "So your progress is measured against a real goal." },
+  { title: "Your study commitment", body: "So PrepHub can recommend a pace that fits your schedule." },
 ] as const;
 
 // A small filled/unfilled bar meter standing in for a commitment "intensity"
-// — a genuinely new visual rather than another stock icon, and it reuses the
-// same fill/track colors as everywhere else color is used for one signal.
+// — it reuses the same fill/track treatment as everywhere else color carries
+// one signal, and it's the same height-encodes-magnitude idea the goal-score
+// chart uses one step earlier.
 function IntensityMeter({ level }: { level: 1 | 2 | 3 }) {
   return (
-    <div className="flex shrink-0 items-center gap-0.5" aria-hidden>
-      {[1, 2, 3].map((bar) => (
-        <span key={bar} className={`h-4 w-1.5 rounded-full ${bar <= level ? "bg-primary" : "bg-muted"}`} />
+    <div className="flex h-5 shrink-0 items-end gap-0.5" aria-hidden>
+      {([1, 2, 3] as const).map((bar) => (
+        <span
+          key={bar}
+          style={{ height: `${40 + bar * 20}%` }}
+          className={`w-1.5 rounded-full ${bar <= level ? "bg-primary" : "bg-foreground/15"}`}
+        />
       ))}
     </div>
   );
 }
 
-const STUDY_COMMITMENT_VISUALS: Record<StudyCommitment, { kind: "meter"; level: 1 | 2 | 3 } | { kind: "icon"; icon: ComponentType<{ className?: string }> }> = {
-  LIGHT: { kind: "meter", level: 1 },
-  MODERATE: { kind: "meter", level: 2 },
-  INTENSIVE: { kind: "meter", level: 3 },
-  FEW_TIMES_WEEK: { kind: "icon", icon: CalendarDays },
-  UNSURE: { kind: "icon", icon: HelpCircle },
+const STUDY_COMMITMENT_LEVELS: Partial<Record<StudyCommitment, 1 | 2 | 3>> = {
+  LIGHT: 1,
+  MODERATE: 2,
+  INTENSIVE: 3,
 };
 
 function OptionCard({
@@ -56,7 +60,7 @@ function OptionCard({
 }: {
   selected: boolean;
   onClick: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
 }) {
   return (
@@ -64,19 +68,29 @@ function OptionCard({
       type="button"
       aria-pressed={selected}
       onClick={onClick}
-      className={`relative rounded-lg border p-4 text-left transition-colors ${
+      // rounded-xl and a two-tone selected state rather than a bordered card
+      // with a check-circle stuck in the corner — the corner check was a
+      // second indicator saying what the fill already said.
+      className={`relative rounded-xl border p-4 text-left transition-colors ${
         selected
-          ? "border-primary bg-accent"
-          : "border-border bg-card hover:border-primary/50 hover:bg-muted"
+          ? "border-primary bg-accent text-accent-foreground"
+          : "border-border hover:border-foreground/30 hover:bg-muted/50"
       } ${className}`}
     >
       {children}
-      {selected && (
-        <span className="absolute top-2 right-2 inline-flex size-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
-          <Check className="size-2.5" aria-hidden />
-        </span>
-      )}
     </button>
+  );
+}
+
+function StepHeading({ step, title, children }: { step: number; title: ReactNode; children?: ReactNode }) {
+  return (
+    <div>
+      <p className="font-heading text-caption font-semibold tracking-[0.12em] text-muted-foreground tabular-nums uppercase">
+        Step {String(step).padStart(2, "0")} / {String(STEP_COUNT - 1).padStart(2, "0")}
+      </p>
+      <h1 className="mt-3 text-display-sm text-balance">{title}</h1>
+      {children && <p className="mt-4 max-w-prose text-lg text-muted-foreground">{children}</p>}
+    </div>
   );
 }
 
@@ -101,47 +115,60 @@ export function OnboardingWizard() {
     (step === 3 && studyCommitment !== null);
 
   return (
-    <div className="mx-auto flex min-h-[calc(100dvh-4rem)] max-w-xl flex-col items-center justify-center gap-6 p-8">
-      <div className="flex gap-1.5" role="progressbar" aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={STEP_COUNT}>
+    // Left-aligned in a reading-width column with no card around it, matching
+    // the diagnostic intro flow this leads into — both run in the app shell's
+    // focus mode, where a bordered card is a frame around the whole viewport.
+    <div className="mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-2xl flex-col justify-center gap-10 p-6 sm:p-10">
+      <div
+        className="flex gap-1.5"
+        role="progressbar"
+        aria-valuenow={step + 1}
+        aria-valuemin={1}
+        aria-valuemax={STEP_COUNT}
+      >
         {Array.from({ length: STEP_COUNT }).map((_, i) => (
-          <span key={i} className={`h-1.5 w-6 rounded-full transition-colors ${i <= step ? "bg-primary" : "bg-muted"}`} />
+          <span
+            key={i}
+            className={`h-1.5 flex-1 rounded-full transition-colors ${i <= step ? "bg-primary" : "bg-foreground/10"}`}
+          />
         ))}
       </div>
 
       {step === 0 && (
-        <div className="flex w-full flex-col items-center gap-8 rounded-xl border border-border bg-card p-10">
-          <div className="flex flex-col items-center gap-3 text-center">
-            <IconBadge icon={Rocket} />
-            <h1 className="text-2xl font-semibold">Let&apos;s build your SAT plan.</h1>
-            <p className="text-muted-foreground text-balance">
+        <div className="flex flex-col gap-10">
+          <div>
+            <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">Welcome</p>
+            <h1 className="mt-3 text-display-sm text-balance sm:text-display">
+              Let&apos;s build your <Marker>SAT plan</Marker>.
+            </h1>
+            <p className="mt-4 max-w-prose text-lg text-muted-foreground">
               Answer three quick questions so PrepHub can personalize your experience.
             </p>
           </div>
-          <div className="flex w-full flex-col gap-4 text-left">
-            {WELCOME_ITEMS.map(({ icon: Icon, title, body }) => (
-              <div key={title} className="flex items-start gap-3">
-                <IconBadge icon={Icon} size="sm" className="mt-0.5" />
+          <ol className="flex flex-col divide-y divide-border border-y border-border">
+            {WELCOME_ITEMS.map(({ title, body }, i) => (
+              <li key={title} className="flex items-baseline gap-5 py-5">
+                <span className="font-heading text-sm font-semibold tabular-nums text-muted-foreground">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
                 <div>
                   <p className="font-medium">{title}</p>
-                  <p className="text-sm text-muted-foreground">{body}</p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">{body}</p>
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ol>
         </div>
       )}
 
       {step === 1 && (
-        <div className="flex w-full flex-col items-center gap-6">
-          <div className="flex flex-col items-center gap-3 text-center">
-            <IconBadge icon={GraduationCap} />
-            <h1 className="text-2xl font-semibold">What grade are you in?</h1>
-          </div>
-          <div className="grid w-full grid-cols-2 gap-3">
+        <div className="flex flex-col gap-8">
+          <StepHeading step={1} title="What grade are you in?" />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {GRADES.map((g) => (
-              <OptionCard key={g.value} selected={grade === g.value} onClick={() => setGrade(g.value)} className="text-center">
-                <p className="text-2xl font-heading font-semibold tabular-nums">{g.value}</p>
-                <p className="text-sm font-medium">{g.label}</p>
+              <OptionCard key={g.value} selected={grade === g.value} onClick={() => setGrade(g.value)}>
+                <p className="font-heading text-display-sm font-semibold tabular-nums">{g.value}</p>
+                <p className="mt-1 text-sm font-medium">{g.label}</p>
                 <p className="text-xs text-muted-foreground">{g.caption}</p>
               </OptionCard>
             ))}
@@ -150,53 +177,28 @@ export function OnboardingWizard() {
       )}
 
       {step === 2 && (
-        <div className="flex w-full flex-col items-center gap-6">
-          <div className="flex flex-col items-center gap-3 text-center">
-            <IconBadge icon={Flag} />
-            <h1 className="text-2xl font-semibold">What&apos;s your target SAT score?</h1>
-            <p className="text-sm text-muted-foreground text-balance">
-              Showing competitive goal ranges of {ONBOARDING_SCORE_RANGES[0].scoreMin}+.
-            </p>
-          </div>
-          <div className="grid w-full grid-cols-3 gap-2 sm:grid-cols-4">
-            {[...ONBOARDING_SCORE_RANGES].reverse().map((range) => (
-              <OptionCard
-                key={range.index}
-                selected={targetScoreMidpoint === range.midpoint}
-                onClick={() => setTargetScoreMidpoint(range.midpoint)}
-                className="text-center text-sm font-medium tabular-nums"
-              >
-                {range.scoreMin}–{range.scoreMax}
-              </OptionCard>
-            ))}
-            <OptionCard
-              selected={targetScoreMidpoint === null}
-              onClick={() => setTargetScoreMidpoint(null)}
-              className="col-span-3 text-center text-sm font-medium sm:col-span-4"
-            >
-              I&apos;m not sure yet
-            </OptionCard>
-          </div>
+        <div className="flex flex-col gap-8">
+          <StepHeading step={2} title="What's your target SAT score?">
+            Pick the band you&apos;re aiming for. You can change it any time in Settings.
+          </StepHeading>
+          <GoalScorePicker value={targetScoreMidpoint} onChange={setTargetScoreMidpoint} />
         </div>
       )}
 
       {step === 3 && (
-        <div className="flex w-full flex-col items-center gap-6">
-          <div className="flex flex-col items-center gap-3 text-center">
-            <IconBadge icon={Timer} />
-            <h1 className="text-2xl font-semibold">How much time can you dedicate to SAT prep?</h1>
-          </div>
-          <div className="flex w-full flex-col gap-2">
+        <div className="flex flex-col gap-8">
+          <StepHeading step={3} title="How much time can you dedicate to SAT prep?" />
+          <div className="flex flex-col gap-2.5">
             {STUDY_COMMITMENT_OPTIONS.map((option) => {
-              const visual = STUDY_COMMITMENT_VISUALS[option.value];
+              const level = STUDY_COMMITMENT_LEVELS[option.value];
               return (
-                <OptionCard key={option.value} selected={studyCommitment === option.value} onClick={() => setStudyCommitment(option.value)}>
-                  <div className="flex items-center gap-3">
-                    {visual.kind === "meter" ? (
-                      <IntensityMeter level={visual.level} />
-                    ) : (
-                      <visual.icon className="size-5 shrink-0 text-muted-foreground" />
-                    )}
+                <OptionCard
+                  key={option.value}
+                  selected={studyCommitment === option.value}
+                  onClick={() => setStudyCommitment(option.value)}
+                >
+                  <div className="flex items-center gap-4">
+                    {level ? <IntensityMeter level={level} /> : <span className="w-[1.375rem] shrink-0" aria-hidden />}
                     <div>
                       <p className="font-medium">{option.label}</p>
                       {option.description && <p className="text-sm text-muted-foreground">{option.description}</p>}
@@ -208,29 +210,32 @@ export function OnboardingWizard() {
           </div>
 
           {studyCommitment && (
-            <div className="w-full rounded-lg border border-border bg-accent p-4">
-              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Your recommended pace</p>
-              <p className="mt-1 font-medium">
-                {getRecommendedPace(studyCommitment).label} {getRecommendedPace(studyCommitment).description}
+            <div className="rounded-2xl bg-surface-tint p-5">
+              <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                Your recommended pace
+              </p>
+              <p className="mt-2 text-lg">
+                <span className="font-medium">{getRecommendedPace(studyCommitment).label}</span>{" "}
+                <span className="text-muted-foreground">{getRecommendedPace(studyCommitment).description}</span>
               </p>
             </div>
           )}
         </div>
       )}
 
-      <div className="flex gap-3">
-        {step > 0 && (
-          <Button variant="ghost" onClick={() => setStep((s) => s - 1)} disabled={pending}>
-            Back
-          </Button>
-        )}
+      <div className="flex items-center gap-3">
         {step < STEP_COUNT - 1 ? (
-          <Button onClick={() => setStep((s) => s + 1)} disabled={!canContinue}>
+          <Button size="cta" onClick={() => setStep((s) => s + 1)} disabled={!canContinue}>
             Continue
           </Button>
         ) : (
-          <Button onClick={handleFinish} disabled={!canContinue || pending}>
+          <Button size="cta" onClick={handleFinish} disabled={!canContinue || pending}>
             {pending ? "Saving…" : "Continue"}
+          </Button>
+        )}
+        {step > 0 && (
+          <Button size="cta" variant="ghost" onClick={() => setStep((s) => s - 1)} disabled={pending}>
+            Back
           </Button>
         )}
       </div>

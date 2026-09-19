@@ -41,12 +41,30 @@ const LOGO_SIZES = {
 // app header and anywhere the product name needs real visual weight (auth
 // screens, empty states); bare "PrepHub" text elsewhere stays on the body
 // font so it doesn't compete with real headings.
-export function Logo({ className, size = "default" }: { className?: string; size?: keyof typeof LOGO_SIZES }) {
+export function Logo({
+  className,
+  size = "default",
+  tone = "default",
+}: {
+  className?: string;
+  size?: keyof typeof LOGO_SIZES;
+  /**
+   * "inverted" for the deep-teal brand panels (auth shell, signup, landing
+   * band). A real prop rather than an `[&_svg]:text-…` override at the call
+   * site: the mark is hardcoded to `text-primary`, which is pine teal at
+   * oklch lightness 0.42 sitting on a 0.305 ground — close to invisible, and
+   * an arbitrary-variant override ties with `text-primary` on specificity,
+   * so which one wins depends on stylesheet order.
+   */
+  tone?: "default" | "inverted";
+}) {
   const { icon, text } = LOGO_SIZES[size];
+  const markColor = tone === "inverted" ? "text-surface-deep-foreground" : "text-primary";
+  const textColor = tone === "inverted" ? "text-surface-deep-foreground" : "text-foreground";
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
-      <LogoMark className={cn(icon, "text-primary")} />
-      <span className={cn("font-brand font-medium tracking-tight text-foreground", text)}>PrepHub</span>
+      <LogoMark className={cn(icon, markColor)} />
+      <span className={cn("font-brand font-medium tracking-tight", textColor, text)}>PrepHub</span>
     </span>
   );
 }

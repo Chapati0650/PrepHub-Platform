@@ -2,9 +2,18 @@ import type { ComponentType, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 // Shared "nothing here yet" pattern, reused across every authenticated page.
-// Replaces the bare `rounded-lg border p-4 text-muted-foreground` boxes used
-// everywhere for empty states, reusing the landing page's icon-badge idiom
-// (src/app/page.tsx's FeatureRow icon treatment) instead of plain text alone.
+//
+// The icon is deliberately *not* a filled badge tile anymore. A solid-teal
+// rounded square with a white glyph in it, repeated at the center of every
+// empty state, was the single most-repeated element in the app and read as
+// stock-generated chrome — it drew the eye to the one place on the page with
+// nothing to say. Now the tile is gone, the glyph is muted and small, and the
+// panel is a flat tint rather than a dashed outline: an empty state should
+// recede until the student has done something, then disappear.
+//
+// The `icon` prop stays required because every existing call site already
+// passes a well-chosen one, and it still earns its place at this weight — it
+// just no longer outranks the words next to it.
 export function EmptyState({
   icon: Icon,
   title,
@@ -19,20 +28,13 @@ export function EmptyState({
   className?: string;
 }) {
   return (
-    <div
-      className={cn(
-        "flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-muted/30 p-10 text-center",
-        className,
-      )}
-    >
-      <div className="inline-flex size-12 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-        <Icon className="size-6" />
+    <div className={cn("flex flex-col items-start gap-1.5 rounded-2xl bg-surface-tint p-6", className)}>
+      <div className="flex items-center gap-2">
+        <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        <p className="font-medium">{title}</p>
       </div>
-      <div>
-        <p className="text-lg font-semibold">{title}</p>
-        {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
-      </div>
-      {action}
+      {description && <p className="max-w-prose text-sm text-muted-foreground">{description}</p>}
+      {action && <div className="mt-3">{action}</div>}
     </div>
   );
 }

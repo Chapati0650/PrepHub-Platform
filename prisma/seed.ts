@@ -131,7 +131,12 @@ async function main() {
 
   // PrepHub is single-owner (CLAUDE.md) — there's no signup flow for OWNER,
   // by design. This is the one and only place that account gets provisioned.
-  const ownerEmail = process.env.OWNER_EMAIL ?? "owner@prephub.dev";
+  //
+  // The default is not arbitrary: the owner_role_single_email_check database
+  // constraint (migration 20260819222439) pins role=OWNER to this exact address,
+  // so any other value — including the old "owner@prephub.dev" default — makes
+  // this create() fail on every fresh database, README setup included.
+  const ownerEmail = process.env.OWNER_EMAIL ?? "prithvirajchauhan0650@gmail.com";
   const existingOwner = await prisma.user.findUnique({ where: { email: ownerEmail } });
   if (!existingOwner) {
     const ownerPassword = process.env.OWNER_PASSWORD ?? "dev-owner-password-change-me";

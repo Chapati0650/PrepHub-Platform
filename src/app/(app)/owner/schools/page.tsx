@@ -25,7 +25,7 @@ export default async function OwnerSchoolsPage() {
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 p-8">
-      <PageHeader icon={Building2} title="Schools" description="Partner schools and districts using PrepHub.">
+      <PageHeader title="Schools" description="Partner schools and districts using PrepHub.">
         <CreateOrganizationForm />
       </PageHeader>
 

@@ -5,11 +5,13 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { signUpAction, type ActionState } from "@/app/(auth)/actions";
 import { Button } from "@/components/ui/button";
+import { LinkButton } from "@/components/ui/link-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Logo } from "@/components/logo";
+import { Marker } from "@/components/ui/marker";
 import { GoogleIcon } from "@/components/google-icon";
 import { DiagnosticVisual } from "@/app/landing-visuals";
 
@@ -29,13 +31,17 @@ export default function SignUpPage() {
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
-      <div className="hidden flex-col justify-between gap-10 bg-accent p-10 lg:flex">
-        <Logo size="lg" />
+      {/* Deep teal, matching (auth)/layout.tsx's brand panel and the landing
+          page's credibility band — the previous flat `bg-accent` wash put a
+          pale tint behind a pale card, which read as an unfinished surface
+          rather than a deliberate block of color. */}
+      <div className="hidden flex-col justify-between gap-10 bg-surface-deep p-10 text-surface-deep-foreground lg:flex">
+        <Logo size="lg" tone="inverted" />
         <div className="flex flex-col gap-6">
-          <h2 className="max-w-sm font-heading text-3xl font-semibold tracking-tight text-balance">
-            One Diagnostic. A real starting point.
+          <h2 className="max-w-sm font-heading text-display-sm font-semibold tracking-tight text-balance">
+            One Diagnostic. A real <Marker>starting point</Marker>.
           </h2>
-          <p className="max-w-sm text-muted-foreground">
+          <p className="max-w-sm text-surface-deep-foreground/70">
             21 questions across every SAT category give you an initial Predicted SAT Score range — no guessing where
             to begin.
           </p>
@@ -57,7 +63,7 @@ export default function SignUpPage() {
           </div>
 
           <div>
-            <h1 className="text-2xl font-semibold">Create your account</h1>
+            <h1 className="text-display-sm font-semibold">Create your account</h1>
             <p className="text-muted-foreground">Start with a free diagnostic — no card required.</p>
           </div>
 
@@ -72,16 +78,16 @@ export default function SignUpPage() {
                 confirmed live as a real blank-screen production bug. Only a
                 genuine full browser navigation can follow a redirect all the
                 way to an external origin. */}
-            <Button
+            <LinkButton
               variant="outline"
               size="lg"
-              className="h-12 w-full gap-3 text-base"
-              // eslint-disable-next-line @next/next/no-html-link-for-pages -- must bypass next/link's client-side routing; see comment above
-              render={<a href="/api/auth/google-sign-in" />}
+              className="h-12 w-full gap-3 rounded-full text-base"
+              href="/api/auth/google-sign-in"
+              hardNavigation
             >
               <GoogleIcon className="size-5" />
               Continue with Google
-            </Button>
+            </LinkButton>
 
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <div className="h-px flex-1 bg-border" />
@@ -146,7 +152,7 @@ export default function SignUpPage() {
                 .
               </label>
 
-              <Button type="submit" disabled={pending}>
+              <Button type="submit" size="lg" className="h-12 rounded-full text-base" disabled={pending}>
                 {pending ? "Creating account..." : "Create account"}
               </Button>
             </form>

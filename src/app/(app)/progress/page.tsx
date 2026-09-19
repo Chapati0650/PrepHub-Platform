@@ -1,9 +1,11 @@
+import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
 import { getProgressData, type ProgressHistoryPoint } from "@/lib/progress/progress-data";
 import { LinkButton } from "@/components/ui/link-button";
 import { PageHeader } from "@/components/page-header";
+import { Marker } from "@/components/ui/marker";
 
 function formatDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
@@ -29,108 +31,155 @@ export default async function ProgressPage() {
 
   if (data.diagnosticStatus !== "COMPLETED") {
     return (
-      <div className="mx-auto flex max-w-lg flex-col items-center gap-4 p-8 text-center">
-        <h1 className="text-xl sm:text-2xl">Your progress journey begins after you complete your diagnostic.</h1>
-        <LinkButton size="lg" href="/diagnostic">
-          {data.diagnosticStatus === "IN_PROGRESS" ? "Resume Diagnostic" : "Begin Diagnostic"}
-        </LinkButton>
+      <div className="mx-auto w-full max-w-2xl p-6 sm:p-10">
+        <div className="rounded-3xl bg-surface-tint p-8 sm:p-12">
+          <h1 className="text-display-sm text-balance">
+            Your progress journey begins after your <Marker>Diagnostic</Marker>.
+          </h1>
+          <p className="mt-4 max-w-prose text-lg text-muted-foreground">
+            There is nothing to plot yet. Once you finish the Diagnostic, every prediction and milestone from then on
+            lands here.
+          </p>
+          <div className="mt-8">
+            <LinkButton size="cta" href="/diagnostic">
+              {data.diagnosticStatus === "IN_PROGRESS" ? "Resume Diagnostic" : "Begin Diagnostic"}
+            </LinkButton>
+          </div>
+        </div>
       </div>
     );
   }
 
+  const targetPct = data.targetProgressFraction !== null ? Math.round(data.targetProgressFraction * 100) : null;
+
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8">
+    <div className="mx-auto flex max-w-3xl flex-col gap-12 p-4 pb-16 sm:p-8">
       <PageHeader title="Your Progress" description="Every prediction and milestone since you started." />
 
-      {/* Your Journey */}
-      <p className="rounded-lg border border-border p-4 text-sm leading-relaxed">{data.journeyNarrative}</p>
-
-      {/* Target Score Progress */}
+      {/* Target Score Progress — the lead, because it is the only thing on
+          this page that answers "am I going to get there." It was previously
+          the third of six identically-weighted bordered boxes. */}
       {data.targetScore !== null && (
-        <div className="rounded-lg border border-border p-4">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Target</span>
-            <span className="font-medium">{data.targetScore}</span>
+        <section className="rounded-3xl bg-surface-tint p-6 sm:p-10">
+          <div className="flex flex-wrap items-end justify-between gap-6">
+            <div>
+              <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                Current Prediction
+              </p>
+              <p className="mt-2 font-heading text-hero font-semibold tracking-tight tabular-nums">
+                {data.currentRange.min}&ndash;{data.currentRange.max}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">Target</p>
+              <p className="mt-2 font-heading text-display-sm font-semibold tracking-tight tabular-nums text-muted-foreground">
+                {data.targetScore}
+              </p>
+            </div>
           </div>
-          <div className="mt-1 flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Current Prediction</span>
-            <span className="font-medium">
-              {data.currentRange.min}–{data.currentRange.max}
-            </span>
-          </div>
-          {data.targetProgressFraction !== null && (
-            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div className="h-full rounded-full bg-primary" style={{ width: `${Math.round(data.targetProgressFraction * 100)}%` }} />
+          {targetPct !== null && (
+            <div
+              className="mt-8 h-2.5 w-full overflow-hidden rounded-full bg-foreground/10"
+              role="progressbar"
+              aria-valuenow={targetPct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Progress toward target score"
+            >
+              <div className="h-full rounded-full bg-primary" style={{ width: `${targetPct}%` }} />
             </div>
           )}
           {data.remainingToTarget !== null && (
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-3 text-sm text-muted-foreground">
               {data.remainingToTarget === 0 ? "You've reached your target." : `About ${data.remainingToTarget} points remaining.`}
             </p>
           )}
-        </div>
+        </section>
       )}
+
+      {/* Your Journey — a written summary deserves to read as a written
+          summary, so it gets prose size and a marker rule rather than being
+          boxed like a stat. */}
+      <section className="border-l-2 border-marker pl-5">
+        <p className="text-lg leading-relaxed text-balance">{data.journeyNarrative}</p>
+      </section>
 
       {/* SAT Prediction History */}
-      <div className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold">SAT Prediction History</h2>
+      <section className="flex flex-col gap-5">
+        <SectionTitle>SAT Prediction History</SectionTitle>
         {data.history.length > 1 && <PredictionTrend history={data.history} />}
-        <div className="flex flex-col gap-1.5">
+        <ul className="flex flex-col divide-y divide-border border-y border-border">
           {data.history.map((point, i) => (
-            <div key={i} className="flex items-center justify-between rounded-md border border-border p-2 text-sm">
-              <span className="font-medium">{point.label}</span>
-              <span className="text-muted-foreground">{formatDate(point.date)}</span>
-              <span className="tabular-nums">
-                {point.min}–{point.max}
+            <li key={i} className="flex items-baseline justify-between gap-4 py-3 text-sm">
+              <span className="min-w-0 truncate font-medium">{point.label}</span>
+              <span className="shrink-0 text-muted-foreground">{formatDate(point.date)}</span>
+              <span className="shrink-0 font-semibold tabular-nums">
+                {point.min}&ndash;{point.max}
               </span>
-            </div>
+            </li>
           ))}
-        </div>
-      </div>
-
-      {/* Milestones */}
-      {data.milestones.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <h2 className="text-sm font-semibold">Milestones</h2>
-          <div className="flex flex-wrap gap-2">
-            {data.milestones.map((m) => (
-              <span key={m} className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                {m}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+        </ul>
+      </section>
 
       {/* Study Statistics */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <section className="grid grid-cols-2 gap-y-6 divide-border sm:grid-cols-4 sm:divide-x">
         <Stat label="Total Study Time" value={formatDuration(data.studyStats.totalStudyTimeSeconds)} />
         <Stat label="Avg. Session Length" value={formatDuration(data.studyStats.averageSessionLengthSeconds)} />
         <Stat label="Questions Answered" value={String(data.studyStats.totalQuestionsAnswered)} />
         <Stat label="Sessions Completed" value={String(data.studyStats.completedSessions)} />
-      </div>
+      </section>
 
-      {/* Weakest Skills */}
-      <div className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold">Weakest Skills</h2>
-        <ol className="flex flex-col gap-1.5">
-          {data.weakestSkills.map((s, i) => (
-            <li key={s.category} className="flex items-center gap-2.5 text-sm">
-              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-medium text-accent-foreground">
-                {i + 1}
-              </span>
-              {s.label}
-            </li>
-          ))}
-        </ol>
+      <div className="grid grid-cols-1 gap-12 sm:grid-cols-2">
+        {/* Weakest Skills */}
+        <section className="flex flex-col gap-5">
+          <SectionTitle>Weakest Skills</SectionTitle>
+          <ol className="flex flex-col divide-y divide-border border-y border-border">
+            {data.weakestSkills.map((s, i) => (
+              <li key={s.category} className="flex items-baseline gap-4 py-3 text-sm">
+                <span className="font-heading text-caption font-semibold tabular-nums text-muted-foreground">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                {s.label}
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        {/* Milestones — outlined rather than filled. A row of solid teal pills
+            reads as a set of tags to click; these are statements of fact. */}
+        {data.milestones.length > 0 && (
+          <section className="flex flex-col gap-5">
+            <SectionTitle>Milestones</SectionTitle>
+            <div className="flex flex-wrap gap-2">
+              {data.milestones.map((m) => (
+                <span
+                  key={m}
+                  className="rounded-full border border-primary/30 px-3 py-1.5 text-xs font-medium text-primary"
+                >
+                  {m}
+                </span>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </div>
+  );
+}
+
+function SectionTitle({ children }: { children: ReactNode }) {
+  return (
+    <h2 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">{children}</h2>
   );
 }
 
 // A lightweight custom bar-trend visual — no charting library added, per the
 // existing constraint (see module comment), but still gives the Prediction
 // History a real shape at a glance instead of only a stacked text list.
+//
+// Taller and unboxed now: at h-20 inside a bordered, tinted panel the bars
+// were shorter than their own container's chrome, so the trend they exist to
+// show was the least visible thing in the box.
 function PredictionTrend({ history }: { history: ProgressHistoryPoint[] }) {
   const midpoints = history.map((p) => (p.min + p.max) / 2);
   const min = Math.min(...midpoints);
@@ -138,14 +187,15 @@ function PredictionTrend({ history }: { history: ProgressHistoryPoint[] }) {
   const range = Math.max(max - min, 1);
 
   return (
-    <div className="flex h-20 items-end gap-1.5 rounded-lg border border-border bg-muted/30 p-3" aria-hidden>
+    <div className="flex h-36 items-end gap-1.5" aria-hidden>
       {history.map((point, i) => {
         const mid = (point.min + point.max) / 2;
         const heightPct = range === 1 && max === min ? 60 : 15 + ((mid - min) / range) * 85;
+        const isLatest = i === history.length - 1;
         return (
           <div
             key={i}
-            className="w-full rounded-t-sm bg-primary transition-all"
+            className={`w-full rounded-t-md ${isLatest ? "bg-primary" : "bg-primary/25"}`}
             style={{ height: `${heightPct}%` }}
             title={`${point.label}: ${point.min}–${point.max}`}
           />
@@ -157,9 +207,9 @@ function PredictionTrend({ history }: { history: ProgressHistoryPoint[] }) {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border p-3 text-center">
-      <p className="font-heading text-lg font-semibold tabular-nums">{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
+    <div className="sm:px-5 sm:first:pl-0 sm:last:pr-0">
+      <p className="font-heading text-2xl font-semibold tracking-tight tabular-nums">{value}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{label}</p>
     </div>
   );
 }

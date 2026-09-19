@@ -1,4 +1,4 @@
-import { ShieldCheck, Mail } from "lucide-react";
+import { Mail } from "lucide-react";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { getSchoolAccessInfo } from "@/lib/admin/access-info";
 import { PageHeader } from "@/components/page-header";
@@ -41,7 +41,7 @@ export default async function SchoolAccessPage() {
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8">
-      <PageHeader eyebrow="Administrator" title="School Access & Support" icon={ShieldCheck} />
+      <PageHeader eyebrow="Administrator" title="School Access & Support" />
 
       <div className="rounded-lg border border-border p-6">
         <div className="flex items-center justify-between">

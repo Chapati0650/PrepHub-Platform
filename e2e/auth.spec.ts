@@ -111,7 +111,7 @@ test.describe("authentication (PRD-001)", () => {
     // is really gone (an authenticated visitor to / is redirected to /home
     // instead, so landing here at all is itself proof of logout).
     await expect(page).toHaveURL("http://localhost:3000/");
-    await expect(page.getByRole("link", { name: "Get started" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Sign up" })).toBeVisible();
 
     await page.goto("/login");
     await page.getByLabel("Email").fill(email);

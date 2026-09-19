@@ -38,7 +38,7 @@ export default async function OwnerUsersPage() {
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 p-4 sm:p-8">
-      <PageHeader icon={Users} title="Users" description="Every account on PrepHub, and who's paying." />
+      <PageHeader title="Users" description="Every account on PrepHub, and who's paying." />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Total Users" value={stats.totalUsers.toLocaleString()} />

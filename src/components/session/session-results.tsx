@@ -67,58 +67,69 @@ export function SessionResults({
   const improved = previousMid !== null && currentMid > previousMid;
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8">
-      {/* Celebration */}
-      <div className="flex flex-col items-center gap-2 text-center">
-        <h1 className="text-2xl sm:text-3xl">
+    <div className="mx-auto flex max-w-2xl flex-col gap-10 p-4 pb-16 sm:p-8">
+      {/* One results hero instead of three stacked centered blocks. The
+          celebration line, the prediction and the goal readout were three
+          separate center-aligned groups saying overlapping things; a student
+          finishing a set wants one answer ("where am I now?") and the rest as
+          supporting detail. Left-aligned for the same reason the rest of the
+          app is: a centered column of short text is the default shape of a
+          generated confirmation screen. */}
+      <section className="rounded-3xl bg-surface-tint p-6 sm:p-10">
+        {/* The completion line stays the <h1>. It is what this page is, and
+            demoting it to a styled <p> so the celebration could be the heading
+            would have left the document outline claiming the page is titled
+            "+40 Estimated SAT Points". The prediction still dominates visually
+            — that is what the size contrast below is for. */}
+        <h1 className="text-page-title sm:text-page-title-lg">
           {data.sourceType === "DIAGNOSTIC" ? "Diagnostic Complete" : "Session Complete"}
         </h1>
-        {improved ? (
-          <span className="inline-flex items-center gap-1 text-sm font-medium text-achievement-foreground dark:text-achievement">
-            ↑ {celebrationMessage(data.previousRange, data.currentRange)}
-          </span>
-        ) : (
-          <p className="text-sm text-muted-foreground">{celebrationMessage(data.previousRange, data.currentRange)}</p>
-        )}
-      </div>
 
-      {/* PrepHub Score Prediction */}
-      <div className="flex flex-col items-center gap-3 text-center">
-        {data.previousRange && (
-          <p className="text-sm text-muted-foreground">
-            Previous: {data.previousRange.min}–{data.previousRange.max}
-          </p>
+        <div className="mt-8 flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+          <ScorePrediction
+            min={data.currentRange.min}
+            max={data.currentRange.max}
+            label={data.sourceType === "DIAGNOSTIC" ? "Your Initial PrepHub Score Prediction" : "Your Updated PrepHub Score Prediction"}
+          />
+          {improved ? (
+            <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-achievement/20 px-4 py-2 text-sm font-semibold text-achievement-foreground dark:text-achievement">
+              &uarr; {celebrationMessage(data.previousRange, data.currentRange)}
+            </span>
+          ) : (
+            <p className="max-w-xs text-sm text-muted-foreground">
+              {celebrationMessage(data.previousRange, data.currentRange)}
+            </p>
+          )}
+        </div>
+
+        {(data.previousRange || data.targetScore !== null) && (
+          <dl className="mt-8 flex flex-wrap gap-x-10 gap-y-4 border-t border-foreground/10 pt-6 text-sm">
+            {data.previousRange && (
+              <div>
+                <dt className="text-muted-foreground">Previous</dt>
+                <dd className="mt-0.5 font-semibold tabular-nums">
+                  {data.previousRange.min}&ndash;{data.previousRange.max}
+                </dd>
+              </div>
+            )}
+            {data.targetScore !== null && (
+              <div>
+                <dt className="text-muted-foreground">Target</dt>
+                <dd className="mt-0.5 font-semibold tabular-nums">{data.targetScore}</dd>
+              </div>
+            )}
+          </dl>
         )}
-        <ScorePrediction
-          min={data.currentRange.min}
-          max={data.currentRange.max}
-          label={data.sourceType === "DIAGNOSTIC" ? "Your Initial PrepHub Score Prediction" : "Your Updated PrepHub Score Prediction"}
-          className="items-center"
-        />
-        <p className="text-xs text-muted-foreground" title="An estimate based on your PrepHub performance. Your actual SAT score may vary.">
+
+        {targetMessage && <p className="mt-4 text-sm">{targetMessage}</p>}
+
+        <p className="mt-6 text-xs text-muted-foreground">
           An estimate based on your PrepHub performance. Your actual SAT score may vary.
         </p>
-      </div>
-
-      {/* Goal Progress */}
-      {data.targetScore !== null && (
-        <div className="rounded-lg border border-border p-4">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Target</span>
-            <span className="font-medium">{data.targetScore}</span>
-          </div>
-          <div className="mt-1 flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Current Prediction</span>
-            <span className="font-medium">
-              {data.currentRange.min}–{data.currentRange.max}
-            </span>
-          </div>
-          {targetMessage && <p className="mt-2 text-sm">{targetMessage}</p>}
-        </div>
-      )}
+      </section>
 
       {/* Session Breakdown */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-y-6 divide-border sm:grid-cols-4 sm:divide-x">
         <Stat label="Correct" value={`${data.stats.correct}/${data.stats.total}`} />
         <Stat label="Accuracy" value={`${data.stats.accuracy}%`} />
         <Stat label="Avg. Time" value={formatTime(data.stats.avgTimeSeconds)} />
@@ -126,11 +137,11 @@ export function SessionResults({
       </div>
 
       {/* Mastery Breakdown */}
-      <div className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Mastery by Category</h2>
+      <div className="flex flex-col gap-4">
+        <h2 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">Mastery by Category</h2>
         {data.mastery.map((m) => (
           <div key={m.category}>
-            <div className="mb-1 flex items-center justify-between text-sm">
+            <div className="mb-2 flex items-baseline justify-between gap-3 text-sm">
               <span>{CATEGORY_LABELS[m.category]}</span>
               {m.changeSinceStart !== null && (
                 <span className={m.changeSinceStart >= 0 ? "font-medium text-achievement-foreground dark:text-achievement" : "text-destructive"}>
@@ -147,43 +158,59 @@ export function SessionResults({
       </div>
 
       {/* Question Review */}
-      <div className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold">Question Review</h2>
-        {data.questions.map((q) => (
-          <div key={q.id} className="rounded-md border border-border">
-            <button
-              type="button"
-              onClick={() => void toggleQuestion(q.id)}
-              className="flex w-full items-center justify-between gap-2 p-3 text-left text-sm"
-              aria-expanded={expandedId === q.id}
-            >
-              <span className="flex items-center gap-2">
-                <Badge variant={q.isCorrect ? "default" : "destructive"}>{q.isCorrect ? "Correct" : "Incorrect"}</Badge>
-                Question {q.position + 1}
-                <span className="text-xs text-muted-foreground">{CATEGORY_LABELS[q.category]}</span>
-              </span>
-              <span aria-hidden="true">{expandedId === q.id ? "−" : "+"}</span>
-            </button>
+      <div className="flex flex-col gap-4">
+        <h2 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">Question Review</h2>
+        {/* One continuous ruled list rather than 21 separately bordered cards:
+            at set length, individual boxes turn the review into a wall of
+            outlines and it stops being scannable. */}
+        <div className="flex flex-col divide-y divide-border border-y border-border">
+          {data.questions.map((q) => (
+            <div key={q.id}>
+              <button
+                type="button"
+                onClick={() => void toggleQuestion(q.id)}
+                className="flex w-full items-center justify-between gap-3 py-3 text-left text-sm"
+                aria-expanded={expandedId === q.id}
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  <Badge
+                    variant={q.isCorrect ? "outline" : "destructive"}
+                    className={
+                      q.isCorrect
+                        ? "border-green-600/40 bg-green-100 text-green-800 dark:border-green-500/40 dark:bg-green-900/50 dark:text-green-300"
+                        : undefined
+                    }
+                  >
+                    {q.isCorrect ? "Correct" : "Incorrect"}
+                  </Badge>
+                  <span className="shrink-0">Question {q.position + 1}</span>
+                  <span className="truncate text-xs text-muted-foreground">{CATEGORY_LABELS[q.category]}</span>
+                </span>
+                <span className="shrink-0 text-muted-foreground" aria-hidden="true">
+                  {expandedId === q.id ? "−" : "+"}
+                </span>
+              </button>
 
-            {expandedId === q.id && (
-              <div className="border-t border-border p-3">
-                {detailLoading && !detailCache.has(q.id) ? (
-                  <p className="text-sm text-muted-foreground">Loading…</p>
-                ) : (
-                  <QuestionDetail loaded={detailCache.get(q.id)!} isCorrect={q.isCorrect} />
-                )}
-              </div>
-            )}
-          </div>
-        ))}
+              {expandedId === q.id && (
+                <div className="pb-4">
+                  {detailLoading && !detailCache.has(q.id) ? (
+                    <p className="text-sm text-muted-foreground">Loading…</p>
+                  ) : (
+                    <QuestionDetail loaded={detailCache.get(q.id)!} isCorrect={q.isCorrect} />
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Navigation */}
-      <div className="flex flex-col gap-3 border-t border-border pt-6 sm:flex-row-reverse">
-        <LinkButton size="lg" href={data.continueHref}>
+      <div className="flex flex-col gap-3 border-t border-border pt-8 sm:flex-row-reverse sm:justify-end">
+        <LinkButton size="cta" href={data.continueHref}>
           Continue Practice
         </LinkButton>
-        <LinkButton size="lg" variant="outline" href={backHref}>
+        <LinkButton size="cta" variant="outline" href={backHref}>
           Back to Dashboard
         </LinkButton>
       </div>
@@ -193,9 +220,9 @@ export function SessionResults({
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border p-3">
-      <p className="font-heading text-xl font-semibold tabular-nums">{value}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
+    <div className="sm:px-5 sm:first:pl-0 sm:last:pr-0">
+      <p className="font-heading text-2xl font-semibold tracking-tight tabular-nums">{value}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{label}</p>
     </div>
   );
 }

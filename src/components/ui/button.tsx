@@ -25,6 +25,15 @@ const buttonVariants = cva(
         xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
         lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        // The one prominent call-to-action on a screen: a full pill, taller and
+        // wider than anything else, at body size rather than the dense `text-sm`
+        // every other control uses. It is a named size rather than
+        // `className="h-12 rounded-full px-6 text-base"` repeated at each call
+        // site because those four values drifting apart across the landing page,
+        // auth funnel, and app interior is exactly how a "designed" product
+        // starts looking assembled. Use it for at most one button per screen —
+        // if two of these are visible at once, neither is the primary action.
+        cta: "h-12 gap-2 rounded-full px-6 text-base has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4 [&_svg:not([class*='size-'])]:size-5",
         icon: "size-8",
         "icon-xs":
           "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",

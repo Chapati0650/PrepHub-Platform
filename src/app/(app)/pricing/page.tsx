@@ -1,7 +1,6 @@
 "use client";
 
 import { useActionState } from "react";
-import { CreditCard } from "lucide-react";
 import { subscribeAction, type ActionState } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -17,7 +16,6 @@ export default function PricingPage() {
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8 p-8">
       <PageHeader
-        icon={CreditCard}
         title="Choose your plan"
         description="Subscriptions renew automatically and can be cancelled anytime from Billing."
       />

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { CreditCard, Receipt } from "lucide-react";
+import { Receipt } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
@@ -33,7 +33,7 @@ export default async function BillingPage() {
   if (!subscription) {
     return (
       <div className="mx-auto max-w-2xl p-8">
-        <PageHeader icon={CreditCard} title="Billing" className="mb-6" />
+        <PageHeader title="Billing" className="mb-6" />
         <Card>
           <CardHeader>
             <CardTitle>No subscription yet</CardTitle>
@@ -57,7 +57,7 @@ export default async function BillingPage() {
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6 p-8">
-      <PageHeader icon={CreditCard} title="Billing" />
+      <PageHeader title="Billing" />
 
       {subscription.status === "PAST_DUE" && (
         <Alert variant="destructive">

@@ -76,8 +76,13 @@ function NavList({ sections, pathname, onNavigate }: { sections: NavItem[][]; pa
                 href={item.href}
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
+                // Pill, matching the CTA shape the rest of the product now
+                // uses, rather than the same small rounded rectangle as every
+                // other surface in the app. The active item is also the only
+                // place the sidebar spends color, so it reads as a position
+                // indicator and not as decoration on a list.
                 className={cn(
-                  "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
+                  "flex items-center gap-2.5 rounded-full px-3 py-2 text-sm transition-colors",
                   active
                     ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
@@ -107,16 +112,36 @@ export function AppShell({
   const [mobileOpen, setMobileOpen] = useState(false);
 
   if (FOCUS_MODE_PATHS.has(pathname)) {
+    // Onboarding is the one focus route with nowhere to exit *to*: /home
+    // redirects a student who hasn't finished the wizard straight back here
+    // (see home/page.tsx), so an "Exit" link there is a control that visibly
+    // does nothing. Worse, focus mode also drops the sidebar that holds the
+    // only Log out button — which left a freshly-signed-up student sealed in
+    // with no way out and no way to sign out, on a shared computer included.
+    // Log out now lives in this header for every focus route; Exit is hidden
+    // on the one route where it can't work.
+    const canExit = pathname !== "/onboarding";
     return (
       <div className="flex min-h-screen flex-col">
-        <header className="sticky top-0 z-10 flex items-center border-b border-border bg-background/85 px-4 py-3 backdrop-blur-sm">
-          <Link
-            href="/home"
-            className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <LogoMark className="size-6 text-primary" />
-            <span>Exit</span>
-          </Link>
+        <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background/85 px-4 py-3 backdrop-blur-sm">
+          {canExit ? (
+            <Link
+              href="/home"
+              className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <LogoMark className="size-6 text-primary" />
+              <span>Exit</span>
+            </Link>
+          ) : (
+            <span className="flex items-center gap-2">
+              <LogoMark className="size-6 text-primary" />
+            </span>
+          )}
+          <form action={logoutAction}>
+            <Button type="submit" variant="ghost" size="sm" className="text-muted-foreground">
+              Log out
+            </Button>
+          </form>
         </header>
         <main className="flex-1">{children}</main>
       </div>

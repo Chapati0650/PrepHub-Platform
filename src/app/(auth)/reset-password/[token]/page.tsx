@@ -22,7 +22,7 @@ export default function ConfirmResetPage({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-2xl font-semibold sm:text-3xl">Set a new password</CardTitle>
+        <CardTitle className="text-display-sm font-semibold">Set a new password</CardTitle>
         <CardDescription className="text-base">Choose a new password for your account.</CardDescription>
       </CardHeader>
       <CardContent>

@@ -131,10 +131,10 @@ export function SessionRunner(props: SessionRunnerProps) {
   }));
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4 sm:p-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl">{props.title}</h1>
-        <span className="text-sm text-muted-foreground">
+    <div className="mx-auto flex max-w-3xl flex-col gap-5 p-4 pb-16 sm:p-8">
+      <div className="flex items-baseline justify-between gap-4">
+        <h1 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">{props.title}</h1>
+        <span className="text-sm tabular-nums text-muted-foreground">
           Question {position + 1} of {items.length}
         </span>
       </div>
@@ -148,10 +148,15 @@ export function SessionRunner(props: SessionRunnerProps) {
       )}
 
       {loading || !loaded ? (
-        <div className="rounded-lg border border-border p-8 text-center text-sm text-muted-foreground">Loading question…</div>
+        <div className="py-16 text-sm text-muted-foreground">Loading question…</div>
       ) : (
-        <div className="rounded-lg border border-border p-4 sm:p-6">
-          <div className="mb-3 flex items-center justify-between">
+        /* No card border. The session runner is the app shell's focus mode —
+           there is nothing else on screen for a frame to separate the question
+           from, so the outline was chrome around the whole viewport. The rule
+           under the meta row does the one real job the border had: marking
+           where the question itself starts. */
+        <div>
+          <div className="mb-5 flex items-center justify-between gap-4 border-b border-border pb-3">
             <span className="text-xs text-muted-foreground">{CALCULATOR_LABELS[loaded.content.calculatorSetting]}</span>
             <TimerBadge suggestedTimeSeconds={loaded.content.suggestedTimeSeconds} resetKey={currentItem.id} />
           </div>
@@ -173,9 +178,9 @@ export function SessionRunner(props: SessionRunnerProps) {
             </div>
           )}
 
-          <div className="mt-4 flex flex-col gap-2">
+          <div className="mt-6 flex flex-col gap-2.5">
             {loaded.content.questionType === "MULTIPLE_CHOICE" ? (
-              loaded.content.answerChoices.map((choice) => {
+              loaded.content.answerChoices.map((choice, choiceIndex) => {
                 const isSelected = draft === choice.id;
                 const showCorrect = currentItem.submitted && loaded.feedback?.correctChoiceId === choice.id;
                 const showWrongSelection = currentItem.submitted && isSelected && loaded.feedback?.correctChoiceId !== choice.id;
@@ -187,20 +192,38 @@ export function SessionRunner(props: SessionRunnerProps) {
                     onClick={() => updateDraft(choice.id)}
                     aria-pressed={isSelected}
                     className={[
-                      "rounded-md border p-4 text-left text-base transition-colors",
+                      "flex items-start gap-4 rounded-xl border p-4 text-left text-base transition-colors",
                       isSelected && !currentItem.submitted && "border-primary bg-primary/5",
-                      !isSelected && !showCorrect && !showWrongSelection && "border-border",
+                      !isSelected && !showCorrect && !showWrongSelection && "border-border hover:border-foreground/25",
                       showCorrect && "border-2 border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50",
                       showWrongSelection && "border-destructive bg-destructive/5",
                     ]
                       .filter(Boolean)
                       .join(" ")}
                   >
-                    <LatexText text={choice.text} />
-                    {choice.imageId && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={`/api/media/${choice.imageId}`} alt="" className="mt-2 max-w-full rounded" />
-                    )}
+                    {/* A/B/C/D, the way the choice is labelled on the real
+                        test and in Bluebook. Purely presentational (the button
+                        itself still carries the selection state), but it is
+                        what makes four bordered rows read as an SAT question
+                        rather than a generic list of options. */}
+                    <span
+                      aria-hidden
+                      className={[
+                        "mt-px flex size-7 shrink-0 items-center justify-center rounded-full border text-sm font-semibold",
+                        isSelected && !currentItem.submitted
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-foreground/20 text-muted-foreground",
+                      ].join(" ")}
+                    >
+                      {String.fromCharCode(65 + choiceIndex)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <LatexText text={choice.text} />
+                      {choice.imageId && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={`/api/media/${choice.imageId}`} alt="" className="mt-2 max-w-full rounded" />
+                      )}
+                    </span>
                   </button>
                 );
               })
@@ -212,23 +235,23 @@ export function SessionRunner(props: SessionRunnerProps) {
                 disabled={currentItem.submitted}
                 placeholder="Enter your answer"
                 aria-label="Your answer"
-                className="rounded-md border border-border p-2 text-sm disabled:bg-muted"
+                className="max-w-xs rounded-xl border border-border p-3 text-base disabled:bg-muted"
               />
             )}
           </div>
 
           {!currentItem.submitted ? (
-            <div className="mt-4 flex gap-2">
-              <Button onClick={handleSubmit} disabled={!draft || submitting}>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Button size="cta" onClick={handleSubmit} disabled={!draft || submitting}>
                 {submitting ? "Submitting…" : "Submit answer"}
               </Button>
-              <Button variant="outline" onClick={handleSkip} disabled={submitting}>
+              <Button size="cta" variant="ghost" onClick={handleSkip} disabled={submitting}>
                 Skip for now
               </Button>
             </div>
           ) : (
-            <div className="mt-4 flex flex-col gap-3">
-              <p className={`text-sm font-medium ${currentItem.isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
+            <div className="mt-6 flex flex-col gap-3">
+              <p className={`font-heading text-lg font-semibold ${currentItem.isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
                 {currentItem.isCorrect ? "Correct!" : "Incorrect."}
               </p>
               {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && loaded.feedback && (
@@ -256,8 +279,8 @@ export function SessionRunner(props: SessionRunnerProps) {
         </div>
       )}
 
-      <div className="flex items-center justify-between border-t border-border pt-4">
-        <div className="flex gap-2">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5">
+        <div className="flex gap-1">
           <Button variant="ghost" disabled={position === 0} onClick={() => void goToPosition(position - 1)}>
             Previous
           </Button>
@@ -265,14 +288,14 @@ export function SessionRunner(props: SessionRunnerProps) {
             Next
           </Button>
         </div>
-        <Button onClick={() => void handleFinish(false)} disabled={completing}>
+        <Button variant="outline" className="rounded-full" onClick={() => void handleFinish(false)} disabled={completing}>
           {completing ? "Finishing…" : `Finish ${props.title}`}
         </Button>
       </div>
 
       {blankWarning !== null && (
         <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4" role="alertdialog" aria-modal="true">
-          <div className="w-full max-w-sm rounded-lg bg-card p-5 shadow-lg">
+          <div className="w-full max-w-sm rounded-2xl bg-card p-6 shadow-lg">
             <p className="mb-2 font-medium">
               {blankWarning} question{blankWarning === 1 ? "" : "s"} unanswered
             </p>

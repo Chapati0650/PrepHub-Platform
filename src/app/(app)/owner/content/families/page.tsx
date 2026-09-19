@@ -42,7 +42,7 @@ export default async function QuestionFamiliesPage() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 p-8">
-      <PageHeader icon={Boxes} title="Question Families">
+      <PageHeader title="Question Families">
         <div className="flex gap-2">
           <GroupQuestionsDialog eligibleQuestions={eligibleQuestions} />
           <CreateFamilyDialog />

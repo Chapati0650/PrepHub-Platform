@@ -1,4 +1,3 @@
-import { IdCard } from "lucide-react";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { getStudentDirectory, type StudentDirectoryFilters } from "@/lib/admin/student-directory";
 import { PageHeader } from "@/components/page-header";
@@ -44,7 +43,7 @@ export default async function StudentDirectoryPage({ searchParams }: { searchPar
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-4 sm:p-8">
-      <PageHeader eyebrow="Administrator" title="Student Directory" icon={IdCard} />
+      <PageHeader eyebrow="Administrator" title="Student Directory" />
       <StudentDirectoryTable students={students} filters={filters} currentYear={currentYear} />
     </div>
   );

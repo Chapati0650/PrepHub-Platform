@@ -1,4 +1,3 @@
-import { Megaphone } from "lucide-react";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { listAnnouncements } from "@/lib/announcements";
 import { PageHeader } from "@/components/page-header";
@@ -28,7 +27,6 @@ export default async function AnnouncementsPage() {
       <PageHeader
         eyebrow="Administrator"
         title="Announcements"
-        icon={Megaphone}
         description="Share a brief update with your registered students. Announcements appear inside PrepHub and are emailed once, at publish time."
       />
       <AnnouncementsPanel announcements={announcements} />

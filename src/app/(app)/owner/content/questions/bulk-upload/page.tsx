@@ -1,4 +1,4 @@
-import { ArrowLeft, UploadCloud } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { BulkUploadForm } from "./bulk-upload-form";
@@ -20,7 +20,6 @@ export default function BulkUploadPage() {
         Questions
       </Link>
       <PageHeader
-        icon={UploadCloud}
         title="Bulk Upload"
         description="Upload several question images at once. Each one is transcribed, classified by category, given a suggested answer, and explained — ready to review and publish right away."
       />

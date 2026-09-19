@@ -53,15 +53,22 @@ for the mark. Every neutral token (`--background`, `--card`, `--muted`,
 base in light mode — an earlier version tinted these warm/cream to match the
 YouTube channel's banner, but real user feedback called that "cardboard,"
 so neutrals are now plain white/gray and teal alone carries the brand
-identity. Don't reintroduce a warm hue on the neutral scale; if a component
-needs a brand-colored surface, reach for `--accent` (a light teal wash) or
-`--achievement`, not a tinted gray. The overall execution deliberately
-targets a Linear/Stripe/Brilliant/Bluebook hybrid — serious and premium, not
-a "friendly learning game" or a generic AI-SaaS dashboard — after an initial
-pass (warm rounded display font on every heading, soft full-card color
-washes, generous 0.75rem radius) read as "cartoonish kid app" in real user
-feedback and was deliberately walked back. Intentional choices worth
-preserving when touching either file:
+identity. Don't reintroduce a warm hue on the neutral scale.
+
+**The reference is oneprep.xyz**, at the Owner's direction, replacing the
+earlier Linear/Stripe/Brilliant/Bluebook hybrid. The brief was specific: the
+app "looked vibecoded" — made by an AI. That diagnosis came down to five
+concrete tells, and the rules below exist to keep each one from coming back:
+
+1. A pastel rounded-square icon tile above every heading, every empty state,
+   and every wizard step.
+2. A single italic/colored word as the only typographic device in a hero.
+3. Every section on a page at identical weight and rhythm, so nothing leads.
+4. One flat surface value top to bottom, with no bands or blocks.
+5. No repeated motif — nothing a visitor could recognize twice.
+
+Intentional choices worth preserving when touching `globals.css` or any
+surface file:
 
 - **Fredoka is brand-mark-only.** `--font-brand` (Fredoka, the channel's
   wordmark font) is used in exactly one place — the "PrepHub" text in
@@ -72,23 +79,77 @@ preserving when touching either file:
   `globals.css`, so heading hierarchy comes from weight/size/spacing, not a
   separate display face. Do not repoint `--font-heading` at Fredoka again —
   that's the exact change that read as childish.
-- **Radius is intentionally tight** (`--radius: 0.375rem`, landing cards
-  around 8-9px and buttons around 6px) — Linear/Stripe reference, not the
-  generous "friendly app" rounding this started at.
+- **The marker stroke is the one repeated motif.**
+  `src/components/ui/marker.tsx` draws a hand-made underline under the
+  load-bearing word of a headline (landing hero, auth panels, diagnostic
+  intro, practice paywall, progress empty state). It is a filled SVG path
+  with two differently-curved edges, not a `border-bottom` — a uniform rule
+  reads as a browser default, which is the machine-made quality it exists to
+  break. It paints *before* the text and relies on paint order, deliberately
+  not a negative z-index: `relative` with no z-index creates no stacking
+  context, so `-z-10` escapes to the root and hides the stroke behind the
+  section background. At most one per screen.
+- **Radius is tight for controls and open for blocks.** `--radius` is still
+  `0.375rem`, and `--radius-sm/md/lg` are unchanged, so dense app UI
+  (inputs, badges, small buttons) keeps the tight Linear-style corner. The
+  scale was opened only at the large end (`--radius-2xl` through
+  `--radius-4xl`) for full section blocks — `rounded-2xl`/`rounded-3xl` on a
+  page-scale panel, never on a control.
+- **Three surface tokens carry the page rhythm**, and are the fix for tell 4:
+  `--surface-tint` (a near-white teal wash — hero blocks, empty states,
+  alternating landing sections), `--surface-deep` (the deep-teal block used
+  full-bleed on the landing credibility band, the auth brand panel, and the
+  signup left column) with `--surface-deep-foreground` for text on it, and
+  `--marker` (the brighter cyan accent, used by the marker stroke and by
+  `border-marker` rules). A page should alternate ground values, not sit at
+  one value from top to bottom.
+- **`--text-display-sm/display/display-lg/display-xl` are public-surface
+  sizes** (landing, auth, diagnostic intro, session/practice status screens).
+  The app interior tops out at `--text-page-title`, which is correct for a
+  dense product — don't reach for a display size inside a dashboard.
+  `--text-hero`/`--text-hero-lg` remain reserved for a single *number* (a
+  score), not a sentence.
+- **`size="cta"` is the pill.** One named button size (`h-12 rounded-full
+  px-6 text-base`, `src/components/ui/button.tsx`) rather than that class
+  string repeated at each call site, which is how the landing page, auth
+  funnel and app interior would drift apart. At most one per screen: if two
+  are visible at once, neither is the primary action.
+- **No decorative icon tiles.** `src/components/icon-badge.tsx` is deleted,
+  not deprecated — the pastel-tile treatment was removed from `PageHeader`
+  (whose `icon` prop is gone entirely, along with all 16 call sites),
+  `EmptyState`, the diagnostic intro screens, the onboarding wizard, the
+  Owner landing cards, and the practice status screens, which left it with
+  zero call sites. Where one of those needed a visual anchor, it got a two-digit
+  ordinal (`01`, `02`, `03`) instead: that is information a glyph was only
+  pretending to carry, and it differs per item, which six abstract icons did
+  not. Don't reintroduce a badge tile on a new surface.
+- **Prefer a rule to a box.** A row of stats is `divide-x`/`divide-y`, not N
+  bordered cards; a long list (question review, prediction history, weakest
+  skills) is one `divide-y` list with a `border-y`, not one border per row.
+  Individually boxed rows turn a 21-item review into a wall of outlines.
+  Settings is the same idea at page scale: a label column plus hairlines
+  (`SettingsSection` in `src/app/(app)/settings/page.tsx`), not a stack of
+  `<Card>`s each wrapped in a `<Separator>`, which was two kinds of chrome
+  doing one job.
+- **Status screens are left-aligned, not centered.** A centered column of a
+  glyph, a heading, a line of grey text and a button is the default shape of
+  every generated confirmation/error/empty screen. The practice gateway
+  (`PracticeShell`), the diagnostic intro, and the session results hero all
+  use a left-aligned block on `surface-tint` instead.
 - **Color is applied precisely, not as soft full-card washes.** Score/stat
-  cards are plain bordered cards with a small compact indicator (e.g.
+  cards are plain cards with a small compact indicator (e.g.
   `bg-achievement/12` on a small `rounded-md` badge, or bare colored text),
-  not a large `bg-primary/[0.06]` tint across the whole card — that
-  "candy-colored SaaS" pattern was one of the concrete things that read as
-  unserious. When adding a new celebratory/status element, default to
-  restraint: a thin border, a small badge, or colored text alone before
-  reaching for a background wash.
+  not a large `bg-primary/[0.06]` tint across the whole card. This is *not*
+  in tension with `surface-tint` above: a tint is a deliberate page-level
+  band that groups a hero, not a decorative wash on an individual card.
 - **`achievement` is a fourth accent**, deliberately separate from
   `primary`/`secondary`/`accent`, reserved for score/mastery *improvement*
   moments (dashboard's "+N points since you started," the results screen's
-  celebration badge and mastery deltas, a positive study streak) — never for
+  celebration pill and mastery deltas, a positive study streak) — never for
   answer-correctness, which stays on ordinary green/destructive so it reads
-  as the universal right/wrong convention instead of a brand flourish.
+  as the universal right/wrong convention instead of a brand flourish. The
+  session-results "Correct" badge was on brand teal (`variant="default"`)
+  in violation of that rule and is now green.
   **Gotcha, confirmed by screenshot**: `--achievement-foreground` is tuned as
   the text color for a *solid* `bg-achievement` fill, not for text sitting on
   the translucent `bg-achievement/15` wash this app actually uses for pills —
@@ -96,6 +157,24 @@ preserving when touching either file:
   near-black tinted surface). The fix everywhere it's used is
   `text-achievement-foreground dark:text-achievement`, not
   `text-achievement-foreground` alone.
+- **Never fabricate social proof.** The landing page and auth panels carry
+  only facts that are actually true (8M+ views across the PrepHub channels;
+  Brilliant.org as a real sponsor). No invented testimonials, student names,
+  university logo walls, or score-improvement statistics — not even as
+  placeholder copy.
+
+**Gotcha, confirmed by DOM inspection**: the `Card` component draws its edge
+with `ring-1 ring-foreground/10`, *not* a border. Zeroing only `border-0`
+leaves the outline fully visible — `(auth)/layout.tsx` strips card chrome
+with `[&>div]:border-0 [&>div]:ring-0 …`. When a style refuses to take,
+inspect computed styles before guessing at another selector.
+
+**Gotcha, confirmed by screenshot**: `ScorePrediction`'s miniature number
+line is a range on the real 400–1600 SAT scale, so a typical 60–80 point
+prediction fills only ~5% of the track and read as a stray dash. It has a 4%
+minimum width, and its track is `bg-foreground/10` rather than `bg-muted`
+because it renders on a teal-tinted panel as often as on plain white, where a
+neutral-gray track disappears.
 
 **Gotcha, also confirmed by screenshot**: light Tailwind status tints
 (`bg-green-50`, `bg-amber-50`) read faint against *any* light background,

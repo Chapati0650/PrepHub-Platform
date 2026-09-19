@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { LayoutGrid } from "lucide-react";
 import { getContentCoverage } from "@/lib/content/coverage";
 import { CATEGORY_ORDER, DIFFICULTY_ORDER } from "@/lib/content/constants";
 import { CATEGORY_LABELS, DIFFICULTY_LABELS } from "@/lib/content/labels";
@@ -25,7 +24,7 @@ export default async function ContentCoveragePage() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 p-8">
-      <PageHeader icon={LayoutGrid} title="Content Coverage" description="Where the question bank is strong, and where it still needs work." />
+      <PageHeader title="Content Coverage" description="Where the question bank is strong, and where it still needs work." />
 
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full border-collapse text-sm">

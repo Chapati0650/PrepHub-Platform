@@ -55,7 +55,7 @@ export async function signUpNewStudent(
  *  prisma/seed.ts) — override via OWNER_TEST_EMAIL/OWNER_TEST_PASSWORD if the
  *  local DB was seeded with non-default OWNER_EMAIL/OWNER_PASSWORD. */
 export async function signInAsOwner(page: Page) {
-  const email = process.env.OWNER_TEST_EMAIL ?? "owner@prephub.dev";
+  const email = process.env.OWNER_TEST_EMAIL ?? "prithvirajchauhan0650@gmail.com";
   const password = process.env.OWNER_TEST_PASSWORD ?? "dev-owner-password-change-me";
 
   await page.goto("/login");

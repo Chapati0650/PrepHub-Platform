@@ -52,13 +52,26 @@
      pulled in generically — components opt into it explicitly. */
   --color-achievement: var(--achievement);
   --color-achievement-foreground: var(--achievement-foreground);
+  /* Brighter cyan sibling of the pine-teal primary. Carries the hand-drawn
+     underline motif (see components/ui/marker.tsx) and the tinted section
+     backgrounds that give a page rhythm. Deliberately separate from
+     `primary`: primary is for controls and must stay dense/legible, this is
+     purely expressive and never used as a text or control color. */
+  --color-marker: var(--marker);
+  --color-surface-tint: var(--surface-tint);
+  --color-surface-deep: var(--surface-deep);
+  --color-surface-deep-foreground: var(--surface-deep-foreground);
+
+  /* The small end stays exactly as tuned for dense app UI (tables, inputs,
+     badges); only the large end opens up, for the marketing-scale cards and
+     panels where 10px read as a spreadsheet rather than a designed surface. */
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --radius-xl: calc(var(--radius) * 1.6);
+  --radius-2xl: calc(var(--radius) * 2.8);
+  --radius-3xl: calc(var(--radius) * 4);
+  --radius-4xl: calc(var(--radius) * 5.6);
 
   /* Named type scale — generates text-caption/card-title/section/page-title/
      hero utilities (Tailwind v4: any --text-* theme token becomes a text-*
@@ -74,6 +87,17 @@
   --text-page-title-lg: 2.25rem; /* 36px, sm:+ */
   --text-hero: 3.75rem; /* 60px, mobile — the one true hero number per screen */
   --text-hero-lg: 4.5rem; /* 72px, sm:+ */
+
+  /* Display scale — marketing and page-opening headlines only, distinct from
+     --text-hero (which is for a single *number*, like a score). The app's
+     interior steps top out at --text-page-title, which is correct for a dense
+     product surface but far too timid to open a page with; a landing headline
+     that sits only ~20% above its own body copy is one of the things that
+     makes a page read as generated rather than designed. */
+  --text-display-sm: 2rem;
+  --text-display: 2.75rem;
+  --text-display-lg: 4.25rem;
+  --text-display-xl: 5.5rem;
 }
 
 /*
@@ -104,6 +128,15 @@
   --accent-foreground: oklch(0.3169 0.0656 192.19);
   --achievement: oklch(0.7231 0.115 74.87);
   --achievement-foreground: oklch(0.2907 0.0619 60);
+  /* Expressive trio, same teal family as primary, higher chroma. `marker` is
+     the underline stroke; `surface-tint` blocks a section off from the white
+     ones around it; `surface-deep` is the full-bleed dark band. Together they
+     are what give a page pacing — a single flat value from top to bottom is
+     the most reliable tell of a page nobody art-directed. */
+  --marker: oklch(0.79 0.128 207);
+  --surface-tint: oklch(0.974 0.017 205);
+  --surface-deep: oklch(0.305 0.052 195);
+  --surface-deep-foreground: oklch(0.97 0.008 195);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.9 0 0);
   --input: oklch(0.9 0 0);
@@ -146,6 +179,14 @@
   --accent-foreground: oklch(0.851 0.0568 178.15);
   --achievement: oklch(0.7684 0.105 74.87);
   --achievement-foreground: oklch(0.1934 0.0117 75);
+  /* Dark mode pulls the marker down in lightness — at the light-mode value it
+     glows against a near-black ground and reads as neon rather than ink. The
+     tinted surface has to sit *above* --background here (a lighter panel on
+     dark), the inverse of its light-mode role. */
+  --marker: oklch(0.7 0.115 207);
+  --surface-tint: oklch(0.245 0.019 200);
+  --surface-deep: oklch(0.225 0.032 195);
+  --surface-deep-foreground: oklch(0.95 0.006 195);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
