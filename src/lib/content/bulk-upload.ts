@@ -3,6 +3,7 @@ import type { QuestionType } from "@/generated/prisma/client";
 import { logAnswerDetectionFailure, logDifficultyClassificationFailure, logExplanationGenerationFailure } from "@/lib/logger";
 import { createQuestion, findQuestionIdByExactText, findQuestionIdsByImageHash, updateDraftContent } from "./questions";
 import { transcribeQuestionImage, transcribeQuestionPage, type QuestionTranscription } from "./transcribe";
+import { getBulkUploadReadiness } from "./ai-readiness";
 import { determineCorrectAnswer } from "./determine-answer";
 import { classifyQuestionCategory } from "./classify-category";
 import { classifyQuestionDifficulty } from "./classify-difficulty";
@@ -227,6 +228,10 @@ async function processTranscribedQuestion(
 // see bulk-upload-form.tsx). The caller (bulkUploadImageAction) is invoked
 // once per image from the client, in a small concurrency pool.
 export async function processBulkUploadImage(input: BulkUploadImageInput): Promise<BulkUploadImageResult> {
+  // Before the first paid call, not after it — see ai-readiness.ts.
+  const readiness = getBulkUploadReadiness();
+  if (!readiness.ready) return { error: readiness.message };
+
   const sourceImageHash = hashImageBytes(input.buffer);
   const existing = await findQuestionIdsByImageHash(sourceImageHash);
   if (existing.length > 0) {
@@ -254,6 +259,9 @@ export type BulkUploadPdfPageResult = { questionIds: string[]; errors: string[];
 // question runs through the identical processTranscribedQuestion pipeline,
 // independently: one bad question on a page must not lose the others.
 export async function processBulkUploadPdfPage(input: BulkUploadImageInput): Promise<BulkUploadPdfPageResult> {
+  const readiness = getBulkUploadReadiness();
+  if (!readiness.ready) return { questionIds: [], errors: [readiness.message] };
+
   const sourceImageHash = hashImageBytes(input.buffer);
   const existing = await findQuestionIdsByImageHash(sourceImageHash);
   if (existing.length > 0) {

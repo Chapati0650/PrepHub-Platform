@@ -42,7 +42,10 @@ type RowStatus = "queued" | "processing" | "done" | "error";
 // distinctly so it doesn't read as a fresh, newly-generated result.
 type Row = { file: File; kind: "image" | "pdfPage"; status: RowStatus; questionIds: string[]; errors: string[]; alreadyUploaded?: boolean };
 
-export function BulkUploadForm({ googleClientId }: { googleClientId: string | null }) {
+// `disabled` is the server's readiness verdict (page.tsx): when a provider
+// key is missing, no control here may start a batch — the server refuses
+// anyway (bulk-upload.ts), but a disabled button says why before the click.
+export function BulkUploadForm({ googleClientId, disabled = false }: { googleClientId: string | null; disabled?: boolean }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [running, setRunning] = useState(false);
   const [extractingZip, setExtractingZip] = useState(false);
@@ -262,7 +265,7 @@ export function BulkUploadForm({ googleClientId }: { googleClientId: string | nu
               type="file"
               accept="image/png,image/jpeg,image/webp"
               multiple
-              disabled={running || extractingZip || extractingPdf}
+              disabled={disabled || running || extractingZip || extractingPdf}
               onChange={(e) => {
                 handleFilesSelected(e.target.files);
                 e.target.value = "";
@@ -276,7 +279,7 @@ export function BulkUploadForm({ googleClientId }: { googleClientId: string | nu
               id="bulkZip"
               type="file"
               accept=".zip,application/zip,application/x-zip-compressed"
-              disabled={running || extractingZip || extractingPdf}
+              disabled={disabled || running || extractingZip || extractingPdf}
               onChange={(e) => {
                 void handleZipSelected(e.target.files);
                 e.target.value = "";
@@ -290,7 +293,7 @@ export function BulkUploadForm({ googleClientId }: { googleClientId: string | nu
               id="bulkPdf"
               type="file"
               accept=".pdf,application/pdf"
-              disabled={running || extractingZip || extractingPdf}
+              disabled={disabled || running || extractingZip || extractingPdf}
               onChange={(e) => {
                 void handlePdfSelected(e.target.files);
                 e.target.value = "";
@@ -318,7 +321,7 @@ export function BulkUploadForm({ googleClientId }: { googleClientId: string | nu
             variant="outline"
             size="sm"
             className="w-fit"
-            disabled={!driveAvailable || running || pickingFromDrive}
+            disabled={disabled || !driveAvailable || running || pickingFromDrive}
             onClick={() => void handleDrivePick()}
           >
             <HardDrive className="size-4" aria-hidden />
@@ -332,12 +335,12 @@ export function BulkUploadForm({ googleClientId }: { googleClientId: string | nu
         {rows.length > 0 && (
           <div className="mt-4 flex flex-wrap items-center gap-3">
             {queuedCount > 0 && (
-              <Button onClick={handleStart} disabled={running}>
+              <Button onClick={handleStart} disabled={disabled || running}>
                 {running ? `Processing… (${doneCount}/${rows.length})` : `Process ${queuedCount} item${queuedCount === 1 ? "" : "s"}`}
               </Button>
             )}
             {failedCount > 0 && (
-              <Button variant="outline" onClick={handleRetryAllFailed} disabled={running}>
+              <Button variant="outline" onClick={handleRetryAllFailed} disabled={disabled || running}>
                 Retry {failedCount} failed
               </Button>
             )}
@@ -427,7 +430,7 @@ export function BulkUploadForm({ googleClientId }: { googleClientId: string | nu
                         <Alert variant="destructive" className="w-fit">
                           <AlertDescription>{row.errors.join(" ")}</AlertDescription>
                         </Alert>
-                        <Button size="sm" variant="outline" disabled={running} onClick={() => handleRetryRow(i)}>
+                        <Button size="sm" variant="outline" disabled={disabled || running} onClick={() => handleRetryRow(i)}>
                           Retry
                         </Button>
                       </div>
