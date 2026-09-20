@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { readPendingRushCode } from "@/lib/rush/pending-join";
 import { TrendingUp, Check, ChevronRight, Pencil } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -104,6 +105,15 @@ export default async function HomePage() {
   if (isStudent && data.diagnosticStatus === "NOT_STARTED" && !onboarding?.onboardingCompletedAt) {
     redirect("/onboarding");
   }
+
+  // A friend's 1v1 Rush link opened while signed out (see middleware.ts):
+  // a returning student who logged in lands here, so take them to the
+  // challenge before anything else — ahead of the access-selection gate on
+  // purpose, since accepting a challenge is free. (A brand-new account
+  // never passes through here first; onboarding's completion action does
+  // the same check.)
+  const pendingRushCode = await readPendingRushCode();
+  if (pendingRushCode) redirect(`/rush/join/${pendingRushCode}`);
 
   // PRD-002 §5.1: a student who has never chosen an access method lands on
   // the chooser instead of here — but only before they've engaged with the

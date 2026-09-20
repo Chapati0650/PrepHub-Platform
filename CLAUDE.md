@@ -721,6 +721,60 @@ and in every action. `src/lib/college-apps/`, `src/lib/colleges/`,
   => action(fd))` instead — see `application-forms.tsx`.
 - Deploying needs migration `20260919221904_add_college_apps` on Neon first.
 
+## 1v1 Rush (2026-09-20, modeled on oneprep.xyz's Question Rush)
+
+Ten questions, a hard clock on each, points for right-and-fast, played solo
+or head-to-head. `src/lib/rush/`, `src/app/(app)/rush/`; own tables
+(`RushSet`/`RushSlot`/`RushChallenge`/`RushRun`/`RushAnswer`, migration
+`20260920082506_add_rush` — apply on Neon before deploying). Never touches
+the adaptive engine: a 60-second answer says nothing about ability.
+
+- **The Owner's three decisions**: challenges are *asynchronous* (nobody
+  has to be online at the same time — the second player races the first's
+  recorded times, shown as a ghost line per question); an opponent is a
+  *random match* or a *friend by link or code*; and *accepting is the free
+  hook*. Starting anything (solo, random, friend) is Premium, checked in
+  `startRushAction` as well as on the hub. `joinRushAction` and
+  `/rush/join/[code]` deliberately have no paid check.
+- **Random matching is a queue, not a lobby**: `startRandomRush` joins the
+  oldest waiting RANDOM challenge in the same section/difficulty whose
+  creator has *finished* (an abandoned run never becomes someone's
+  opponent); otherwise it opens one and the player becomes the next
+  student's match. A same-instant double-join yields a three-run challenge,
+  which the results page simply ranks — not worth a row lock at this scale.
+- **Time is measured on the server.** A `RushAnswer` row is created when
+  the question is *served* (`servedAt`), and `submitRushAnswer` computes
+  elapsed from that — the client never reports a duration. Serving is an
+  upsert, so a reload mid-question resumes the same countdown rather than
+  restarting it (confirmed: 57s left after a reload at 3s). The client
+  counts down from `remainingMs` on its own clock, so device clock skew
+  can't lengthen a question. `RUSH_GRACE_MS` (2s) covers the round trip
+  for an answer sent at the buzzer; blank at 0 is a `timedOut` submit.
+- **Scoring is one pure function** (`scoring.ts`, tested): 100 for a
+  correct answer plus up to 100 scaled by clock remaining; wrong, blank, or
+  past grace is 0 — never negative. Ties break on total time. Selection
+  reuses the 800 Club's unseen-first/never-pad selector, and a MIXED set is
+  dealt round-robin across the three difficulties.
+- **The page never serves the first question.** `/rush/play/[runId]` renders
+  a Ready screen; the runner's Start button is what calls
+  `serveRushQuestionAction`, so page load and hydration don't eat into the
+  clock. `RushRunner` is deliberately not `SessionRunner` (no skip, no
+  revisit, no drafts — a choice click submits); it shares
+  `QuestionStatement`/`LatexText`/the A-B-C-D choice markup by import.
+- **A friend's link is the one URL a person without an account opens.**
+  Signed out, middleware sends them to `/signup` and parks the code in the
+  `prephub_rush_join` cookie; both `/home` (returning student who logged
+  in) and onboarding's completion action (brand-new account, which never
+  passes through `/home` first) redirect to the challenge from it, ahead of
+  the access chooser. Middleware clears the cookie on the first signed-in
+  request to the join page. Only FRIEND challenges are joinable by code.
+- Question review on results goes through `getReviewableSlot`, which returns
+  nothing until the viewer's own run is COMPLETED — so a second player can't
+  read the set before playing it.
+- Playwright gotcha: `screenshot()` injects `caret-color: transparent` on
+  inputs by default, and a screenshot taken mid-hydration then shows up as
+  a hydration-mismatch warning that isn't real. Pass `caret: "initial"`.
+
 ## Cross-phase fix: diagnostic must be reachable before access selection
 
 PRD-002 §5.1 sends every student with no subscription/membership to `/access`

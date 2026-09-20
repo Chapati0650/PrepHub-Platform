@@ -22,6 +22,7 @@ import {
   Trophy,
   BookOpen,
   GraduationCap,
+  Swords,
 } from "lucide-react";
 import { Logo, LogoMark } from "@/components/logo";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ const STUDENT_ITEMS: NavItem[] = [
   { href: "/home", label: "Home", icon: LayoutDashboard },
   { href: "/practice", label: "Practice", icon: PencilLine },
   { href: "/800-club", label: "800 Club", icon: Trophy },
+  { href: "/rush", label: "1v1 Rush", icon: Swords },
   { href: "/curriculum", label: "The Curriculum", icon: BookOpen },
   { href: "/college-apps", label: "College Apps", icon: GraduationCap },
   { href: "/progress", label: "Progress", icon: TrendingUp },
@@ -69,9 +71,10 @@ function isActive(pathname: string, href: string): boolean {
 // URL (see diagnostic/page.tsx) — those get focus mode too, since they're
 // part of the same distraction-free flow leading into the first question.
 const FOCUS_MODE_PATHS = new Set(["/diagnostic", "/practice/session", "/onboarding", "/college-apps/onboarding"]);
-// 800 Club sessions live at /800-club/session/<id> — the one focus route
-// with a dynamic segment, so it is matched by prefix rather than listed.
-const FOCUS_MODE_PREFIXES = ["/800-club/session/"];
+// 800 Club sessions (/800-club/session/<id>) and Rush runs
+// (/rush/play/<id>) carry a dynamic segment, so they are matched by prefix
+// rather than listed.
+const FOCUS_MODE_PREFIXES = ["/800-club/session/", "/rush/play/"];
 
 function isFocusMode(pathname: string): boolean {
   return FOCUS_MODE_PATHS.has(pathname) || FOCUS_MODE_PREFIXES.some((p) => pathname.startsWith(p));

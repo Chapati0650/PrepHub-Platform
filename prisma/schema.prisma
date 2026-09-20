@@ -89,6 +89,8 @@ model User {
   collegeAppsProfile   CollegeAppsProfile?
   collegeApplications  CollegeApplication[]
   applicationItems     ApplicationItem[]
+  rushChallenges       RushChallenge[]
+  rushRuns             RushRun[]
   announcementsCreated Announcement[]
 
   @@map("users")
@@ -533,6 +535,7 @@ model Question {
   diagnosticAttempts DiagnosticAttempt[]
   finalizedAttempts  FinalizedAttempt[]
   clubSlots          ClubSlot[]
+  rushSlots          RushSlot[]
 
   @@index([sourceImageHash])
   @@map("questions")
@@ -590,6 +593,7 @@ model QuestionRevision {
   blueprintSlots     BlueprintSlot[]
   diagnosticAttempts DiagnosticAttempt[]
   clubSlots          ClubSlot[]
+  rushSlots          RushSlot[]
 
   @@map("question_revisions")
 }
@@ -1180,4 +1184,122 @@ model CollegeSupplement {
 
   @@index([collegeId, cycle, position])
   @@map("college_supplements")
+}
+
+// ---------------------------------------------------------------------------
+// 1v1 Rush — timed 10-question runs, played solo, against a friend (link or
+// code), or against a randomly matched student. Asynchronous by design
+// (2026-09-20): two players never need to be online together, so it works
+// with five users and needs no real-time service. Like the 800 Club, these
+// tables are outside the adaptive engine — a speed-pressured answer must
+// never feed the ability model or the Predicted Score.
+//
+// A RushSet is the ten questions (seeded, pinned to revisions). A
+// RushChallenge is a set plus its participants; every run of the same
+// challenge sees the identical questions, which is what makes a comparison
+// fair. RANDOM challenges are matched by joining an existing one that has
+// exactly one finished run by someone else; if none exists, the player's own
+// run opens a new one for the next person. A RushAnswer row is created when
+// the question is *served* (servedAt), so elapsed time is measured on the
+// server, not trusted from the client.
+// ---------------------------------------------------------------------------
+
+enum RushDifficulty {
+  EASY
+  MEDIUM
+  HARD
+  MIXED
+}
+
+enum RushMode {
+  SOLO
+  FRIEND
+  RANDOM
+}
+
+enum RushRunStatus {
+  ACTIVE
+  COMPLETED
+}
+
+model RushSet {
+  id         String         @id @default(cuid())
+  section    ClubSection
+  difficulty RushDifficulty
+  randomSeed String
+  createdAt  DateTime       @default(now())
+
+  slots      RushSlot[]
+  challenges RushChallenge[]
+
+  @@map("rush_sets")
+}
+
+model RushSlot {
+  id                 String @id @default(cuid())
+  setId              String
+  position           Int
+  questionId         String
+  questionRevisionId String
+
+  set              RushSet          @relation(fields: [setId], references: [id], onDelete: Cascade)
+  question         Question         @relation(fields: [questionId], references: [id])
+  questionRevision QuestionRevision @relation(fields: [questionRevisionId], references: [id])
+
+  @@unique([setId, position])
+  @@map("rush_slots")
+}
+
+model RushChallenge {
+  id        String   @id @default(cuid())
+  setId     String
+  mode      RushMode
+  code      String   @unique // 6 chars, unambiguous alphabet; the join link carries it
+  creatorId String
+  createdAt DateTime @default(now())
+
+  set     RushSet   @relation(fields: [setId], references: [id], onDelete: Cascade)
+  creator User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  runs    RushRun[]
+
+  @@index([mode, createdAt])
+  @@map("rush_challenges")
+}
+
+model RushRun {
+  id           String        @id @default(cuid())
+  challengeId  String
+  studentId    String
+  status       RushRunStatus @default(ACTIVE)
+  position     Int           @default(0) // next question to serve
+  score        Int           @default(0)
+  correctCount Int           @default(0)
+  totalMs      Int           @default(0)
+  startedAt    DateTime      @default(now())
+  completedAt  DateTime?
+
+  challenge RushChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  student   User          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  answers   RushAnswer[]
+
+  @@unique([challengeId, studentId])
+  @@index([studentId, status])
+  @@map("rush_runs")
+}
+
+model RushAnswer {
+  id         String    @id @default(cuid())
+  runId      String
+  position   Int
+  servedAt   DateTime  @default(now())
+  answeredAt DateTime?
+  answer     String? // null = timed out / blank
+  isCorrect  Boolean?
+  elapsedMs  Int?
+  points     Int?
+
+  run RushRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, position])
+  @@map("rush_answers")
 }

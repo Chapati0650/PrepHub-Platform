@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { RUSH_JOIN_COOKIE, RUSH_JOIN_COOKIE_MAX_AGE } from "@/lib/rush/join-cookie";
 
 // Deliberately named middleware.ts, not proxy.ts (Next.js 16's renamed
 // convention) — Netlify's Next.js Runtime (OpenNext-based) doesn't yet
@@ -34,15 +35,35 @@ import { getToken } from "next-auth/jwt";
 // whatever the actual page/action does with the session in the same request.
 const isAppRoute = (pathname: string) => pathname.startsWith("/home") || pathname.startsWith("/settings");
 
+// A friend's 1v1 Rush link (/rush/join/<code>) is the one URL a person with
+// no account is expected to open. Signed out, they go to signup with the
+// code kept in a cookie so /home can bring them back to the challenge once
+// they're in (a fresh account passes through onboarding first, and
+// redirect targets don't survive that chain). Signed in, the cookie is
+// cleared here so /home stops redirecting.
+const joinCodeOf = (pathname: string) => pathname.match(/^\/rush\/join\/([A-Za-z0-9-]{1,12})$/)?.[1] ?? null;
+
 export default async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (!isAppRoute(pathname)) return NextResponse.next();
+  const joinCode = joinCodeOf(pathname);
+  if (!isAppRoute(pathname) && !joinCode) return NextResponse.next();
 
   const token = await getToken({
     req,
     secret: process.env.AUTH_SECRET,
     secureCookie: req.nextUrl.protocol === "https:",
   });
+
+  if (joinCode) {
+    if (token) {
+      const res = NextResponse.next();
+      if (req.cookies.has(RUSH_JOIN_COOKIE)) res.cookies.delete(RUSH_JOIN_COOKIE);
+      return res;
+    }
+    const res = NextResponse.redirect(new URL("/signup", req.url));
+    res.cookies.set(RUSH_JOIN_COOKIE, joinCode, { httpOnly: true, sameSite: "lax", path: "/", maxAge: RUSH_JOIN_COOKIE_MAX_AGE });
+    return res;
+  }
 
   if (!token) {
     return NextResponse.redirect(new URL("/login", req.url));
