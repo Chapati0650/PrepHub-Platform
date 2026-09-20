@@ -1222,6 +1222,17 @@ enum RushRunStatus {
   COMPLETED
 }
 
+// Live rooms only (RushChallenge.live). WAITING: creator alone in the
+// lobby. COUNTDOWN: both in, liveStartsAt set. PLAYING: livePosition is the
+// question both players are on, livePositionStartedAt its shared clock.
+// FINISHED: every run COMPLETED.
+enum RushLiveStatus {
+  WAITING
+  COUNTDOWN
+  PLAYING
+  FINISHED
+}
+
 model RushSet {
   id         String         @id @default(cuid())
   section    ClubSection
@@ -1258,11 +1269,23 @@ model RushChallenge {
   creatorId String
   createdAt DateTime @default(now())
 
+  // Live head-to-head (Owner decision, 2026-09-20: "both online at the same
+  // time is more intense"). Both players sit on one server-side clock:
+  // livePositionStartedAt is when the current question opened for both,
+  // and tickLive advances it when both have answered or the limit passes.
+  // No WebSockets on this host — clients poll getLiveState once a second.
+  live                  Boolean         @default(false)
+  liveStatus            RushLiveStatus?
+  liveStartsAt          DateTime?
+  livePosition          Int             @default(0)
+  livePositionStartedAt DateTime?
+
   set     RushSet   @relation(fields: [setId], references: [id], onDelete: Cascade)
   creator User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   runs    RushRun[]
 
   @@index([mode, createdAt])
+  @@index([live, liveStatus])
   @@map("rush_challenges")
 }
 
@@ -1277,6 +1300,7 @@ model RushRun {
   totalMs      Int           @default(0)
   startedAt    DateTime      @default(now())
   completedAt  DateTime?
+  lastSeenAt   DateTime      @default(now()) // presence for live rooms: bumped on every poll
 
   challenge RushChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
   student   User          @relation(fields: [studentId], references: [id], onDelete: Cascade)

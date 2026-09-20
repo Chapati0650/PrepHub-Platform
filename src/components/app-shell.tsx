@@ -71,10 +71,10 @@ function isActive(pathname: string, href: string): boolean {
 // URL (see diagnostic/page.tsx) — those get focus mode too, since they're
 // part of the same distraction-free flow leading into the first question.
 const FOCUS_MODE_PATHS = new Set(["/diagnostic", "/practice/session", "/onboarding", "/college-apps/onboarding"]);
-// 800 Club sessions (/800-club/session/<id>) and Rush runs
-// (/rush/play/<id>) carry a dynamic segment, so they are matched by prefix
-// rather than listed.
-const FOCUS_MODE_PREFIXES = ["/800-club/session/", "/rush/play/"];
+// 800 Club sessions (/800-club/session/<id>) and Rush runs and rooms
+// (/rush/play/<id>, /rush/live/<id>) carry a dynamic segment, so they are
+// matched by prefix rather than listed.
+const FOCUS_MODE_PREFIXES = ["/800-club/session/", "/rush/play/", "/rush/live/"];
 
 function isFocusMode(pathname: string): boolean {
   return FOCUS_MODE_PATHS.has(pathname) || FOCUS_MODE_PREFIXES.some((p) => pathname.startsWith(p));

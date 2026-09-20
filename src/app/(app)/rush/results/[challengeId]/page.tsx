@@ -39,7 +39,7 @@ export default async function RushResultsPage({ params }: { params: Promise<{ ch
     <div className="mx-auto flex max-w-2xl flex-col gap-10 p-4 pb-16 sm:p-8">
       <section className="rounded-3xl bg-surface-tint p-6 sm:p-10">
         <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-          1v1 Rush · {data.sectionLabel} · {data.difficultyLabel}
+          1v1 Rush{data.live ? " · Live" : ""} · {data.sectionLabel}
         </p>
         <h1 className="mt-3 text-page-title sm:text-page-title-lg">{headline}</h1>
 
@@ -62,8 +62,8 @@ export default async function RushResultsPage({ params }: { params: Promise<{ ch
 
         {awaitingMatch && (
           <p className="mt-6 max-w-prose text-sm text-muted-foreground">
-            You&apos;ll be matched with the next student who starts a {data.sectionLabel} · {data.difficultyLabel} rush. Their
-            result shows up here when they finish.
+            You&apos;ll be matched with the next student who races a recorded {data.sectionLabel} rush. Their result shows up
+            here when they finish.
           </p>
         )}
 
@@ -105,10 +105,13 @@ export default async function RushResultsPage({ params }: { params: Promise<{ ch
         {paidAccess ? (
           <form action={startRushAction}>
             <input type="hidden" name="section" value={data.section} />
-            <input type="hidden" name="difficulty" value={data.difficulty} />
-            <input type="hidden" name="mode" value={data.mode} />
+            <input
+              type="hidden"
+              name="option"
+              value={data.mode === "SOLO" ? "SOLO" : data.mode === "FRIEND" ? (data.live ? "FRIEND_LIVE" : "FRIEND_ASYNC") : data.live ? "RANDOM_LIVE" : "RANDOM_LIVE"}
+            />
             <Button type="submit" size="cta">
-              {data.mode === "SOLO" ? "Run it again" : data.mode === "FRIEND" ? "New challenge" : "Find another opponent"}
+              {data.mode === "SOLO" ? "Run it again" : data.mode === "FRIEND" ? (data.live ? "New live room" : "New challenge") : "Find another opponent"}
             </Button>
           </form>
         ) : (

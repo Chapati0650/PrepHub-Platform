@@ -6,7 +6,7 @@ import { canUseStudentExperience } from "@/lib/access";
 import { hasPaidAccess } from "@/lib/entitlements";
 import { logUnauthorizedAccess } from "@/lib/logger";
 import { getStudentQuestionContent, getStudentQuestionFeedback } from "@/lib/session/question-content";
-import { isRushDifficulty, isRushMode, isRushSection } from "@/lib/rush/config";
+import { RUSH_PLAY_OPTIONS, isRushPlayOption, isRushSection } from "@/lib/rush/config";
 import { normalizeRushCode } from "@/lib/rush/codes";
 import { RushError } from "@/lib/rush/errors";
 import {
@@ -19,6 +19,17 @@ import {
   type RushAnswerResult,
   type ServedQuestion,
 } from "@/lib/rush/runs";
+import {
+  cancelLiveRoom,
+  createLiveRoom,
+  getLiveState,
+  serveLiveQuestion,
+  startLiveRandom,
+  submitLiveAnswer,
+  type LiveAnswerResult,
+  type LiveServedQuestion,
+  type LiveState,
+} from "@/lib/rush/live";
 
 async function requireStudentId(): Promise<string> {
   const session = await auth();
@@ -35,52 +46,59 @@ function str(fd: FormData, key: string): string {
   return typeof v === "string" ? v : "";
 }
 
-// "Start rush" on the hub. Starting any rush — solo, random, or a friend
-// challenge — is Premium; the check is here as well as on the page because
-// a hidden button is not access control. Accepting one is not (see
-// joinRushAction below).
+function toHubError(err: unknown): never {
+  if (err instanceof RushError) redirect(`/rush?error=${encodeURIComponent(err.message)}`);
+  throw err;
+}
+
+// "Start rush" on the hub. Starting anything — solo, random, live or not,
+// a friend challenge — is Premium; the check is here as well as on the
+// page because a hidden button is not access control. Accepting one is
+// not (see joinRushAction below).
 export async function startRushAction(formData: FormData): Promise<void> {
   const studentId = await requireStudentId();
   const section = str(formData, "section");
-  const difficulty = str(formData, "difficulty");
-  const mode = str(formData, "mode");
-  if (!isRushSection(section) || !isRushDifficulty(difficulty) || !isRushMode(mode)) throw new Error("Choose a section, difficulty and mode.");
+  const option = str(formData, "option");
+  if (!isRushSection(section) || !isRushPlayOption(option)) throw new Error("Choose a section and how to play.");
   if (!(await hasPaidAccess(studentId))) redirect("/pricing");
 
-  let runId: string;
+  const play = RUSH_PLAY_OPTIONS[option];
+  let href: string;
   try {
-    if (mode === "RANDOM") {
-      runId = (await startRandomRush(studentId, { section, difficulty })).runId;
+    if (play.live) {
+      const room = play.mode === "RANDOM" ? await startLiveRandom(studentId, section) : await createLiveRoom(studentId, { section, mode: "FRIEND" });
+      href = `/rush/live/${room.challengeId}`;
+    } else if (play.mode === "RANDOM") {
+      href = `/rush/play/${(await startRandomRush(studentId, { section })).runId}`;
     } else {
-      runId = (await startRush(studentId, { section, difficulty, mode })).runId;
+      href = `/rush/play/${(await startRush(studentId, { section, mode: play.mode })).runId}`;
     }
   } catch (err) {
-    if (err instanceof RushError && err.code === "NO_QUESTIONS") redirect(`/rush?error=${encodeURIComponent(err.message)}`);
-    throw err;
+    toHubError(err);
   }
-  redirect(`/rush/play/${runId}`);
+  redirect(href);
 }
 
 // The free hook: any signed-in student can accept a friend's challenge by
 // code (the hub's form) or by link (/rush/join/[code]'s Accept button — the
 // same action, with the code in a hidden field). No paid-access check on
-// purpose.
+// purpose. A live room routes to the room; a recorded one to the runner.
 export async function joinRushAction(formData: FormData): Promise<void> {
   const studentId = await requireStudentId();
   const code = normalizeRushCode(str(formData, "code"));
   if (!code) redirect(`/rush?error=${encodeURIComponent("A code is six letters and numbers, like ABC234.")}`);
 
-  let runId: string;
+  let href: string;
   try {
-    runId = (await joinChallenge(studentId, code)).runId;
+    const joined = await joinChallenge(studentId, code);
+    href = joined.live ? `/rush/live/${joined.challengeId}` : `/rush/play/${joined.runId}`;
   } catch (err) {
-    if (err instanceof RushError) redirect(`/rush?error=${encodeURIComponent(err.message)}`);
-    throw err;
+    toHubError(err);
   }
-  redirect(`/rush/play/${runId}`);
+  redirect(href);
 }
 
-// ---- In-run actions, called from the RushRunner ----------------------------
+// ---- Recorded (async) runs, called from the RushRunner --------------------
 
 export async function serveRushQuestionAction(runId: string): Promise<ServedQuestion | null> {
   const studentId = await requireStudentId();
@@ -100,6 +118,58 @@ export async function submitRushAnswerAction(runId: string, position: number, an
     if (err instanceof RushError) throw new Error(err.message);
     throw err;
   }
+}
+
+// ---- Live rooms, called from LiveRush ---------------------------------------
+
+export async function pollLiveAction(challengeId: string): Promise<LiveState | null> {
+  const studentId = await requireStudentId();
+  return getLiveState(studentId, challengeId);
+}
+
+export async function serveLiveQuestionAction(challengeId: string): Promise<LiveServedQuestion | { notYet: true }> {
+  const studentId = await requireStudentId();
+  try {
+    return await serveLiveQuestion(studentId, challengeId);
+  } catch (err) {
+    if (err instanceof RushError && err.code === "NOT_SERVED") return { notYet: true };
+    if (err instanceof RushError) throw new Error(err.message);
+    throw err;
+  }
+}
+
+export async function submitLiveAnswerAction(challengeId: string, position: number, answer: string | null): Promise<LiveAnswerResult | { over: true }> {
+  const studentId = await requireStudentId();
+  try {
+    return await submitLiveAnswer({ studentId, challengeId, position, answer });
+  } catch (err) {
+    if (err instanceof RushError && (err.code === "RUN_COMPLETED" || err.code === "NOT_SERVED")) return { over: true };
+    if (err instanceof RushError) throw new Error(err.message);
+    throw err;
+  }
+}
+
+// Leaving an empty lobby. Form action so it works as a plain button.
+export async function leaveLiveRoomAction(formData: FormData): Promise<void> {
+  const studentId = await requireStudentId();
+  await cancelLiveRoom(studentId, str(formData, "challengeId"));
+  redirect("/rush");
+}
+
+// Nobody showed up: close the empty lobby and race a recorded run instead.
+export async function fallbackToRecordedAction(formData: FormData): Promise<void> {
+  const studentId = await requireStudentId();
+  const section = str(formData, "section");
+  if (!isRushSection(section)) redirect("/rush");
+  if (!(await hasPaidAccess(studentId))) redirect("/pricing");
+  await cancelLiveRoom(studentId, str(formData, "challengeId"));
+  let runId: string;
+  try {
+    runId = (await startRandomRush(studentId, { section })).runId;
+  } catch (err) {
+    toHubError(err);
+  }
+  redirect(`/rush/play/${runId}`);
 }
 
 // Results-page question review. getReviewableSlot only returns a revision

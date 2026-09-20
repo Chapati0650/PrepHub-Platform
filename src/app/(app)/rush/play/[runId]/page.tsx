@@ -23,6 +23,7 @@ export default async function RushPlayPage({ params }: { params: Promise<{ runId
   const { runId } = await params;
   const run = await getRunContext(session.user.id, runId);
   if (!run) redirect("/rush");
+  if (run.live) redirect(`/rush/live/${run.challengeId}`);
   if (run.status === "COMPLETED") redirect(`/rush/results/${run.challengeId}`);
 
   return <RushRunner run={run} serve={serveRushQuestionAction} submit={submitRushAnswerAction} />;

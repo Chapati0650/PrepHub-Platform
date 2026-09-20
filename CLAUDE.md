@@ -725,22 +725,50 @@ and in every action. `src/lib/college-apps/`, `src/lib/colleges/`,
 
 Ten questions, a hard clock on each, points for right-and-fast, played solo
 or head-to-head. `src/lib/rush/`, `src/app/(app)/rush/`; own tables
-(`RushSet`/`RushSlot`/`RushChallenge`/`RushRun`/`RushAnswer`, migration
-`20260920082506_add_rush` — apply on Neon before deploying). Never touches
-the adaptive engine: a 60-second answer says nothing about ability.
+(`RushSet`/`RushSlot`/`RushChallenge`/`RushRun`/`RushAnswer`, migrations
+`20260920082506_add_rush` and `20260920194117_add_rush_live` — apply on
+Neon before deploying). Never touches the adaptive engine: a 60-second
+answer says nothing about ability.
 
-- **The Owner's three decisions**: challenges are *asynchronous* (nobody
-  has to be online at the same time — the second player races the first's
-  recorded times, shown as a ghost line per question); an opponent is a
-  *random match* or a *friend by link or code*; and *accepting is the free
-  hook*. Starting anything (solo, random, friend) is Premium, checked in
+- **Every rush is Mixed.** The Owner dropped the difficulty picker
+  (2026-09-20); `RUSH_DIFFICULTY` is the one value the product uses and
+  `selectRushQuestions` deals it round-robin across easy/medium/hard. The
+  enum stays on the row for old data; don't re-expose it.
+- **Live is the headline mode** (Owner, 2026-09-20: "both online at the
+  same time is more intense"). `src/lib/rush/live.ts` +
+  `/rush/live/[challengeId]`: a WAITING lobby → COUNTDOWN (5s once the
+  second player joins) → PLAYING on one server-side clock
+  (`livePositionStartedAt`) → FINISHED. **No WebSockets on this host**, so
+  both clients poll `getLiveState` once a second, and *every poll runs
+  `tickLive`*, which is what advances the room — to PLAYING when the
+  countdown ends, and to the next question once both have answered or the
+  limit (+ grace) has passed. Either player's poll may do the advancing, so
+  it is one `updateMany` guarded on the position it expects to leave; the
+  loser of the race just reads the new state. Timeouts are written only to
+  answer rows still blank (`updateMany … answeredAt: null`) so an answer
+  that lands mid-tick is kept. The client fetches the next question at the
+  instant the shared clock opens (a timer set from `nextStartsInMs`), never
+  earlier — content is not sent during the 2.5s gap, so nobody reads ahead.
+  Presence is `RushRun.lastSeenAt`, bumped by every poll: the random queue
+  skips lobbies stale by `LIVE_LOBBY_STALE_MS`, the join page refuses a room
+  whose host has gone, and an opponent quiet for `LIVE_PRESENCE_MS` shows as
+  "away" while their questions time out. Leaving an empty lobby deletes its
+  set (cascade); a random lobby offers "race a recorded run" after
+  `LIVE_RANDOM_FALLBACK_MS`. The Leave/fallback forms set a `leaving` ref so
+  the poll loop's "no room → /rush" doesn't race the action's redirect —
+  found in a real two-browser run.
+- **The hub's four options** (`RUSH_PLAY_OPTIONS`): Random opponent (live
+  queue), Friend · live (room + link/code), Friend · anytime (the recorded
+  challenge below), Solo. Starting any of them is Premium, checked in
   `startRushAction` as well as on the hub. `joinRushAction` and
-  `/rush/join/[code]` deliberately have no paid check.
-- **Random matching is a queue, not a lobby**: `startRandomRush` joins the
-  oldest waiting RANDOM challenge in the same section/difficulty whose
-  creator has *finished* (an abandoned run never becomes someone's
-  opponent); otherwise it opens one and the player becomes the next
-  student's match. A same-instant double-join yields a three-run challenge,
+  `/rush/join/[code]` deliberately have no paid check — accepting is the
+  free hook — and route to the room or the runner by `challenge.live`.
+- **The recorded (async) path stays** for a friend who isn't online and as
+  the random fallback: the second player races the first's recorded times,
+  shown as a ghost line per question. `startRandomRush` (async, `live:
+  false`) joins the oldest waiting RANDOM challenge whose creator has
+  *finished* (an abandoned run never becomes someone's opponent); otherwise
+  it opens one. A same-instant double-join yields a three-run challenge,
   which the results page simply ranks — not worth a row lock at this scale.
 - **Time is measured on the server.** A `RushAnswer` row is created when
   the question is *served* (`servedAt`), and `submitRushAnswer` computes
@@ -758,9 +786,10 @@ the adaptive engine: a 60-second answer says nothing about ability.
 - **The page never serves the first question.** `/rush/play/[runId]` renders
   a Ready screen; the runner's Start button is what calls
   `serveRushQuestionAction`, so page load and hydration don't eat into the
-  clock. `RushRunner` is deliberately not `SessionRunner` (no skip, no
-  revisit, no drafts — a choice click submits); it shares
-  `QuestionStatement`/`LatexText`/the A-B-C-D choice markup by import.
+  clock. `RushRunner` (recorded) and `LiveRush` (rooms) are deliberately not
+  `SessionRunner` (no skip, no revisit, no drafts — a choice click submits);
+  both render the question through the shared `rush-question.tsx`
+  (`RushQuestion`, `TimeBar`) so the two modes can't drift apart.
 - **A friend's link is the one URL a person without an account opens.**
   Signed out, middleware sends them to `/signup` and parks the code in the
   `prephub_rush_join` cookie; both `/home` (returning student who logged

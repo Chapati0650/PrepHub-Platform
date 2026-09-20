@@ -5,16 +5,7 @@ import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
 import { hasPaidAccess } from "@/lib/entitlements";
 import { getRushOverview, type RushHistoryRow } from "@/lib/rush/runs";
-import {
-  RUSH_DIFFICULTIES,
-  RUSH_DIFFICULTY_ORDER,
-  RUSH_MODES,
-  RUSH_MODE_ORDER,
-  RUSH_RUN_SIZE,
-  RUSH_SECTIONS,
-  RUSH_SECTION_ORDER,
-  RUSH_TIME_LIMIT_MS,
-} from "@/lib/rush/config";
+import { RUSH_MODES, RUSH_PLAY_OPTIONS, RUSH_PLAY_OPTION_ORDER, RUSH_RUN_SIZE, RUSH_SECTIONS, RUSH_SECTION_ORDER, RUSH_TIME_LIMIT_MS } from "@/lib/rush/config";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -47,9 +38,9 @@ export default async function RushPage({ searchParams }: { searchParams: Promise
       <section className="rounded-2xl border-2 border-marker/60 bg-surface-tint p-6">
         <h2 className="font-heading text-lg font-semibold tracking-tight">What is 1v1 Rush?</h2>
         <p className="mt-2 max-w-prose text-muted-foreground">
-          Ten questions with a hard clock on each. Points for being right, more for being fast. Play solo, get matched with
-          another PrepHub student, or send a friend a link — they play the same ten questions against your times, and the
-          results show who won. Nothing here changes your Predicted SAT Score.
+          Ten questions, easy to hard, with a hard clock on each. Points for being right, more for being fast. Get matched
+          live with another student, open a room and send a friend the link, or play solo — same questions, same clock,
+          and the results show who won. Nothing here changes your Predicted SAT Score.
         </p>
       </section>
 
@@ -74,18 +65,12 @@ export default async function RushPage({ searchParams }: { searchParams: Promise
                   options={RUSH_SECTION_ORDER.map((s) => ({ value: s, label: RUSH_SECTIONS[s].label, disabled: pool[s] === 0 }))}
                   defaultValue={RUSH_SECTION_ORDER.find((s) => pool[s] > 0) ?? RUSH_SECTION_ORDER[0]}
                 />
-                <Choice
-                  legend="Difficulty"
-                  name="difficulty"
-                  options={RUSH_DIFFICULTY_ORDER.map((d) => ({ value: d, label: RUSH_DIFFICULTIES[d].label }))}
-                  defaultValue="MIXED"
-                />
                 <fieldset>
                   <legend className="text-caption font-semibold tracking-[0.12em] text-surface-deep-foreground/60 uppercase">Play</legend>
                   <div className="mt-2 flex flex-col divide-y divide-surface-deep-foreground/15 border-y border-surface-deep-foreground/15">
-                    {RUSH_MODE_ORDER.map((m) => (
+                    {RUSH_PLAY_OPTION_ORDER.map((m) => (
                       <label key={m} className="flex cursor-pointer items-start gap-3 py-3">
-                        <input type="radio" name="mode" value={m} defaultChecked={m === "RANDOM"} className="peer sr-only" />
+                        <input type="radio" name="option" value={m} defaultChecked={m === "RANDOM_LIVE"} className="peer sr-only" />
                         <span
                           aria-hidden
                           className="mt-1 flex size-4 shrink-0 items-center justify-center rounded-full border border-surface-deep-foreground/40 peer-checked:border-surface-deep-foreground peer-checked:[&>span]:opacity-100 peer-focus-visible:ring-2 peer-focus-visible:ring-marker"
@@ -93,16 +78,16 @@ export default async function RushPage({ searchParams }: { searchParams: Promise
                           <span className="size-2 rounded-full bg-surface-deep-foreground opacity-0" />
                         </span>
                         <span className="min-w-0">
-                          <span className="block font-medium">{RUSH_MODES[m].label}</span>
-                          <span className="block text-sm text-surface-deep-foreground/70">{RUSH_MODES[m].blurb}</span>
+                          <span className="block font-medium">{RUSH_PLAY_OPTIONS[m].label}</span>
+                          <span className="block text-sm text-surface-deep-foreground/70">{RUSH_PLAY_OPTIONS[m].blurb}</span>
                         </span>
                       </label>
                     ))}
                   </div>
                 </fieldset>
                 <p className="text-sm text-surface-deep-foreground/70">
-                  {RUSH_RUN_SIZE} questions · {Math.round(RUSH_TIME_LIMIT_MS.READING_WRITING / 1000)}s each for Reading &amp; Writing,{" "}
-                  {Math.round(RUSH_TIME_LIMIT_MS.MATH / 1000)}s for Math.
+                  {RUSH_RUN_SIZE} questions, easy through hard · {Math.round(RUSH_TIME_LIMIT_MS.READING_WRITING / 1000)}s each for Reading &amp;
+                  Writing, {Math.round(RUSH_TIME_LIMIT_MS.MATH / 1000)}s for Math.
                 </p>
                 <div>
                   <Button type="submit" size="cta" className="bg-surface-deep-foreground text-surface-deep hover:bg-surface-deep-foreground/90">
@@ -120,10 +105,10 @@ export default async function RushPage({ searchParams }: { searchParams: Promise
                 friend&apos;s challenge is always free.
               </p>
               <ul className="flex flex-col divide-y divide-surface-deep-foreground/15 border-y border-surface-deep-foreground/15 text-sm">
-                {RUSH_MODE_ORDER.map((m) => (
+                {RUSH_PLAY_OPTION_ORDER.map((m) => (
                   <li key={m} className="py-3">
-                    <span className="font-medium">{RUSH_MODES[m].label}</span>
-                    <span className="text-surface-deep-foreground/70"> — {RUSH_MODES[m].blurb}</span>
+                    <span className="font-medium">{RUSH_PLAY_OPTIONS[m].label}</span>
+                    <span className="text-surface-deep-foreground/70"> — {RUSH_PLAY_OPTIONS[m].blurb}</span>
                   </li>
                 ))}
               </ul>
@@ -142,7 +127,7 @@ export default async function RushPage({ searchParams }: { searchParams: Promise
         <section className="flex flex-col gap-4 rounded-3xl bg-surface-tint p-6 lg:self-start">
           <div>
             <p className="font-heading text-xl font-semibold tracking-tight">Have a code?</p>
-            <p className="mt-1 text-sm text-muted-foreground">A friend sent you a challenge. Enter their six-character code to play their ten questions.</p>
+            <p className="mt-1 text-sm text-muted-foreground">A friend sent you a challenge. Enter their six-character code — a live room starts the countdown the moment you&apos;re in.</p>
           </div>
           <form action={joinRushAction} className="flex flex-col gap-3">
             <input
@@ -227,10 +212,14 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 function HistoryItem({ row, joinUrl }: { row: RushHistoryRow; joinUrl: string }) {
-  const href = row.myStatus === "ACTIVE" ? `/rush/play/${row.myRunId}` : `/rush/results/${row.challengeId}`;
+  const href = row.myStatus === "ACTIVE" ? (row.live ? `/rush/live/${row.challengeId}` : `/rush/play/${row.myRunId}`) : `/rush/results/${row.challengeId}`;
   const status =
-    row.myStatus === "ACTIVE"
-      ? "In progress"
+    row.live && row.liveStatus === "WAITING"
+      ? "Waiting in the room"
+      : row.myStatus === "ACTIVE"
+        ? row.live
+          ? "Live now — rejoin"
+          : "In progress"
       : row.outcome === "WON"
         ? "Won"
         : row.outcome === "LOST"
@@ -253,7 +242,8 @@ function HistoryItem({ row, joinUrl }: { row: RushHistoryRow; joinUrl: string })
             <span className="font-medium">{RUSH_MODES[row.mode].label}</span>
             <span className="text-muted-foreground">
               {" "}
-              · {row.sectionLabel} · {row.difficultyLabel}
+              · {row.sectionLabel}
+              {row.live ? " · Live" : ""}
             </span>
           </span>
         </Link>

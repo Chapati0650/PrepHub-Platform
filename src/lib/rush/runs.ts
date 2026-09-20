@@ -1,112 +1,44 @@
-import type { ClubSection, Prisma, RushDifficulty, RushMode } from "@/generated/prisma/client";
+import type { ClubSection, RushMode } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { createRandom, generateSeed } from "@/lib/adaptive/random";
 import { isAnswerCorrect } from "@/lib/adaptive/grading";
 import { getStudentQuestionContent, type StudentQuestionContent } from "@/lib/session/question-content";
-import { RUSH_DIFFICULTIES, RUSH_RUN_SIZE, RUSH_SECTIONS, RUSH_TIME_LIMIT_MS } from "./config";
-import { selectRushQuestions } from "./select-questions";
-import { generateRushCode } from "./codes";
+import { LIVE_PRESENCE_MS, RUSH_DIFFICULTY, RUSH_SECTIONS, RUSH_TIME_LIMIT_MS } from "./config";
 import { compareRuns, isOverLimit, scoreRushAnswer, type RushOutcome } from "./scoring";
 import { RushError } from "./errors";
+import { joinLiveRoom } from "./live";
+import { createChallenge, createSet } from "./create";
 
 // Everything here is independent of src/lib/adaptive, exactly like the 800
 // Club: a rush never reads or writes CategoryState, PracticeSet,
 // FinalizedAttempt or PredictionHistoryEntry. It borrows the seeded PRNG
 // and the answer grader and nothing that carries state.
 
-// ---- Set + challenge creation ---------------------------------------------
-
-async function createSet(studentId: string, section: ClubSection, difficulty: RushDifficulty, tx: Prisma.TransactionClient) {
-  const [candidates, seen] = await Promise.all([
-    tx.question.findMany({
-      where: {
-        status: "PUBLISHED",
-        difficulty: { in: [...RUSH_DIFFICULTIES[difficulty].pool] },
-        category: { in: [...RUSH_SECTIONS[section].categories] },
-        currentPublishedRevisionId: { not: null },
-      },
-      select: { id: true, difficulty: true, currentPublishedRevisionId: true },
-    }),
-    // Every question in a set this student has a run in — seen or about to
-    // be — so a new set avoids it while unseen questions remain.
-    tx.rushSlot.findMany({
-      where: { set: { challenges: { some: { runs: { some: { studentId } } } } } },
-      select: { questionId: true },
-      distinct: ["questionId"],
-    }),
-  ]);
-  const seenIds = new Set(seen.map((s) => s.questionId));
-
-  const randomSeed = generateSeed();
-  const picked = selectRushQuestions({
-    candidates: candidates.map((c) => ({ questionId: c.id, questionRevisionId: c.currentPublishedRevisionId!, difficulty: c.difficulty })),
-    seenQuestionIds: seenIds,
-    difficulty,
-    size: RUSH_RUN_SIZE,
-    random: createRandom(randomSeed),
-  });
-  if (picked.length === 0) throw new RushError("NO_QUESTIONS", "There aren't enough questions for that rush yet. Try another section or difficulty.");
-
-  return tx.rushSet.create({
-    data: {
-      section,
-      difficulty,
-      randomSeed,
-      slots: { create: picked.map((p, position) => ({ position, questionId: p.questionId, questionRevisionId: p.questionRevisionId })) },
-    },
-    select: { id: true },
-  });
-}
-
-// A fresh code per challenge; the unique index catches the one-in-a-billion
-// collision and we simply draw again.
-async function createChallenge(
-  tx: Prisma.TransactionClient,
-  data: { setId: string; mode: RushMode; creatorId: string },
-): Promise<{ id: string; code: string }> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const code = generateRushCode();
-    try {
-      return await tx.rushChallenge.create({ data: { ...data, code }, select: { id: true, code: true } });
-    } catch (err) {
-      if (attempt === 4 || !isUniqueViolation(err)) throw err;
-    }
-  }
-  throw new Error("unreachable");
-}
-
-function isUniqueViolation(err: unknown): boolean {
-  return typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "P2002";
-}
-
 // Solo and friend: a new set, a new challenge, and the creator's run — all
 // in one transaction so a half-made challenge can't exist.
 export async function startRush(
   studentId: string,
-  params: { section: ClubSection; difficulty: RushDifficulty; mode: "SOLO" | "FRIEND" },
+  params: { section: ClubSection; mode: "SOLO" | "FRIEND" },
 ): Promise<{ runId: string; challengeId: string; code: string }> {
   return prisma.$transaction(async (tx) => {
-    const set = await createSet(studentId, params.section, params.difficulty, tx);
+    const set = await createSet(studentId, params.section, RUSH_DIFFICULTY, tx);
     const challenge = await createChallenge(tx, { setId: set.id, mode: params.mode, creatorId: studentId });
     const run = await tx.rushRun.create({ data: { challengeId: challenge.id, studentId }, select: { id: true } });
     return { runId: run.id, challengeId: challenge.id, code: challenge.code };
   });
 }
 
-// Random matching, asynchronously: join the oldest RANDOM challenge in this
-// section/difficulty whose creator has already finished and that nobody
-// else has joined; if there is none, open one and become the person the
-// next student gets matched with. The creator-finished rule is what keeps
-// an abandoned run from ever becoming somebody's opponent.
+// Random matching against a *recorded* run — the fallback when nobody is
+// online for a live room (see live.ts). Join the oldest async RANDOM
+// challenge in this section whose creator has already finished and that
+// nobody else has joined; if there is none, open one and become the person
+// the next student gets matched with. The creator-finished rule is what
+// keeps an abandoned run from ever becoming somebody's opponent.
 //
 // Two students joining the same waiting challenge in the same instant could
 // both pass the "one run" check and produce a three-run RANDOM challenge.
 // That's a benign outcome (the results page ranks everyone in it) and at
 // this product's scale not worth a row lock.
-export async function startRandomRush(
-  studentId: string,
-  params: { section: ClubSection; difficulty: RushDifficulty },
-): Promise<{ runId: string; challengeId: string; matched: boolean }> {
+export async function startRandomRush(studentId: string, params: { section: ClubSection }): Promise<{ runId: string; challengeId: string; matched: boolean }> {
   return prisma.$transaction(async (tx) => {
     // "Exactly one run" can't be expressed in a where clause, so fetch the
     // oldest few candidates and take the first that still has only its
@@ -114,8 +46,9 @@ export async function startRandomRush(
     const candidates = await tx.rushChallenge.findMany({
       where: {
         mode: "RANDOM",
+        live: false,
         creatorId: { not: studentId },
-        set: { section: params.section, difficulty: params.difficulty },
+        set: { section: params.section },
         runs: { every: { status: "COMPLETED" }, none: { studentId } },
       },
       orderBy: { createdAt: "asc" },
@@ -127,7 +60,7 @@ export async function startRandomRush(
       const run = await tx.rushRun.create({ data: { challengeId: waiting.id, studentId }, select: { id: true } });
       return { runId: run.id, challengeId: waiting.id, matched: true };
     }
-    const set = await createSet(studentId, params.section, params.difficulty, tx);
+    const set = await createSet(studentId, params.section, RUSH_DIFFICULTY, tx);
     const challenge = await createChallenge(tx, { setId: set.id, mode: "RANDOM", creatorId: studentId });
     const run = await tx.rushRun.create({ data: { challengeId: challenge.id, studentId }, select: { id: true } });
     return { runId: run.id, challengeId: challenge.id, matched: false };
@@ -142,8 +75,6 @@ export type ChallengePreview = {
   mode: RushMode;
   section: ClubSection;
   sectionLabel: string;
-  difficulty: RushDifficulty;
-  difficultyLabel: string;
   questionCount: number;
   limitMs: number;
   creatorName: string;
@@ -152,6 +83,10 @@ export type ChallengePreview = {
   // The viewer's own standing in it, so the join page can route them on.
   myRun: { id: string; status: "ACTIVE" | "COMPLETED" } | null;
   isCreator: boolean;
+  // Live rooms: joinable only while WAITING with the creator still polling.
+  live: boolean;
+  liveStatus: "WAITING" | "COUNTDOWN" | "PLAYING" | "FINISHED" | null;
+  creatorPresent: boolean;
 };
 
 export async function getChallengePreview(studentId: string, code: string): Promise<ChallengePreview | null> {
@@ -160,7 +95,7 @@ export async function getChallengePreview(studentId: string, code: string): Prom
     include: {
       set: { select: { section: true, difficulty: true, _count: { select: { slots: true } } } },
       creator: { select: { firstName: true } },
-      runs: { select: { id: true, studentId: true, status: true } },
+      runs: { select: { id: true, studentId: true, status: true, lastSeenAt: true } },
     },
   });
   if (!c) return null;
@@ -172,8 +107,6 @@ export async function getChallengePreview(studentId: string, code: string): Prom
     mode: c.mode,
     section: c.set.section,
     sectionLabel: RUSH_SECTIONS[c.set.section].label,
-    difficulty: c.set.difficulty,
-    difficultyLabel: RUSH_DIFFICULTIES[c.set.difficulty].label,
     questionCount: c.set._count.slots,
     limitMs: RUSH_TIME_LIMIT_MS[c.set.section],
     creatorName: c.creator.firstName,
@@ -181,6 +114,9 @@ export async function getChallengePreview(studentId: string, code: string): Prom
     participants: c.runs.length,
     myRun: mine ? { id: mine.id, status: mine.status } : null,
     isCreator: c.creatorId === studentId,
+    live: c.live,
+    liveStatus: c.liveStatus,
+    creatorPresent: Boolean(creatorRun && Date.now() - creatorRun.lastSeenAt.getTime() < LIVE_PRESENCE_MS),
   };
 }
 
@@ -188,16 +124,20 @@ export async function getChallengePreview(studentId: string, code: string): Prom
 // joinable by code: a SOLO run is one person's, and a RANDOM pairing is made
 // by startRandomRush, not by handing out its code. Idempotent: a student who
 // already has a run in the challenge gets that run back.
-export async function joinChallenge(studentId: string, code: string): Promise<{ runId: string; challengeId: string }> {
+export async function joinChallenge(studentId: string, code: string): Promise<{ runId: string; challengeId: string; live: boolean }> {
   const c = await prisma.rushChallenge.findUnique({
     where: { code },
-    select: { id: true, mode: true, runs: { where: { studentId }, select: { id: true } } },
+    select: { id: true, mode: true, live: true, runs: { where: { studentId }, select: { id: true } } },
   });
   if (!c) throw new RushError("CHALLENGE_NOT_FOUND", "No challenge has that code. Check it and try again.");
-  if (c.runs[0]) return { runId: c.runs[0].id, challengeId: c.id };
+  if (c.runs[0]) return { runId: c.runs[0].id, challengeId: c.id, live: c.live };
   if (c.mode !== "FRIEND") throw new RushError("NOT_JOINABLE", "That rush isn't open to join.");
+  if (c.live) {
+    const joined = await joinLiveRoom(studentId, c.id);
+    return { runId: joined.runId, challengeId: c.id, live: true };
+  }
   const run = await prisma.rushRun.create({ data: { challengeId: c.id, studentId }, select: { id: true } });
-  return { runId: run.id, challengeId: c.id };
+  return { runId: run.id, challengeId: c.id, live: false };
 }
 
 // ---- Playing ----------------------------------------------------------------
@@ -223,13 +163,14 @@ export type RunContext = {
   mode: RushMode;
   section: ClubSection;
   sectionLabel: string;
-  difficultyLabel: string;
   score: number;
   position: number;
   total: number;
   limitMs: number;
   // First name of a finished opponent whose times will ghost this run.
   opponentName: string | null;
+  // A live room's run is played at /rush/live/[challengeId], never here.
+  live: boolean;
 };
 
 export async function getRunContext(studentId: string, runId: string): Promise<RunContext | null> {
@@ -252,12 +193,12 @@ export async function getRunContext(studentId: string, runId: string): Promise<R
     mode: run.challenge.mode,
     section: run.challenge.set.section,
     sectionLabel: RUSH_SECTIONS[run.challenge.set.section].label,
-    difficultyLabel: RUSH_DIFFICULTIES[run.challenge.set.difficulty].label,
     score: run.score,
     position: run.position,
     total: run.challenge.set._count.slots,
     limitMs: RUSH_TIME_LIMIT_MS[run.challenge.set.section],
     opponentName: run.challenge.runs[0]?.student.firstName ?? null,
+    live: run.challenge.live,
   };
 }
 
@@ -273,6 +214,7 @@ export async function serveCurrentQuestion(studentId: string, runId: string): Pr
     },
   });
   if (!run || run.studentId !== studentId) throw new RushError("RUN_NOT_FOUND", "Rush not found.");
+  if (run.challenge.live) throw new RushError("RUN_NOT_FOUND", "This is a live rush. Open its room instead.");
   if (run.status === "COMPLETED") return null;
   const slots = run.challenge.set.slots;
   const slot = slots[run.position];
@@ -347,6 +289,7 @@ export async function submitRushAnswer(params: { studentId: string; runId: strin
       },
     });
     if (!run || run.studentId !== studentId) throw new RushError("RUN_NOT_FOUND", "Rush not found.");
+    if (run.challenge.live) throw new RushError("RUN_NOT_FOUND", "This is a live rush. Open its room instead.");
     const slot = run.challenge.set.slots[0];
     if (!slot) throw new RushError("RUN_NOT_FOUND", "Question not found.");
     const total = await tx.rushSlot.count({ where: { setId: run.challenge.setId } });
@@ -424,8 +367,7 @@ export type RushResults = {
   mode: RushMode;
   section: ClubSection;
   sectionLabel: string;
-  difficulty: RushDifficulty;
-  difficultyLabel: string;
+  live: boolean;
   limitMs: number;
   total: number;
   isCreator: boolean;
@@ -477,8 +419,7 @@ export async function getRushResults(studentId: string, challengeId: string): Pr
     mode: c.mode,
     section: c.set.section,
     sectionLabel: RUSH_SECTIONS[c.set.section].label,
-    difficulty: c.set.difficulty,
-    difficultyLabel: RUSH_DIFFICULTIES[c.set.difficulty].label,
+    live: c.live,
     limitMs: RUSH_TIME_LIMIT_MS[c.set.section],
     total: c.set.slots.length,
     isCreator: c.creatorId === studentId,
@@ -510,8 +451,9 @@ export type RushHistoryRow = {
   challengeId: string;
   code: string;
   mode: RushMode;
+  live: boolean;
+  liveStatus: "WAITING" | "COUNTDOWN" | "PLAYING" | "FINISHED" | null;
   sectionLabel: string;
-  difficultyLabel: string;
   createdAt: Date;
   myRunId: string;
   myStatus: "ACTIVE" | "COMPLETED";
@@ -579,16 +521,17 @@ export async function getRushOverview(studentId: string): Promise<RushOverview> 
       challengeId: r.challengeId,
       code: r.challenge.code,
       mode: r.challenge.mode,
+      live: r.challenge.live,
+      liveStatus: r.challenge.liveStatus,
       sectionLabel: RUSH_SECTIONS[r.challenge.set.section].label,
-      difficultyLabel: RUSH_DIFFICULTIES[r.challenge.set.difficulty].label,
       createdAt: r.startedAt,
       myRunId: r.id,
       myStatus: r.status,
       myScore: r.score,
       opponent: opp ? { name: opp.student.firstName, score: opp.score, finished: opp.status === "COMPLETED" } : null,
       outcome,
-      awaitingFriend: r.challenge.mode === "FRIEND" && isCreator && r.challenge.runs.length === 0,
-      awaitingMatch: r.challenge.mode === "RANDOM" && finished && r.challenge.runs.length === 0,
+      awaitingFriend: !r.challenge.live && r.challenge.mode === "FRIEND" && isCreator && r.challenge.runs.length === 0,
+      awaitingMatch: !r.challenge.live && r.challenge.mode === "RANDOM" && finished && r.challenge.runs.length === 0,
     };
   });
 

@@ -42,6 +42,10 @@ const baseInput = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Both provider keys must look present: the pipeline refuses to start
+  // (before any mocked call) when either is missing — see ai-readiness.ts.
+  vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+  vi.stubEnv("DEEPSEEK_API_KEY", "test-deepseek-key");
   mockedFindByHash.mockResolvedValue([]); // no existing duplicate by default
   mockedFindByText.mockResolvedValue(null); // no existing duplicate by default
   mockedCreateQuestion.mockResolvedValue({ id: "q1" });
@@ -65,6 +69,24 @@ beforeEach(() => {
     { choiceIndex: 2, explanation: "This doesn't match any step of the correct method." },
     { choiceIndex: 3, explanation: "This is off by a common miscount." },
   ]);
+});
+
+describe("processBulkUploadImage — provider keys missing", () => {
+  it("refuses before transcribing, naming the missing key, when DEEPSEEK_API_KEY is absent", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "");
+    const result = await processBulkUploadImage(baseInput);
+    expect(result).toMatchObject({ error: expect.stringContaining("DEEPSEEK_API_KEY") });
+    expect(mockedTranscribe).not.toHaveBeenCalled();
+    expect(mockedCreateQuestion).not.toHaveBeenCalled();
+  });
+
+  it("refuses a PDF page the same way", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    const result = await processBulkUploadPdfPage(baseInput);
+    expect(result.questionIds).toEqual([]);
+    expect(result.errors[0]).toContain("ANTHROPIC_API_KEY");
+    expect(mockedTranscribePage).not.toHaveBeenCalled();
+  });
 });
 
 describe("processBulkUploadImage — multiple choice (detected from 4 answer choices)", () => {

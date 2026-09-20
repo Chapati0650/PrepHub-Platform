@@ -4,11 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
-import { LatexText } from "@/components/content/latex-text";
-import { QuestionStatement } from "@/components/content/question-statement";
-import { Calculator } from "@/components/session/calculator";
 import { RUSH_BASE_POINTS, RUSH_SPEED_POINTS } from "@/lib/rush/config";
 import type { RunContext, RushAnswerResult, ServedQuestion } from "@/lib/rush/runs";
+import { RushQuestion, TimeBar, formatSeconds } from "../../rush-question";
 
 type Phase = "intro" | "loading" | "question" | "feedback" | "error";
 
@@ -17,17 +15,12 @@ type Phase = "intro" | "loading" | "question" | "feedback" | "error";
 // costs time.
 const FEEDBACK_MS = 1400;
 
-function formatSeconds(ms: number): string {
-  return (ms / 1000).toFixed(1).replace(/\.0$/, "");
-}
-
-// Deliberately not SessionRunner. That component is a browse-and-return
-// flow (skip, revisit, nav grid, draft autosave) built for a 21-question
-// set with no clock; a rush is strictly linear with a hard per-question
-// timer and no going back, and bending the shared runner to that would
-// have given both surfaces a worse version of the other's rules. What it
-// shares — QuestionStatement, LatexText, the A/B/C/D choice markup, the
-// Calculator — is shared by import.
+// The recorded (asynchronous) runner: solo, a friend's "anytime" challenge,
+// or a random opponent's recorded run. Deliberately not SessionRunner —
+// that is a browse-and-return flow (skip, revisit, nav grid, drafts) built
+// for a 21-question set with no clock; a rush is strictly linear with a
+// hard per-question timer and no going back. The question markup itself is
+// RushQuestion, shared with the live room.
 export function RushRunner({
   run,
   serve,
@@ -116,7 +109,7 @@ export function RushRunner({
     return () => window.clearInterval(id);
   }, [phase, deadline]);
 
-  const eyebrow = `1v1 Rush · ${run.sectionLabel} · ${run.difficultyLabel}`;
+  const eyebrow = `1v1 Rush · ${run.sectionLabel}`;
 
   if (phase === "intro") {
     const resuming = run.position > 0;
@@ -181,10 +174,7 @@ export function RushRunner({
     );
   }
 
-  const fraction = Math.max(0, Math.min(1, remainingMs / current.limitMs));
   const answered = phase === "feedback";
-  const urgent = !answered && fraction < 0.25;
-  const critical = !answered && fraction < 0.1;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-5 p-4 pb-16 sm:p-8">
@@ -199,129 +189,42 @@ export function RushRunner({
         </span>
       </div>
 
-      {/* The clock. A bar, not a ticking number, as the primary cue: it is
-          readable from the corner of the eye while the question has the
-          focus. The seconds are still there for anyone who wants them. */}
-      <div>
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-foreground/10" aria-hidden>
-          <div
-            className={[
-              "h-full rounded-full transition-[width] duration-100 ease-linear",
-              critical ? "bg-destructive" : urgent ? "bg-amber-500" : "bg-primary",
-            ].join(" ")}
-            style={{ width: `${fraction * 100}%` }}
-          />
-        </div>
-        <div className="mt-1.5 flex items-center justify-between text-xs tabular-nums text-muted-foreground">
-          <span aria-live="off" className={critical ? "font-medium text-destructive" : undefined}>
-            {Math.ceil(remainingMs / 1000)}s left
-          </span>
-          {current.ghost && (
+      <TimeBar
+        remainingMs={remainingMs}
+        limitMs={current.limitMs}
+        frozen={answered}
+        right={
+          current.ghost ? (
             <span>
               {current.ghost.name} answered in {formatSeconds(current.ghost.elapsedMs)}s{" "}
-              <span className={current.ghost.isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}>
-                {current.ghost.isCorrect ? "✓" : "✗"}
-              </span>
+              <span className={current.ghost.isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}>{current.ghost.isCorrect ? "✓" : "✗"}</span>
             </span>
+          ) : undefined
+        }
+      />
+
+      <RushQuestion
+        content={current.content}
+        draft={draft}
+        answered={answered}
+        correctChoiceId={result?.correctChoiceId ?? null}
+        onDraftChange={setDraft}
+        onAnswer={(a) => void submitAnswer(a)}
+      />
+
+      {answered && result && (
+        <div role="status" className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <p className={`font-heading text-lg font-semibold ${result.points > 0 ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
+            {result.timedOut || result.overLimit ? "Time's up." : result.isCorrect ? "Correct!" : "Incorrect."}
+          </p>
+          <p className="text-sm tabular-nums text-muted-foreground">
+            {result.points > 0 ? `+${result.points} pts` : "0 pts"} · {formatSeconds(result.elapsedMs)}s
+          </p>
+          {current.content.questionType === "OPEN_ENDED_NUMERIC" && !result.isCorrect && result.acceptedAnswer && (
+            <p className="w-full text-sm text-muted-foreground">Accepted answer: {result.acceptedAnswer}</p>
           )}
         </div>
-      </div>
-
-      <div>
-        <QuestionStatement text={current.content.questionText} imageId={current.content.questionImageId} mediaBasePath="/api/media" textClassName="text-lg leading-relaxed" />
-
-        {current.content.calculatorSetting === "ALLOWED" && (
-          <div className="mt-4">
-            <Calculator />
-          </div>
-        )}
-
-        <div className="mt-6 flex flex-col gap-2.5">
-          {current.content.questionType === "MULTIPLE_CHOICE" ? (
-            current.content.answerChoices.map((choice, choiceIndex) => {
-              const isSelected = draft === choice.id;
-              const showCorrect = answered && result?.correctChoiceId === choice.id;
-              const showWrongSelection = answered && isSelected && result?.correctChoiceId !== choice.id;
-              return (
-                <button
-                  key={choice.id}
-                  type="button"
-                  disabled={answered}
-                  onClick={() => {
-                    setDraft(choice.id);
-                    void submitAnswer(choice.id);
-                  }}
-                  aria-pressed={isSelected}
-                  className={[
-                    "flex items-start gap-4 rounded-xl border p-4 text-left text-base transition-colors",
-                    isSelected && !answered && "border-primary bg-primary/5",
-                    !isSelected && !showCorrect && !showWrongSelection && "border-border hover:border-foreground/25",
-                    showCorrect && "border-2 border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50",
-                    showWrongSelection && "border-destructive bg-destructive/5",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                >
-                  <span
-                    aria-hidden
-                    className={[
-                      "mt-px flex size-7 shrink-0 items-center justify-center rounded-full border text-sm font-semibold",
-                      isSelected && !answered ? "border-primary bg-primary text-primary-foreground" : "border-foreground/20 text-muted-foreground",
-                    ].join(" ")}
-                  >
-                    {String.fromCharCode(65 + choiceIndex)}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <LatexText text={choice.text} />
-                    {choice.imageId && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={`/api/media/${choice.imageId}`} alt="" className="mt-2 max-w-full rounded" />
-                    )}
-                  </span>
-                </button>
-              );
-            })
-          ) : (
-            <form
-              className="flex flex-wrap items-center gap-3"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (draft.trim()) void submitAnswer(draft.trim());
-              }}
-            >
-              <input
-                type="text"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                disabled={answered}
-                placeholder="Enter your answer"
-                aria-label="Your answer"
-                autoFocus
-                className="max-w-xs rounded-xl border border-border p-3 text-base disabled:bg-muted"
-              />
-              {!answered && (
-                <Button type="submit" size="cta" disabled={!draft.trim()}>
-                  Submit
-                </Button>
-              )}
-            </form>
-          )}
-        </div>
-
-        {answered && result && (
-          <div role="status" className="mt-6 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <p className={`font-heading text-lg font-semibold ${result.points > 0 ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
-              {result.timedOut || result.overLimit ? "Time's up." : result.isCorrect ? "Correct!" : "Incorrect."}
-            </p>
-            <p className="text-sm tabular-nums text-muted-foreground">
-              {result.points > 0 ? `+${result.points} pts` : "0 pts"} · {formatSeconds(result.elapsedMs)}s
-            </p>
-            {current.content.questionType === "OPEN_ENDED_NUMERIC" && !result.isCorrect && result.acceptedAnswer && (
-              <p className="w-full text-sm text-muted-foreground">Accepted answer: {result.acceptedAnswer}</p>
-            )}
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
