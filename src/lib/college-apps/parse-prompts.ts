@@ -1,13 +1,15 @@
 import { AI_MODELS, getAnthropicClient } from "@/lib/ai/client";
 import { CollegeAppsError } from "./tracker";
 
-// Tier 3 of "auto-fill": for a college the Owner hasn't curated, the student
-// pastes the supplement text straight from Common App and this turns it into
-// checklist items. Extraction only — it never writes, suggests, or scores an
-// essay; PrepHub's brand cannot be near "AI wrote my college essay."
+// The Owner's curation accelerator: paste a college's Writing section
+// straight from Common App and this turns it into supplement rows for
+// review. Owner-only — a student never enters a college's essays (Owner
+// decision, 2026-09-19); the prompts they see are the ones curated here.
+// Extraction only — it never writes, suggests, or scores an essay; PrepHub's
+// brand cannot be near "AI wrote my college essay."
 //
-// Availability follows the key: when ANTHROPIC_API_KEY isn't set the UI
-// hides the paste box and offers the manual "add prompt" form only.
+// Availability follows the key: when ANTHROPIC_API_KEY isn't set the CMS
+// hides the paste box and the Owner enters prompts one at a time.
 
 export function isPromptParsingAvailable(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY);

@@ -701,11 +701,14 @@ and in every action. `src/lib/college-apps/`, `src/lib/colleges/`,
   curation never rewrites an existing student's list, and each student's
   "done" is their own. One table (`ApplicationItem`) holds every checkable
   thing; `applicationId` null = student-level (shared essays, FAFSA/CSS).
-- **Three tiers of "auto-fill"**, all honest: platform prompts from code;
-  Owner curation each August (`/owner/content/supplements`, with "copy from
-  last cycle"); and paste-to-parse (`parse-prompts.ts`, Anthropic,
-  extraction only — never writes or scores an essay; hidden when the key is
-  absent; parsed prompts are shown back for review before anything is saved).
+- **Essay prompts are never student-entered** (Owner decision, 2026-09-19).
+  Two sources only: platform prompts from code, and the Owner's curation
+  each August (`/owner/content/supplements`, with "copy from last cycle"
+  and a paste-and-extract tool — `parse-prompts.ts`, Anthropic, extraction
+  only, hidden when the key is absent, results reviewed before saving). A
+  student's "Add an item" offers recommendations, scores, fees, other — not
+  essays; `addItemAction` rejects PROMPT server-side too. An uncurated
+  college shows "PrepHub hasn't added … yet", not a form.
 - **The grade decides the view.** Freshman/sophomore: `YEAR_CHECKLIST`
   leads and the list is secondary. Junior/senior: the list leads,
   deadline-first, with a countdown to the nearest one. Onboarding is the

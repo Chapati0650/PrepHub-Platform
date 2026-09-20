@@ -20,7 +20,6 @@ import {
   setItemDone,
   updateApplication,
 } from "@/lib/college-apps/tracker";
-import { parsePrompts, type ParsedPrompt } from "@/lib/college-apps/parse-prompts";
 
 export type CollegeAppsActionState = { error?: string; saved?: boolean };
 
@@ -137,7 +136,8 @@ export async function toggleItemAction(formData: FormData): Promise<void> {
   if (applicationId) revalidatePath(`/college-apps/${applicationId}`);
 }
 
-const KINDS = new Set(["PROMPT", "RECOMMENDATION", "TEST_SCORES", "FEE", "FINANCIAL_AID", "OTHER"]);
+// PROMPT is deliberately absent: essay prompts are the Owner's curation, never student-entered.
+const KINDS = new Set(["RECOMMENDATION", "TEST_SCORES", "FEE", "FINANCIAL_AID", "OTHER"]);
 
 export async function addItemAction(_prev: CollegeAppsActionState, formData: FormData): Promise<CollegeAppsActionState> {
   const studentId = await requirePaidStudent();
@@ -167,33 +167,4 @@ export async function deleteItemAction(formData: FormData): Promise<void> {
   revalidatePath("/college-apps");
   const applicationId = str(formData, "applicationId");
   if (applicationId) revalidatePath(`/college-apps/${applicationId}`);
-}
-
-// Two steps on purpose: parse returns the prompts for the student to look
-// over, and only a second, explicit action saves them. The model's output is
-// never written to their checklist unseen.
-export async function parsePromptsAction(text: string): Promise<{ prompts?: ParsedPrompt[]; error?: string }> {
-  await requirePaidStudent();
-  try {
-    return { prompts: await parsePrompts(text) };
-  } catch (err) {
-    if (err instanceof CollegeAppsError) return { error: err.message };
-    throw err;
-  }
-}
-
-export async function saveParsedPromptsAction(applicationId: string, prompts: ParsedPrompt[]): Promise<CollegeAppsActionState> {
-  const studentId = await requirePaidStudent();
-  try {
-    await addItems(
-      studentId,
-      applicationId,
-      prompts.slice(0, 20).map((p) => ({ kind: "PROMPT" as const, title: p.title, detail: p.text, wordLimit: p.wordLimit })),
-    );
-  } catch (err) {
-    return toState(err);
-  }
-  revalidatePath(`/college-apps/${applicationId}`);
-  revalidatePath("/college-apps");
-  return { saved: true };
 }

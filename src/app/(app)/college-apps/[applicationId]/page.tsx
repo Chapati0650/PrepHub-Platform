@@ -5,12 +5,11 @@ import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
 import { hasPaidAccess } from "@/lib/entitlements";
 import { getApplication } from "@/lib/college-apps/tracker";
-import { isPromptParsingAvailable } from "@/lib/college-apps/parse-prompts";
 import { TEST_POLICY_LABEL } from "@/lib/colleges/directory";
 import { ScoreFitBar, FitBadge } from "@/components/score-fit-bar";
 import { Button } from "@/components/ui/button";
 import { KIND_LABEL, formatDeadline } from "../labels";
-import { ApplicationForm, AddItemForm, PastePrompts, RemoveCollegeButton } from "./application-forms";
+import { ApplicationForm, AddItemForm, RemoveCollegeButton } from "./application-forms";
 import { deleteItemAction, toggleItemAction } from "../actions";
 
 export default async function ApplicationPage({ params }: { params: Promise<{ applicationId: string }> }) {
@@ -70,8 +69,8 @@ export default async function ApplicationPage({ params }: { params: Promise<{ ap
             </div>
             {app.items.length === 0 ? (
               <p className="px-5 py-6 text-sm text-muted-foreground">
-                Nothing here yet. {college?.name} hasn&apos;t been curated for this cycle — paste its prompts below or add
-                them by hand.
+                PrepHub hasn&apos;t added {app.collegeName}&apos;s essay prompts for this cycle yet. They&apos;ll appear here
+                when they&apos;re in; you can add recommendation letters and other to-dos below in the meantime.
               </p>
             ) : (
               <ul className="divide-y divide-border">
@@ -122,7 +121,6 @@ export default async function ApplicationPage({ params }: { params: Promise<{ ap
             </div>
           </section>
 
-          {isPromptParsingAvailable() && <PastePrompts applicationId={app.id} collegeName={app.collegeName} />}
         </div>
 
         <div className="flex flex-col gap-6 lg:sticky lg:top-8 lg:self-start">

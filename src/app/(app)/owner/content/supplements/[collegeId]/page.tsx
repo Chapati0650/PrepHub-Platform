@@ -10,6 +10,8 @@ import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { ConfirmSubmitButton } from "../../curriculum/confirm-submit-button";
 import { SupplementForm } from "./supplement-form";
+import { PasteSupplements } from "./paste-supplements";
+import { isPromptParsingAvailable } from "@/lib/college-apps/parse-prompts";
 import { copyFromPreviousCycleAction, deleteSupplementAction, moveSupplementAction } from "../actions";
 
 export default async function OwnerCollegeSupplementsPage({
@@ -108,8 +110,10 @@ export default async function OwnerCollegeSupplementsPage({
         </ol>
       )}
 
+      {isPromptParsingAvailable() && <PasteSupplements collegeId={collegeId} cycle={cycle} collegeName={college.name} />}
+
       <section className="rounded-2xl border border-border p-5">
-        <h2 className="mb-4 font-medium">Add a prompt</h2>
+        <h2 className="mb-4 font-medium">Add a prompt by hand</h2>
         <SupplementForm collegeId={collegeId} cycle={cycle} existing={null} />
       </section>
     </div>

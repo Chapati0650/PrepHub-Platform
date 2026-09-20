@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useActionState, useState, useTransition } from "react";
+import { startTransition, useActionState, useState } from "react";
 import { Trash2 } from "lucide-react";
 import type { ApplicationPlan, ApplicationPlatform, ApplicationStatus } from "@/generated/prisma/client";
 import { Button } from "@/components/ui/button";
@@ -9,16 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PLATFORM_LABEL, PLATFORM_ORDER } from "@/lib/college-apps/platform-prompts";
-import type { ParsedPrompt } from "@/lib/college-apps/parse-prompts";
 import { KIND_LABEL, PLAN_LABEL, STATUS_LABEL, toDateInputValue } from "../labels";
-import {
-  addItemAction,
-  parsePromptsAction,
-  removeCollegeAction,
-  saveParsedPromptsAction,
-  updateApplicationAction,
-  type CollegeAppsActionState,
-} from "../actions";
+import { addItemAction, removeCollegeAction, updateApplicationAction, type CollegeAppsActionState } from "../actions";
 
 const initial: CollegeAppsActionState = {};
 const selectClass = "h-9 w-full rounded-lg border border-border bg-background px-3 text-sm";
@@ -147,11 +139,15 @@ export function AddItemForm({ applicationId }: { applicationId: string | null })
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_9rem_7rem]">
         <Input name="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Ask Ms. Rivera for a recommendation" required maxLength={200} aria-label="Item" />
         <select name="kind" value={kind} onChange={(e) => setKind(e.target.value)} className={selectClass} aria-label="Kind">
-          {(Object.keys(KIND_LABEL) as (keyof typeof KIND_LABEL)[]).map((k) => (
-            <option key={k} value={k}>
-              {KIND_LABEL[k]}
-            </option>
-          ))}
+          {/* No "Essay" here: a college's prompts come from the Owner's
+              curation, so a student never types one in. */}
+          {(Object.keys(KIND_LABEL) as (keyof typeof KIND_LABEL)[])
+            .filter((k) => k !== "PROMPT")
+            .map((k) => (
+              <option key={k} value={k}>
+                {KIND_LABEL[k]}
+              </option>
+            ))}
         </select>
         <Input name="wordLimit" type="number" min={1} value={wordLimit} onChange={(e) => setWordLimit(e.target.value)} placeholder="Words" aria-label="Word limit" />
       </div>
@@ -165,89 +161,6 @@ export function AddItemForm({ applicationId }: { applicationId: string | null })
         </Button>
       </div>
     </form>
-  );
-}
-
-// Paste → review → save. The parsed prompts are shown back and each can be
-// removed before anything is written; the model never writes to the
-// checklist unseen.
-export function PastePrompts({ applicationId, collegeName }: { applicationId: string; collegeName: string }) {
-  const [text, setText] = useState("");
-  const [parsed, setParsed] = useState<ParsedPrompt[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [busy, start] = useTransition();
-
-  function parse() {
-    setError(null);
-    start(async () => {
-      const res = await parsePromptsAction(text);
-      if (res.error) setError(res.error);
-      else setParsed(res.prompts ?? []);
-    });
-  }
-  function save() {
-    if (!parsed?.length) return;
-    start(async () => {
-      const res = await saveParsedPromptsAction(applicationId, parsed);
-      if (res.error) setError(res.error);
-      else {
-        setSaved(true);
-        setParsed(null);
-        setText("");
-      }
-    });
-  }
-
-  return (
-    <section className="rounded-2xl bg-surface-tint p-6">
-      <h2 className="font-heading font-semibold">Paste {collegeName}&apos;s prompts</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Copy the supplement questions from the application (Common App → this college → Writing) and paste them here.
-        PrepHub pulls out each prompt and its word limit for you to check before adding.
-      </p>
-      {parsed === null ? (
-        <div className="mt-4 flex flex-col gap-3">
-          <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} placeholder="Paste the prompts here…" aria-label="Pasted prompts" className="bg-background" />
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          {saved && <p className="text-sm text-muted-foreground">Added to the checklist above.</p>}
-          <Button type="button" onClick={parse} disabled={busy || text.trim().length < 20} className="w-fit rounded-full px-5">
-            {busy ? "Reading…" : "Find the prompts"}
-          </Button>
-        </div>
-      ) : (
-        <div className="mt-4 flex flex-col gap-3">
-          <p className="text-sm font-medium">
-            Found {parsed.length} prompt{parsed.length === 1 ? "" : "s"}. Remove any that aren&apos;t right, then add.
-          </p>
-          <ul className="flex flex-col divide-y divide-border rounded-xl border border-border bg-background">
-            {parsed.map((p, i) => (
-              <li key={i} className="flex items-start gap-3 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">
-                    {p.title}
-                    {p.wordLimit && <span className="ml-2 text-xs font-normal text-muted-foreground">{p.wordLimit} words</span>}
-                  </p>
-                  <p className="mt-0.5 text-sm whitespace-pre-line text-muted-foreground">{p.text}</p>
-                </div>
-                <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove ${p.title}`} onClick={() => setParsed(parsed.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-destructive">
-                  <Trash2 className="size-4" />
-                </Button>
-              </li>
-            ))}
-          </ul>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="flex gap-2">
-            <Button type="button" onClick={save} disabled={busy || parsed.length === 0} className="rounded-full px-5">
-              {busy ? "Adding…" : `Add ${parsed.length} to checklist`}
-            </Button>
-            <Button type="button" variant="ghost" className="rounded-full" onClick={() => setParsed(null)}>
-              Back
-            </Button>
-          </div>
-        </div>
-      )}
-    </section>
   );
 }
 

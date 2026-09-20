@@ -13,6 +13,7 @@ import {
   moveSupplement,
   updateSupplement,
 } from "@/lib/college-apps/supplements";
+import { parsePrompts, type ParsedPrompt } from "@/lib/college-apps/parse-prompts";
 
 export type SupplementActionState = { error?: string; saved?: boolean };
 
@@ -96,4 +97,30 @@ export async function copyFromPreviousCycleAction(formData: FormData): Promise<v
   const cycle = Number(str(formData, "cycle"));
   await copySupplementsFromPreviousCycle(collegeId, cycle);
   refresh(collegeId, cycle);
+}
+
+// The Owner's August accelerator: paste a college's Writing section from
+// Common App, get the prompts back for review, then save them in one go.
+// Two steps on purpose — the model's output is never written unseen.
+export async function parseSupplementsAction(text: string): Promise<{ prompts?: ParsedPrompt[]; error?: string }> {
+  await requireOwner();
+  try {
+    return { prompts: await parsePrompts(text) };
+  } catch (err) {
+    if (err instanceof CollegeAppsError) return { error: err.message };
+    throw err;
+  }
+}
+
+export async function saveParsedSupplementsAction(collegeId: number, cycle: number, prompts: ParsedPrompt[]): Promise<SupplementActionState> {
+  await requireOwner();
+  try {
+    for (const p of prompts.slice(0, 20)) {
+      await createSupplement(collegeId, cycle, { title: p.title, promptText: p.text, wordLimit: p.wordLimit });
+    }
+  } catch (err) {
+    return toState(err);
+  }
+  refresh(collegeId, cycle);
+  return { saved: true };
 }
