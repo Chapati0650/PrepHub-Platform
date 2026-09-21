@@ -7,6 +7,7 @@ import { generateDiagnosticPrediction } from "@/lib/score/generate-diagnostic-pr
 import { logGenerationFailure } from "@/lib/logger";
 import { DiagnosticError } from "./errors";
 import { FUNNEL_EVENTS, track } from "@/lib/analytics/track";
+import { sendDiagnosticResultsEmail } from "@/lib/lifecycle/emails";
 
 // PRD-012 §22 / PRD-014 §5 — completing the diagnostic creates all seven
 // Category States before any adaptive set can be generated. Idempotent: a
@@ -63,6 +64,9 @@ export async function finalizeDiagnosticCompletion(studentId: string) {
   const session = await completeDiagnostic(studentId);
   const prediction = await generateDiagnosticPrediction(studentId);
   void track(FUNNEL_EVENTS.DIAGNOSTIC_COMPLETED, { userId: studentId });
+  // Best-effort, never awaited on the completion path: the results email
+  // carries the prediction and the free-set link (lib/lifecycle/emails.ts).
+  void sendDiagnosticResultsEmail(studentId).catch(() => {});
 
   try {
     await generatePracticeSet(studentId);

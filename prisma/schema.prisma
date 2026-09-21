@@ -93,6 +93,7 @@ model User {
   rushRuns               RushRun[]
   dailyChallengeAttempts DailyChallengeAttempt[]
   analyticsEvents        AnalyticsEvent[]
+  emailSends             EmailSend[]
   announcementsCreated   Announcement[]
 
   @@map("users")
@@ -1397,4 +1398,24 @@ model AnalyticsEvent {
   @@index([name, createdAt])
   @@index([userId])
   @@map("analytics_events")
+}
+
+// ---------------------------------------------------------------------------
+// One row per lifecycle email actually sent (2026-09-21), so the daily cron
+// is idempotent: "finish your Diagnostic" goes once per account, the
+// practice reminder at most once per day. The unique on (userId, kind, day)
+// is the guarantee — a retried cron run can't double-send.
+// ---------------------------------------------------------------------------
+
+model EmailSend {
+  id     String   @id @default(cuid())
+  userId String
+  kind   String // e.g. finish_diagnostic, daily_reminder, results
+  day    String // YYYY-MM-DD (UTC); "once" for one-time kinds
+  sentAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind, day])
+  @@map("email_sends")
 }

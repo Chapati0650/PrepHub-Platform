@@ -35,8 +35,11 @@ export async function sendEmail({ to, subject, text }: SendEmailInput): Promise<
     return;
   }
 
+  // Resend only sends from a domain verified in its dashboard. The site's
+  // domain is prephubtp.com; the old hard-coded prephub.app address would
+  // have been rejected the moment a key was added.
   const { error } = await resendClient.emails.send({
-    from: "PrepHub <no-reply@prephub.app>",
+    from: process.env.EMAIL_FROM ?? "PrepHub <no-reply@prephubtp.com>",
     to,
     subject,
     text,

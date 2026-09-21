@@ -891,6 +891,38 @@ the following, several of which deliberately override PRD text:
   to it; the answered state nudges free students toward the 800 Club.
 - Migration `20260921202200_add_daily_challenge_and_analytics`.
 
+## Lifecycle email (2026-09-21)
+
+`src/lib/email.ts` sends through Resend when `RESEND_API_KEY` is set and
+writes `.dev-emails.jsonl` otherwise; the sender is `EMAIL_FROM` (default
+`PrepHub <no-reply@prephubtp.com>` — the old hard-coded `prephub.app`
+address was on a domain that was never verified, so the first real key
+would have been rejected). Three lifecycle emails in
+`src/lib/lifecycle/emails.ts`, all plain text in the Owner's voice next to
+the existing welcome email, all recorded in `EmailSend` (unique on
+user/kind/day) *before* sending so a re-run can't double-send, all
+best-effort:
+
+- **Results** — immediately after the Diagnostic (from
+  `finalizeDiagnosticCompletion`, `void`, never awaited): the prediction,
+  the two weakest categories, the free-set link.
+- **Finish your Diagnostic** — once per account, 20h–7d after signup
+  without a completed Diagnostic; the subject carries how many of 21 are
+  answered.
+- **Daily reminder** — the Settings toggle, finally wired: once a day to
+  students with it on who haven't answered anything today; paid → their
+  set, free → the Daily Challenge.
+
+The last two run from `POST /api/cron/daily` (bearer `CRON_SECRET`; 404
+without it), triggered by the Netlify scheduled function
+`netlify/functions/daily-cron.mts` at 22:00 UTC — a plain `fetch`, so the
+app and Prisma are never bundled twice. `netlify/functions` is Netlify's
+default functions directory, so no `netlify.toml` is needed. Production
+needs `RESEND_API_KEY`, `CRON_SECRET` (and optionally `EMAIL_FROM`) in
+Netlify, and `prephubtp.com` verified in Resend. Test accounts
+(`example.com`) never receive lifecycle mail. Migration
+`20260921204113_add_email_sends`.
+
 ## Gotcha: next-themes hydration mismatch
 
 `next-themes`' `useTheme()` reads the persisted theme from `localStorage`
