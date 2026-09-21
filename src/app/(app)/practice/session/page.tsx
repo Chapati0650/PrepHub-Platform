@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
-import { hasPaidAccess } from "@/lib/entitlements";
+import { canOpenPracticeSet } from "@/lib/practice/free-tier";
 import { getStudentQuestionContent, getStudentQuestionFeedback } from "@/lib/session/question-content";
 import { PracticeRunner } from "./practice-runner";
 
@@ -18,13 +18,13 @@ export default async function PracticeSessionPage() {
   const diagnostic = await prisma.diagnosticSession.findUnique({ where: { studentId } });
   if (diagnostic?.status !== "COMPLETED") redirect("/diagnostic");
 
-  if (!(await hasPaidAccess(studentId))) redirect("/practice");
-
   const set = await prisma.practiceSet.findFirst({
     where: { studentId, status: "ACTIVE" },
     include: { slots: { orderBy: { position: "asc" }, include: { finalizedAttempt: true } } },
   });
   if (!set) redirect("/practice");
+  // Set 1 is free; later sets need Premium (lib/practice/free-tier.ts).
+  if (!(await canOpenPracticeSet(studentId, set.setNumber))) redirect("/practice");
 
   const items = set.slots.map((s) => ({
     id: s.id,

@@ -29,8 +29,8 @@ test.describe("School Community (PRD-009) and Profile & Settings (PRD-010)", () 
     await expect(page.getByRole("checkbox", { name: "Daily Practice Reminder" })).not.toBeChecked();
 
     // Profile: first name is editable and persists across a reload. (Not
-    // checked via /home — this student never resolved /access, and /home
-    // redirects there for a diagnostic-not-started, access-unresolved student.)
+    // checked via /home — this student hasn't started the Diagnostic, and
+    // /home sends them to it.)
     await page.getByLabel("First name").fill("Updated Name");
     await page.getByRole("button", { name: "Save name" }).click();
     await page.reload();

@@ -5,8 +5,8 @@ import { readPendingRushCode } from "@/lib/rush/pending-join";
 import { TrendingUp, Check, ChevronRight, Pencil } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { needsAccessSelection } from "@/lib/access";
 import { hasPaidAccess } from "@/lib/entitlements";
+import { isFreePracticeSet } from "@/lib/practice/free-tier";
 import { getDashboardData } from "@/lib/dashboard/dashboard-data";
 import { getActiveAnnouncementsForStudents, type AnnouncementEntry } from "@/lib/announcements";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
@@ -89,6 +89,10 @@ export default async function HomePage() {
     hasPaidAccess(session.user.id),
   ]);
   const onboarding = isStudent ? profile : null;
+  // Which set is next decides what the one big button says for a free
+  // student: Set 1 is free, Set 2 on is where Premium starts.
+  const activeSet = isStudent && !paidAccess ? await prisma.practiceSet.findFirst({ where: { studentId: session.user.id, status: "ACTIVE" }, select: { setNumber: true } }) : null;
+  const canPractice = paidAccess || !activeSet || isFreePracticeSet(activeSet.setNumber);
   const communitySchoolId = membership?.status === "ACTIVE" ? membership.schoolId : adminAssignment?.organizationId;
   const hasSchoolCommunity = Boolean(communitySchoolId);
 
@@ -97,12 +101,14 @@ export default async function HomePage() {
   // surface) at the school that published them.
   const announcements = communitySchoolId ? await getActiveAnnouncementsForStudents(communitySchoolId) : [];
 
-  // Brand-new students see a short personalization wizard before anything
-  // else — same "only while NOT_STARTED" escape hatch as the access-selection
-  // gate just below, so a student who's engaged with the diagnostic is never
-  // bounced backward. Scoped to STUDENT only: administrators never sign up
-  // through the public flow this wizard sits in front of.
-  if (isStudent && data.diagnosticStatus === "NOT_STARTED" && !onboarding?.onboardingCompletedAt) {
+  // A brand-new student goes straight to the Diagnostic — the intro screen
+  // there says everything the old "welcome back, begin diagnostic" card
+  // here said, one screen earlier. Grade/target/commitment come after the
+  // results (see (app)/onboarding), so a student who has finished the
+  // Diagnostic but not that wizard is sent there first. Scoped to STUDENT:
+  // administrators never sign up through the public flow.
+  if (isStudent && data.diagnosticStatus === "NOT_STARTED") redirect("/diagnostic");
+  if (isStudent && data.diagnosticStatus === "COMPLETED" && !onboarding?.onboardingCompletedAt) {
     redirect("/onboarding");
   }
 
@@ -115,17 +121,10 @@ export default async function HomePage() {
   const pendingRushCode = await readPendingRushCode();
   if (pendingRushCode) redirect(`/rush/join/${pendingRushCode}`);
 
-  // PRD-002 §5.1: a student who has never chosen an access method lands on
-  // the chooser instead of here — but only before they've engaged with the
-  // diagnostic at all. PRD-012 §5/§26: the diagnostic (and its results) must
-  // stay reachable without choosing school-vs-individual access first, so
-  // this must not re-trigger once the diagnostic has been started or completed.
-  // Administrators never have a subscription or membership of their own and
-  // must never be sent to student access-selection at all (PRD-011 §7 — they
-  // use the student product for evaluation, not as a paying/enrolled student).
-  if (!isAdmin && data.diagnosticStatus === "NOT_STARTED" && (await needsAccessSelection(session.user.id))) {
-    redirect("/access");
-  }
+  // PRD-002 §5.1's access chooser (/access) is deliberately no longer in the
+  // new-student path: school access is hidden at launch, which made the
+  // page a $25/month card shown before any value (Owner decision,
+  // 2026-09-21). /access still exists for the school flow when it returns.
 
   if (data.diagnosticStatus !== "COMPLETED") {
     return (
@@ -174,15 +173,26 @@ export default async function HomePage() {
             <Greeting name={data.firstName} />
           </h1>
           <div className="mt-5 flex flex-wrap items-center gap-3">
-            <LinkButton size="cta" href="/practice">
-              Continue Practice
-            </LinkButton>
+            {canPractice ? (
+              <LinkButton size="cta" href="/practice">
+                Continue Practice
+              </LinkButton>
+            ) : (
+              <LinkButton size="cta" href="/pricing">
+                Unlock Practice Set {activeSet?.setNumber}
+              </LinkButton>
+            )}
             <LinkButton size="cta" variant="outline" href="/progress">
               View Progress
               <ChevronRight className="size-4" aria-hidden />
             </LinkButton>
           </div>
-          {data.recommendedPace && (
+          {!canPractice && (
+            <p className="mt-4 text-sm text-muted-foreground">
+              Your free set is done. Premium opens every set after it — $25/month at launch, cancel anytime.
+            </p>
+          )}
+          {canPractice && data.recommendedPace && (
             <p className="mt-4 text-sm text-muted-foreground">
               <span className="font-medium text-foreground">{data.recommendedPace.label}</span>{" "}
               {data.recommendedPace.description}
@@ -316,7 +326,7 @@ export default async function HomePage() {
                 {profile.targetScore ? `Reach ${profile.targetScore} faster with Premium.` : "Reach your target faster with Premium."}
               </h2>
               <ul className="mt-4 flex flex-col gap-2 text-sm">
-                {["Unlimited Personalized Practice Sets", "Prediction updated after every set", "Session Review with video explanations"].map((f) => (
+                {["Unlimited Personalized Practice Sets", "Prediction updated after every set", "800 Club, 1v1 Rush and College Apps"].map((f) => (
                   <li key={f} className="flex items-start gap-2.5">
                     <Check className="mt-0.5 size-4 shrink-0 text-primary" strokeWidth={2.5} aria-hidden />
                     {f}

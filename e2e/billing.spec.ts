@@ -8,7 +8,8 @@ test.describe("billing (PRD-003)", () => {
     const email = uniqueEmail();
     await signUpNewStudent(page, { email, password: "hunter2222", grade: "11th" });
 
-    await page.getByRole("link", { name: "View Plans" }).click();
+    // Pricing is reachable before the Diagnostic; nothing forces it first.
+    await page.goto("/pricing");
     await expect(page).toHaveURL(/\/pricing$/);
 
     await page.getByRole("button", { name: "Subscribe Monthly" }).click();
@@ -16,8 +17,8 @@ test.describe("billing (PRD-003)", () => {
 
     await expect(page.getByText(/you're subscribed/i)).toBeVisible();
     await page.getByRole("link", { name: "Go to Dashboard" }).click();
-    await expect(page).toHaveURL(/\/home$/);
-    await expect(page.getByRole("heading", { name: "Welcome back, Ada" })).toBeVisible();
+    // A paid student who hasn't taken the Diagnostic is still sent to it.
+    await expect(page).toHaveURL(/\/diagnostic$/);
 
     // Billing page reflects the purchase
     await page.goto("/billing");

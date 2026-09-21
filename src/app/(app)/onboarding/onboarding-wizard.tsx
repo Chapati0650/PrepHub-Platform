@@ -15,7 +15,8 @@ const GRADES = [
   { value: 11, label: "11th Grade", caption: "Junior year" },
   { value: 12, label: "12th Grade", caption: "Senior year" },
 ] as const;
-const STEP_COUNT = 4; // Welcome, Grade, Target Score, Study Commitment
+const STEP_COUNT = 4; // (Welcome — no longer shown), Grade, Target Score, Study Commitment
+const FIRST_STEP = 1;
 
 // Mirrors the three upcoming questions 1:1, so the welcome screen doubles as
 // a real preview instead of generic filler copy. Each one used to carry the
@@ -95,7 +96,10 @@ function StepHeading({ step, title, children }: { step: number; title: ReactNode
 }
 
 export function OnboardingWizard() {
-  const [step, setStep] = useState(0);
+  // Starts on Grade: this wizard now runs after the Diagnostic results, so
+  // the welcome screen's "answer three quick questions" preamble is one
+  // more screen between a student and their free practice set.
+  const [step, setStep] = useState(FIRST_STEP);
   const [grade, setGrade] = useState<number | null>(null);
   const [targetScoreMidpoint, setTargetScoreMidpoint] = useState<number | null | undefined>(undefined);
   const [studyCommitment, setStudyCommitment] = useState<StudyCommitment | null>(null);
@@ -122,14 +126,14 @@ export function OnboardingWizard() {
       <div
         className="flex gap-1.5"
         role="progressbar"
-        aria-valuenow={step + 1}
+        aria-valuenow={step}
         aria-valuemin={1}
-        aria-valuemax={STEP_COUNT}
+        aria-valuemax={STEP_COUNT - FIRST_STEP}
       >
-        {Array.from({ length: STEP_COUNT }).map((_, i) => (
+        {Array.from({ length: STEP_COUNT - FIRST_STEP }).map((_, i) => (
           <span
             key={i}
-            className={`h-1.5 flex-1 rounded-full transition-colors ${i <= step ? "bg-primary" : "bg-foreground/10"}`}
+            className={`h-1.5 flex-1 rounded-full transition-colors ${i + FIRST_STEP <= step ? "bg-primary" : "bg-foreground/10"}`}
           />
         ))}
       </div>
@@ -163,7 +167,9 @@ export function OnboardingWizard() {
 
       {step === 1 && (
         <div className="flex flex-col gap-8">
-          <StepHeading step={1} title="What grade are you in?" />
+          <StepHeading step={1} title="What grade are you in?">
+            You have your score. Three quick questions and your free practice set opens.
+          </StepHeading>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {GRADES.map((g) => (
               <OptionCard key={g.value} selected={grade === g.value} onClick={() => setGrade(g.value)}>
@@ -230,10 +236,10 @@ export function OnboardingWizard() {
           </Button>
         ) : (
           <Button size="cta" onClick={handleFinish} disabled={!canContinue || pending}>
-            {pending ? "Saving…" : "Continue"}
+            {pending ? "Saving…" : "Open my free practice set"}
           </Button>
         )}
-        {step > 0 && (
+        {step > FIRST_STEP && (
           <Button size="cta" variant="ghost" onClick={() => setStep((s) => s - 1)} disabled={pending}>
             Back
           </Button>

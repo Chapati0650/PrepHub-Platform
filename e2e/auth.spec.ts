@@ -17,9 +17,9 @@ test.describe("authentication (PRD-001)", () => {
     await page.getByLabel("Password").fill("hunter2222");
     await page.getByRole("button", { name: "Log in", exact: true }).click();
 
-    // still hasn't chosen an access method, so login also lands on /access
-    await expect(page).toHaveURL(/\/access$/);
-    await expect(page.getByRole("heading", { name: "How would you like to access PrepHub?" })).toBeVisible();
+    // hasn't started the Diagnostic, so /home sends them straight to it
+    await expect(page).toHaveURL(/\/diagnostic$/);
+    await expect(page.getByRole("heading", { name: /starting point/ })).toBeVisible();
   });
 
   test("rejects signup with a duplicate email", async ({ page }) => {
@@ -30,15 +30,13 @@ test.describe("authentication (PRD-001)", () => {
       await page.getByLabel("Email").fill(email);
       await page.getByLabel("Password").fill("hunter2222");
       await page.getByRole("checkbox", { name: "I confirm I am 13 years of age or older" }).click();
-      await page.getByRole("checkbox", { name: "I agree to the Terms of Service" }).click();
-      await page.getByRole("checkbox", { name: "I agree to the Privacy Policy" }).click();
       await page.getByRole("button", { name: "Create account" }).click();
     }
 
     await page.goto("/signup");
     await fillSignupForm();
-    // A brand-new account lands on the onboarding wizard, not /access directly.
-    await expect(page).toHaveURL(/\/onboarding$/);
+    // A brand-new account lands on the Diagnostic intro, nothing in between.
+    await expect(page).toHaveURL(/\/diagnostic$/);
     await page.getByRole("button", { name: "Log out" }).click();
     await expect(page).toHaveURL(/\/login$/);
 
@@ -90,7 +88,7 @@ test.describe("authentication (PRD-001)", () => {
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password").fill("brand-new-pw1");
     await page.getByRole("button", { name: "Log in", exact: true }).click();
-    await expect(page).toHaveURL(/\/access$/);
+    await expect(page).toHaveURL(/\/diagnostic$/);
   });
 
   test("self-service account deletion requires the correct password and then blocks login", async ({

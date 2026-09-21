@@ -8,6 +8,7 @@ import { AdaptiveError } from "@/lib/adaptive/errors";
 import { finalizePracticeSetCompletion } from "@/lib/adaptive/finalize-practice-set-completion";
 import { getStudentQuestionContent, getStudentQuestionFeedback } from "@/lib/session/question-content";
 import { logUnauthorizedAccess } from "@/lib/logger";
+import { canOpenPracticeSet } from "@/lib/practice/free-tier";
 
 async function requireStudentId(): Promise<string> {
   const session = await auth();
@@ -76,6 +77,9 @@ export async function savePracticePositionAction(practiceSetId: string, position
 export async function submitPracticeAnswerAction(slotId: string, answer: string) {
   const studentId = await requireStudentId();
   const slot = await requireOwnedSlot(studentId, slotId);
+  // The gate the pages apply, applied to the write too: a hidden button is
+  // not access control. Set 1 is free; later sets need Premium.
+  if (!(await canOpenPracticeSet(studentId, slot.practiceSet.setNumber))) throw new Error("This practice set needs Premium.");
   const attempt = await finalizeAnswer({ studentId, blueprintSlotId: slotId, answer, isBlank: false });
   const feedback = await getStudentQuestionFeedback(slot.questionRevisionId);
   return { isCorrect: attempt.isCorrect, studentAnswer: attempt.answer!, feedback };

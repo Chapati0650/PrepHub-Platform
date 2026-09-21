@@ -134,27 +134,29 @@ export default function SignUpPage() {
                 I confirm I am 13 years of age or older.
               </label>
 
-              <label className="flex items-start gap-2 text-sm">
-                <Checkbox name="tosAccepted" required aria-label="I agree to the Terms of Service" />
-                I agree to the{" "}
-                <Link href="/terms" className="underline">
-                  Terms of Service
-                </Link>
-                .
-              </label>
-
-              <label className="flex items-start gap-2 text-sm">
-                <Checkbox name="privacyAccepted" required aria-label="I agree to the Privacy Policy" />
-                I agree to the{" "}
-                <Link href="/privacy" className="underline">
-                  Privacy Policy
-                </Link>
-                .
-              </label>
+              {/* Terms and Privacy are accepted by the act of creating the
+                  account (clickwrap), stated in the sentence under the button
+                  — the same LegalAcceptance rows are recorded as before. Age is
+                  the one thing that must be an affirmative tick (COPPA), so it
+                  keeps its box. Three boxes were one of the frictions on a
+                  path that lost most signups before the first question. */}
+              <input type="hidden" name="tosAccepted" value="on" />
+              <input type="hidden" name="privacyAccepted" value="on" />
 
               <Button type="submit" size="lg" className="h-12 rounded-full text-base" disabled={pending}>
                 {pending ? "Creating account..." : "Create account"}
               </Button>
+              <p className="text-xs text-muted-foreground">
+                By creating an account you agree to the{" "}
+                <Link href="/terms" className="underline">
+                  Terms of Service
+                </Link>{" "}
+                and{" "}
+                <Link href="/privacy" className="underline">
+                  Privacy Policy
+                </Link>
+                .
+              </p>
             </form>
 
             <p className="text-center text-sm text-muted-foreground">

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { uniqueEmail, signUpNewStudent, payWithTestCard } from "./helpers";
+import { uniqueEmail, signUpNewStudent, completeOnboardingAfterResults, payWithTestCard } from "./helpers";
 
 // Answers every question in the current diagnostic/practice runner by always
 // picking the first answer choice — content correctness doesn't matter for
@@ -17,12 +17,12 @@ async function answerAllQuestions(page: Page, count: number) {
     // choices or the numeric input to actually appear first.
     await choiceButtons.first().or(numericInput).waitFor({ state: "visible" });
     if (await choiceButtons.count()) {
-      await choiceButtons.first().click();
+      await choiceButtons.first().click(); // a multiple-choice tap submits
     } else {
       // Open-Ended Numeric — content correctness doesn't matter for flow control.
       await numericInput.fill("1");
+      await page.getByRole("button", { name: "Submit answer" }).click();
     }
-    await page.getByRole("button", { name: "Submit answer" }).click();
     await expect(page.getByText(/Correct!|Incorrect\./)).toBeVisible();
     if (i < count - 1) {
       await page.getByRole("button", { name: "Next", exact: true }).click();
@@ -37,21 +37,10 @@ test.describe("Diagnostic + Practice loop (PRD-012, PRD-005, PRD-006, PRD-007)",
     const email = uniqueEmail();
     await signUpNewStudent(page, { email, password: "hunter2222", grade: "11th" });
 
-    // PRD-012 §5/§26 — the diagnostic must be reachable before choosing an
-    // access method.
-    // Regex, not an exact string: this is a ChoiceCard, so the link's
-    // accessible name is its title *plus* its description. The old exact
-    // "Take the Diagnostic First →" matched neither the name nor the page —
-    // /access has never rendered that arrow — so this assertion was failing
-    // on master before the UI redesign, not because of it.
-    await page.getByRole("link", { name: /Take the Diagnostic First/ }).click();
+    // Signup lands on the Diagnostic's single intro screen (2026-09-21: the
+    // six informational screens and the access chooser are gone from the
+    // path — 16 screens to the first question became 4).
     await expect(page).toHaveURL(/\/diagnostic$/);
-
-    // Product introduction — the new welcome screen, then all 6 informational screens.
-    await page.getByRole("button", { name: "Start Diagnostic" }).click();
-    for (let i = 0; i < 6; i++) {
-      await page.getByRole("button", { name: "Next", exact: true }).click();
-    }
     await expect(page.getByText("Talent may affect where you begin.")).toBeVisible();
     await page.getByRole("button", { name: "Begin Diagnostic" }).click();
 
@@ -66,7 +55,13 @@ test.describe("Diagnostic + Practice loop (PRD-012, PRD-005, PRD-006, PRD-007)",
     await expect(page.getByText("Your Initial PrepHub Score Prediction")).toBeVisible();
     await expect(page.getByText(/^\d{3,4}–\d{3,4}$/)).toBeVisible();
 
-    // Resuming the dashboard now shows the diagnostic-completed state.
+    // The results carry the one-sentence analysis and lead into the
+    // post-results wizard (grade / target / commitment).
+    await expect(page.getByText(/losing the most points|close to even/)).toBeVisible();
+    await page.getByRole("link", { name: "Set your target score" }).click();
+    await completeOnboardingAfterResults(page, "11th");
+
+    // The dashboard shows the diagnostic-completed state.
     await page.goto("/home");
     // The greeting is time-of-day ("Good evening, Ada.") and decided on the
     // client after hydration, so only the name is stable to assert on.
@@ -74,24 +69,13 @@ test.describe("Diagnostic + Practice loop (PRD-012, PRD-005, PRD-006, PRD-007)",
     await expect(page.getByText("PrepHub Score Prediction")).toBeVisible();
     await expect(page.getByRole("link", { name: "Continue Practice" })).toBeVisible();
 
-    // Practice is gated behind paid access (PRD-005 §5/§26) even though the
-    // first adaptive set was already generated in the background.
+    // Set 1 is free (lib/practice/free-tier.ts): the pre-generated first
+    // set opens without a subscription.
     await page.getByRole("link", { name: "Continue Practice" }).click();
     await expect(page).toHaveURL(/\/practice$/);
-    await expect(page.getByRole("heading", { name: "Your first personalized practice set is ready." })).toBeVisible();
-    await expect(page.getByRole("link", { name: "View Plans" })).toBeVisible();
-
-    // Subscribe via a real Stripe test-mode checkout.
-    await page.getByRole("link", { name: "View Plans" }).click();
-    await expect(page).toHaveURL(/\/pricing$/);
-    await page.getByRole("button", { name: "Subscribe Monthly" }).click();
-    await payWithTestCard(page, email);
-
-    // Practice now unlocks the pre-generated first set without regenerating it.
-    await page.goto("/practice");
     await expect(page.getByRole("heading", { name: "Practice Set 1" })).toBeVisible();
     await expect(page.getByText("21 Questions")).toBeVisible();
-    await expect(page.getByText("Personalized from your performance.")).toBeVisible();
+    await expect(page.getByText("Free · personalized from your Diagnostic.")).toBeVisible();
     await page.getByRole("link", { name: "Start Practice" }).click();
 
     // 21-question adaptive practice set.
@@ -112,10 +96,22 @@ test.describe("Diagnostic + Practice loop (PRD-012, PRD-005, PRD-006, PRD-007)",
     await expect(page.getByText("is correct because this is seeded practice content.")).toBeVisible();
 
     // Continue Practice returns to the Practice page (PRD-005 §24), not
-    // directly into a question — the next set is already generated.
+    // directly into a question — and Set 2 is where Premium starts.
     await page.getByRole("link", { name: "Continue Practice" }).click();
     await expect(page).toHaveURL(/\/practice$/);
+    await expect(page.getByRole("heading", { name: "Your next set is ready." })).toBeVisible();
+    await expect(page.getByText(/prediction/)).toBeVisible();
+
+    // Subscribe via a real Stripe test-mode checkout.
+    await page.getByRole("link", { name: "Unlock every set" }).click();
+    await expect(page).toHaveURL(/\/pricing$/);
+    await page.getByRole("button", { name: "Subscribe Monthly" }).click();
+    await payWithTestCard(page, email);
+
+    // The pre-generated Set 2 opens without regenerating.
+    await page.goto("/practice");
     await expect(page.getByRole("heading", { name: "Practice Set 2" })).toBeVisible();
+    await expect(page.getByText("Personalized from your performance.")).toBeVisible();
 
     // Progress page reflects the completed diagnostic + one adaptive session.
     await page.goto("/progress");

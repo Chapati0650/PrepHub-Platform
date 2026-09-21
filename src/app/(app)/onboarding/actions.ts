@@ -1,9 +1,6 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
-import { RUSH_JOIN_COOKIE } from "@/lib/rush/join-cookie";
-import { readPendingRushCode } from "@/lib/rush/pending-join";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { completeOnboarding } from "@/lib/onboarding/complete-onboarding";
@@ -36,16 +33,10 @@ export async function completeOnboardingAction(input: CompleteOnboardingActionIn
     studyCommitment: parsed.studyCommitment,
   });
 
-  // Signed up from a friend's 1v1 Rush link (see middleware.ts): the
-  // challenge comes before the access chooser — accepting it is free, and
-  // it's the reason this account exists. Cleared here (a Server Action may
-  // write cookies; the page that reads it may not) so nothing redirects to
-  // it twice.
-  const pendingRushCode = await readPendingRushCode();
-  if (pendingRushCode) {
-    (await cookies()).delete(RUSH_JOIN_COOKIE);
-    redirect(`/rush/join/${pendingRushCode}`);
-  }
-
-  redirect("/access");
+  // Onboarding now follows the Diagnostic results, so the next thing is the
+  // free first Practice Set — not /access (the school-vs-individual chooser
+  // is hidden at launch, which made it a $25/month card shown to a
+  // brand-new student before they'd seen anything; 25 of 104 never started
+  // the Diagnostic behind it).
+  redirect("/practice");
 }

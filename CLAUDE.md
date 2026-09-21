@@ -804,19 +804,59 @@ answer says nothing about ability.
   inputs by default, and a screenshot taken mid-hydration then shows up as
   a hydration-mismatch warning that isn't real. Pass `caret: "initial"`.
 
-## Cross-phase fix: diagnostic must be reachable before access selection
+## The new-student path and the free tier (2026-09-21, from production data)
 
-PRD-002 §5.1 sends every student with no subscription/membership to `/access`
-before anything else — but PRD-012 §5/§26 requires the diagnostic (and its
-results) to be reachable by *any* student, paid or not, before they've chosen
-school-vs-individual access. These were in real conflict: a brand-new
-student had no path off `/access` to reach the free diagnostic. Fixed two
-ways, both still passing every PRD-002 e2e assertion: (1) `/access` has a
-"Take the free diagnostic first" link; (2) `/home`'s `needsAccessSelection`
-redirect only fires while `diagnosticStatus === "NOT_STARTED"` — once a
-student has started or completed it, `/home` never bounces them back to
-`/access` again (they can still reach it via that same link, or the Practice
-paywall's "View Plans").
+Production numbers on 2026-09-21 (104 real students): 79 started the
+Diagnostic, 41 finished — 29 of the 38 who quit did so within four
+questions, 11 before answering anything — and it was 16 screens from the
+landing page to question 1. 38 students had a generated Set 1 sitting
+locked and never answered a practice question; 3 paid. The Owner approved
+the following, several of which deliberately override PRD text:
+
+- **Signup → `/diagnostic` → question 1.** `signUpAction` redirects to
+  `/diagnostic` (honoring the 1v1 Rush join cookie first); `/home` sends a
+  `NOT_STARTED` student straight there. The Diagnostic intro is **one
+  screen** (`intro-screens.tsx`): PRD-012 §6-§7's six informational
+  screens and the effort screen are gone, their content folded into the
+  three-item list and a closing sentence.
+- **Onboarding (grade / target / commitment) runs *after* the results.**
+  `/onboarding` redirects to `/diagnostic` unless the Diagnostic is
+  COMPLETED; the wizard starts on Grade (no welcome step) and its last
+  button opens the free set; `/home` sends a COMPLETED-but-unonboarded
+  student there. The results page's CTA is "Set your target score" until
+  then, "Start your free practice set" after.
+- **`/access` is out of the path.** PRD-002 §5.1's chooser still exists for
+  the school flow, but with school access hidden it was a "$25/month" card
+  shown before any value. `needsAccessSelection` is no longer called from
+  `/home`.
+- **Set 1 is free** (`src/lib/practice/free-tier.ts`, `FREE_PRACTICE_SETS`,
+  tested). `canOpenPracticeSet` composes `hasPaidAccess` rather than
+  replacing it — the entitlement service still decides "paid"; this only
+  says which sets are free. Applied on the practice gateway, the session
+  page, *and* `submitPracticeAnswerAction`. The Set-2 paywall quotes how far
+  Set 1 moved the prediction (last two `PredictionHistoryEntry` rows). The
+  dashboard's one big button reads "Unlock Practice Set N" for a free
+  student whose free set is done, and the pace line is hidden then.
+- **The results page says what the numbers mean** — `diagnosticVerdict`
+  (`src/lib/session/verdict.ts`, pure, tested) names the two weakest
+  categories, the analysis the landing page promises — and offers a
+  copyable parent summary (`ParentSummary`). Parents pay.
+- **The runner**: a multiple-choice tap submits (numeric keeps Submit and
+  Enter); Finish appears only once every question is answered, and on the
+  last question with blanks it jumps to the first blank; on phones the
+  21-cell navigator is one scrolling row (`session-nav-grid.tsx`).
+- **Signup has one checkbox** (age, COPPA). Terms/Privacy are accepted by
+  creating the account, stated under the button; the same `LegalAcceptance`
+  rows are recorded (hidden `tosAccepted`/`privacyAccepted` inputs).
+- **Share/SEO**: `layout.tsx` metadata (title template, description,
+  Open Graph, Twitter), `opengraph-image.tsx` (next/og, inline SVG mark —
+  logo.tsx's SVG needs CSS variables the renderer lacks), `sitemap.ts` and
+  `robots.ts` (public pages only). Before this every shared link had no
+  preview and the title was "PrepHub".
+- e2e: `signUpNewStudent` now lands on `/diagnostic`;
+  `completeOnboardingAfterResults` drives the post-results wizard. The
+  suite is timing-flaky against the dev server with parallel workers (a
+  signup redirect can exceed the 5s URL assertion); `--workers=1` passes.
 
 ## Gotcha: next-themes hydration mismatch
 

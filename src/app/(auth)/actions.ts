@@ -1,6 +1,9 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
+import { RUSH_JOIN_COOKIE } from "@/lib/rush/join-cookie";
+import { readPendingRushCode } from "@/lib/rush/pending-join";
 import { AuthError as NextAuthError } from "next-auth";
 import { signIn } from "@/auth";
 import {
@@ -63,17 +66,24 @@ export async function signUpAction(_prev: ActionState, formData: FormData): Prom
     redirect("/login");
   }
 
-  // Straight to /onboarding, not /home -> (/home redirects here anyway) —
-  // a freshly created account always has onboardingCompletedAt: null and
-  // diagnosticStatus: NOT_STARTED, so /home's own redirect here is
-  // guaranteed, not conditional. Skipping that extra hop removes one more
-  // link in exactly the kind of multi-hop-redirect-through-a-Server-Action
-  // chain that's caused several confirmed, real failures under this
-  // Netlify Next.js Runtime today (the OAuth external-redirect CORS
-  // failure, the /login<->/home infinite loop) — /onboarding is under the
-  // same (app) route group, so it's already independently auth-checked by
-  // (app)/layout.tsx regardless of how it's reached.
-  redirect("/onboarding");
+  // A friend's 1v1 Rush link opened while signed out (see middleware.ts):
+  // the challenge is the reason this account exists, so it comes first.
+  // Cleared here — a Server Action may write cookies — so nothing redirects
+  // to it twice.
+  const pendingRushCode = await readPendingRushCode();
+  if (pendingRushCode) {
+    (await cookies()).delete(RUSH_JOIN_COOKIE);
+    redirect(`/rush/join/${pendingRushCode}`);
+  }
+
+  // Straight to the Diagnostic. Not /onboarding — grade, target score and
+  // study commitment now come *after* the results (see
+  // (app)/onboarding), where "set a target now that you know your score"
+  // is a question a student wants to answer; before it, they were three
+  // screens between a new account and the first question. Not /home
+  // either: /home would only redirect here, and every extra hop through a
+  // Server Action redirect has been a real failure source on this host.
+  redirect("/diagnostic");
 }
 
 export async function loginAction(_prev: ActionState, formData: FormData): Promise<ActionState> {

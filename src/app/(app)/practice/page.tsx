@@ -4,7 +4,7 @@ import { Lock, AlertCircle } from "lucide-react";
 import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
-import { hasPaidAccess } from "@/lib/entitlements";
+import { canOpenPracticeSet, isFreePracticeSet } from "@/lib/practice/free-tier";
 import { generatePracticeSet } from "@/lib/adaptive/generate-practice-set";
 import { LinkButton } from "@/components/ui/link-button";
 import { Marker } from "@/components/ui/marker";
@@ -19,8 +19,6 @@ export default async function PracticePage() {
 
   const diagnostic = await prisma.diagnosticSession.findUnique({ where: { studentId } });
   if (diagnostic?.status !== "COMPLETED") redirect("/diagnostic");
-
-  const paidAccess = await hasPaidAccess(studentId);
 
   let set = await prisma.practiceSet.findFirst({
     where: { studentId, status: "ACTIVE" },
@@ -67,7 +65,17 @@ export default async function PracticePage() {
 
   const questionsCompleted = set.slots.filter((s) => s.finalizedAttempt !== null).length;
 
-  if (!paidAccess) {
+  // Set 1 is free (see lib/practice/free-tier.ts); the paywall sits here
+  // from Set 2 on, right after the student has watched their prediction
+  // move once — the strongest possible case for the next one.
+  if (!(await canOpenPracticeSet(studentId, set.setNumber))) {
+    const [latest, previous] = await prisma.predictionHistoryEntry.findMany({
+      where: { studentId },
+      orderBy: { createdAt: "desc" },
+      take: 2,
+      select: { displayedRangeMinimum: true, displayedRangeMaximum: true },
+    });
+    const moved = latest && previous ? (latest.displayedRangeMinimum + latest.displayedRangeMaximum - previous.displayedRangeMinimum - previous.displayedRangeMaximum) / 2 : 0;
     return (
       <PracticeShell>
         <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
@@ -75,19 +83,25 @@ export default async function PracticePage() {
           Practice Set {set.setNumber}
         </p>
         <h1 className="mt-3 text-display-sm text-balance">
-          Your first personalized practice set is <Marker>ready</Marker>.
+          Your next set is <Marker>ready</Marker>.
         </h1>
         <p className="mt-4 max-w-prose text-lg text-muted-foreground">
-          21 questions, chosen from how you actually performed on the Diagnostic &mdash; not a generic
-          practice test. Subscribe to open it.
+          {latest && previous
+            ? moved > 0
+              ? `One set moved your prediction up ${Math.round(moved)} points, to ${latest.displayedRangeMinimum}–${latest.displayedRangeMaximum}. `
+              : `Your prediction is now ${latest.displayedRangeMinimum}–${latest.displayedRangeMaximum}. `
+            : ""}
+          Set {set.setNumber} is built from everything you just answered &mdash; the categories that cost you the most get the
+          most questions. Premium opens it, and every set after it.
         </p>
         <div className="mt-8">
           <QuestionProgressPips total={set.slots.length} completed={0} dimmed />
         </div>
-        <div className="mt-8">
+        <div className="mt-8 flex flex-wrap items-center gap-4">
           <LinkButton size="cta" href="/pricing">
-            View Plans
+            Unlock every set
           </LinkButton>
+          <span className="text-sm text-muted-foreground">$25/month at launch &middot; cancel anytime</span>
         </div>
       </PracticeShell>
     );
@@ -96,7 +110,7 @@ export default async function PracticePage() {
   return (
     <PracticeShell>
       <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-        Personalized from your performance.
+        {isFreePracticeSet(set.setNumber) ? "Free · personalized from your Diagnostic." : "Personalized from your performance."}
       </p>
       {/* The set number is the hero, at the same scale the dashboard gives the
           Score Prediction. It is the one number this page exists to state, and

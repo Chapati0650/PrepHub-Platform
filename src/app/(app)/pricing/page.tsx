@@ -21,8 +21,10 @@ const PREMIUM_FEATURES = [
   "Unlimited Personalized Practice Sets",
   "Every set rebuilt around your weakest categories",
   "Predicted SAT Score updated after every set",
-  "Session Review with written and video explanations",
-  "Per-category mastery that keeps updating",
+  "The 800 Club — the hardest questions in the bank",
+  "1v1 Rush — live head-to-head, start your own",
+  "College Apps — your list, deadlines and score fit",
+  "The Curriculum — video lessons as they're published",
 ] as const;
 
 // Display copy only. The amounts Stripe actually charges live on the Price
@@ -71,7 +73,7 @@ export default function PricingPage() {
           Unlock every <Marker>Practice Set</Marker>.
         </h1>
         <p className="mt-4 max-w-prose text-lg text-muted-foreground">
-          The 21-question Diagnostic is free. Everything it points you toward is Premium.
+          The Diagnostic and your first Practice Set are free. Every set after that is Premium.
         </p>
       </div>
 

@@ -38,10 +38,18 @@ export function SessionResults({
   data,
   loadQuestionDetail,
   backHref = "/home",
+  verdict,
+  continueLabel = "Continue Practice",
+  extra,
 }: {
   data: SessionResultsData;
   loadQuestionDetail: (itemId: string) => Promise<LoadedQuestion>;
   backHref?: string;
+  /** One or two sentences of analysis under the prediction — what the numbers mean. */
+  verdict?: string | null;
+  continueLabel?: string;
+  /** Rendered between the review and the navigation (e.g. the parent summary). */
+  extra?: React.ReactNode;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detailCache, setDetailCache] = useState<Map<string, LoadedQuestion>>(new Map());
@@ -122,6 +130,8 @@ export function SessionResults({
         )}
 
         {targetMessage && <p className="mt-4 text-sm">{targetMessage}</p>}
+
+        {verdict && <p className="mt-6 max-w-prose text-lg">{verdict}</p>}
 
         <p className="mt-6 text-xs text-muted-foreground">
           An estimate based on your PrepHub performance. Your actual SAT score may vary.
@@ -205,10 +215,12 @@ export function SessionResults({
         </div>
       </div>
 
+      {extra}
+
       {/* Navigation */}
       <div className="flex flex-col gap-3 border-t border-border pt-8 sm:flex-row-reverse sm:justify-end">
         <LinkButton size="cta" href={data.continueHref}>
-          Continue Practice
+          {continueLabel}
         </LinkButton>
         <LinkButton size="cta" variant="outline" href={backHref}>
           Back to Dashboard

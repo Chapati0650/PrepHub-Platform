@@ -92,10 +92,14 @@ export function SessionRunner(props: SessionRunnerProps) {
     if (position < items.length - 1) await goToPosition(position + 1);
   }
 
-  async function handleSubmit() {
-    if (!draft) return;
+  // A multiple-choice tap submits directly (the way the SAT's own Bluebook
+  // does not, but the way every student expects a phone to): choose →
+  // feedback → Next is two taps per question instead of three. Numeric
+  // answers keep an explicit Submit, since typing has no natural "done".
+  async function handleSubmit(answer: string = draft) {
+    if (!answer || submitting) return;
     setSubmitting(true);
-    const result = await props.submitAnswer(currentItem.id, draft);
+    const result = await props.submitAnswer(currentItem.id, answer);
     setItems((prev) =>
       prev.map((it) =>
         it.id === currentItem.id
@@ -124,6 +128,9 @@ export function SessionRunner(props: SessionRunnerProps) {
       if (firstUnanswered) await goToPosition(firstUnanswered.position);
     }
   }
+
+  const unansweredCount = items.filter((it) => !it.submitted).length;
+  const firstUnanswered = items.find((it) => !it.submitted) ?? null;
 
   const navItems = items.map((it) => ({
     position: it.position,
@@ -188,8 +195,11 @@ export function SessionRunner(props: SessionRunnerProps) {
                   <button
                     key={choice.id}
                     type="button"
-                    disabled={currentItem.submitted}
-                    onClick={() => updateDraft(choice.id)}
+                    disabled={currentItem.submitted || submitting}
+                    onClick={() => {
+                      updateDraft(choice.id);
+                      void handleSubmit(choice.id);
+                    }}
                     aria-pressed={isSelected}
                     className={[
                       "flex items-start gap-4 rounded-xl border p-4 text-left text-base transition-colors",
@@ -232,6 +242,9 @@ export function SessionRunner(props: SessionRunnerProps) {
                 type="text"
                 value={draft}
                 onChange={(e) => updateDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void handleSubmit();
+                }}
                 disabled={currentItem.submitted}
                 placeholder="Enter your answer"
                 aria-label="Your answer"
@@ -242,9 +255,11 @@ export function SessionRunner(props: SessionRunnerProps) {
 
           {!currentItem.submitted ? (
             <div className="mt-6 flex flex-wrap gap-3">
-              <Button size="cta" onClick={handleSubmit} disabled={!draft || submitting}>
-                {submitting ? "Submitting…" : "Submit answer"}
-              </Button>
+              {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && (
+                <Button size="cta" onClick={() => void handleSubmit()} disabled={!draft || submitting}>
+                  {submitting ? "Submitting…" : "Submit answer"}
+                </Button>
+              )}
               <Button size="cta" variant="ghost" onClick={handleSkip} disabled={submitting}>
                 Skip for now
               </Button>
@@ -279,6 +294,10 @@ export function SessionRunner(props: SessionRunnerProps) {
         </div>
       )}
 
+      {/* Finish appears only once every question is answered — shown from
+          question 1 it read as an exit, and a set can't be finished with
+          blanks anyway (PRD-005 §21). On the last question with blanks
+          left, the button instead jumps to the first one. */}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5">
         <div className="flex gap-1">
           <Button variant="ghost" disabled={position === 0} onClick={() => void goToPosition(position - 1)}>
@@ -288,9 +307,17 @@ export function SessionRunner(props: SessionRunnerProps) {
             Next
           </Button>
         </div>
-        <Button variant="outline" className="rounded-full" onClick={() => void handleFinish(false)} disabled={completing}>
-          {completing ? "Finishing…" : `Finish ${props.title}`}
-        </Button>
+        {unansweredCount === 0 ? (
+          <Button size="cta" onClick={() => void handleFinish(false)} disabled={completing}>
+            {completing ? "Finishing…" : `Finish ${props.title}`}
+          </Button>
+        ) : position === items.length - 1 ? (
+          <Button variant="outline" className="rounded-full" onClick={() => void goToPosition(firstUnanswered!.position)}>
+            {unansweredCount} left · go to question {firstUnanswered!.position + 1}
+          </Button>
+        ) : (
+          <span className="text-sm tabular-nums text-muted-foreground">{unansweredCount} left</span>
+        )}
       </div>
 
       {blankWarning !== null && (

@@ -19,26 +19,30 @@ export function uniqueEmail(): string {
   return `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
 }
 
-/** Signs up a fresh student, then drives the post-signup onboarding wizard
- *  (grade/target score/study commitment) to completion. Lands on /access —
- *  a new account has no subscription or school membership yet (PRD-002
- *  §5.1). Grade is collected in the wizard, not the signup form itself. */
+/** Signs up a fresh student. Lands on /diagnostic — since 2026-09-21 a new
+ *  account goes straight to the Diagnostic's intro screen; grade/target
+ *  score/study commitment are asked *after* the results (see
+ *  completeOnboardingAfterResults), and the access chooser is no longer in
+ *  the path. Terms/Privacy are accepted by creating the account; age is the
+ *  one checkbox. `grade` is kept for callers that drive onboarding later. */
 export async function signUpNewStudent(
   page: Page,
-  { email, password, grade }: { email: string; password: string; grade: "9th" | "10th" | "11th" | "12th" },
+  { email, password }: { email: string; password: string; grade: "9th" | "10th" | "11th" | "12th" },
 ) {
   await page.goto("/signup");
   await page.getByLabel("First name").fill("Ada");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("checkbox", { name: "I confirm I am 13 years of age or older" }).click();
-  await page.getByRole("checkbox", { name: "I agree to the Terms of Service" }).click();
-  await page.getByRole("checkbox", { name: "I agree to the Privacy Policy" }).click();
   await page.getByRole("button", { name: "Create account" }).click();
 
-  await expect(page).toHaveURL(/\/onboarding$/);
-  await page.getByRole("button", { name: "Continue" }).click(); // Welcome
+  await expect(page).toHaveURL(/\/diagnostic$/);
+}
 
+/** The three-step wizard that follows the Diagnostic results (grade, target
+ *  score, study commitment). Ends on /practice with the free first set. */
+export async function completeOnboardingAfterResults(page: Page, grade: "9th" | "10th" | "11th" | "12th") {
+  await expect(page).toHaveURL(/\/onboarding$/);
   await page.getByRole("button", { name: `${grade} Grade` }).click();
   await page.getByRole("button", { name: "Continue" }).click(); // Grade
 
@@ -46,9 +50,9 @@ export async function signUpNewStudent(
   await page.getByRole("button", { name: "Continue" }).click(); // Target Score
 
   await page.getByRole("button", { name: /10–15 minutes a day/ }).click();
-  await page.getByRole("button", { name: "Continue" }).click(); // Study Commitment
+  await page.getByRole("button", { name: "Open my free practice set" }).click(); // Study Commitment
 
-  await expect(page).toHaveURL(/\/access$/);
+  await expect(page).toHaveURL(/\/practice$/);
 }
 
 /** Logs in as the Owner account provisioned by `npx prisma db seed` (see
