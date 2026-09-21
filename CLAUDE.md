@@ -813,18 +813,22 @@ landing page to question 1. 38 students had a generated Set 1 sitting
 locked and never answered a practice question; 3 paid. The Owner approved
 the following, several of which deliberately override PRD text:
 
-- **Signup → `/diagnostic` → question 1.** `signUpAction` redirects to
-  `/diagnostic` (honoring the 1v1 Rush join cookie first); `/home` sends a
-  `NOT_STARTED` student straight there. The Diagnostic intro is **one
-  screen** (`intro-screens.tsx`): PRD-012 §6-§7's six informational
+- **Signup → `/onboarding` (three questions, no welcome step) → `/home`
+  → the Begin Diagnostic card → one intro screen → question 1.** The
+  Owner reversed two things the same day they shipped (2026-09-21): a
+  version that skipped the questions and sent a new account straight to
+  `/diagnostic`, and a `/home` that force-redirected a `NOT_STARTED`
+  student there. **A new student must be asked grade/target/commitment
+  first, and `/home` must never force the Diagnostic** — the card sits
+  inside the app shell so they can start it or look around. `/home`'s only
+  forced redirect is an unfinished onboarding. `signUpAction` still honors
+  the 1v1 Rush join cookie before anything else. The Diagnostic intro is
+  **one screen** (`intro-screens.tsx`): PRD-012 §6-§7's six informational
   screens and the effort screen are gone, their content folded into the
   three-item list and a closing sentence.
-- **Onboarding (grade / target / commitment) runs *after* the results.**
-  `/onboarding` redirects to `/diagnostic` unless the Diagnostic is
-  COMPLETED; the wizard starts on Grade (no welcome step) and its last
-  button opens the free set; `/home` sends a COMPLETED-but-unonboarded
-  student there. The results page's CTA is "Set your target score" until
-  then, "Start your free practice set" after.
+- **No price on the landing page** (Owner, 2026-09-21). "$8.25 a month"
+  is the annual plan's per-month figure and lives on `/pricing` only;
+  never put a number on `/`.
 - **`/access` is out of the path.** PRD-002 §5.1's chooser still exists for
   the school flow, but with school access hidden it was a "$25/month" card
   shown before any value. `needsAccessSelection` is no longer called from
@@ -837,6 +841,8 @@ the following, several of which deliberately override PRD text:
   Set 1 moved the prediction (last two `PredictionHistoryEntry` rows). The
   dashboard's one big button reads "Unlock Practice Set N" for a free
   student whose free set is done, and the pace line is hidden then.
+- **The results page's CTA is "Start your free practice set"** (with a
+  fallback to `/onboarding` for an account that somehow skipped it).
 - **The results page says what the numbers mean** — `diagnosticVerdict`
   (`src/lib/session/verdict.ts`, pure, tested) names the two weakest
   categories, the analysis the landing page promises — and offers a
@@ -853,9 +859,8 @@ the following, several of which deliberately override PRD text:
   logo.tsx's SVG needs CSS variables the renderer lacks), `sitemap.ts` and
   `robots.ts` (public pages only). Before this every shared link had no
   preview and the title was "PrepHub".
-- e2e: `signUpNewStudent` now lands on `/diagnostic`;
-  `completeOnboardingAfterResults` drives the post-results wizard. The
-  suite is timing-flaky against the dev server with parallel workers (a
+- e2e: `signUpNewStudent` drives the three questions and lands on `/home`.
+  The suite is timing-flaky against the dev server with parallel workers (a
   signup redirect can exceed the 5s URL assertion); `--workers=1` passes.
 - **Gotcha**: `redirect()` from `/home` arrives as a 200 with a streamed
   client-side redirect (the app shell streams before the page body runs),

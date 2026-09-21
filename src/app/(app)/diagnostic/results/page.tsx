@@ -12,8 +12,9 @@ import { loadDiagnosticQuestionDetailAction } from "../actions";
 // PRD-012 §23/§24 — the diagnostic's "standard completed-set results
 // experience," reusing PRD-007's Session Review component, plus the two
 // things this page is really for: the one-sentence analysis the landing
-// page promises, and the way forward — set a target (the onboarding
-// wizard, which now follows the results) and open the free first set.
+// page promises, and the way forward — the free first set. (Onboarding
+// runs before the Diagnostic; the fallback below only catches an account
+// that somehow skipped it.)
 export default async function DiagnosticResultsPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/home");

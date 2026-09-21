@@ -76,14 +76,12 @@ export async function signUpAction(_prev: ActionState, formData: FormData): Prom
     redirect(`/rush/join/${pendingRushCode}`);
   }
 
-  // Straight to the Diagnostic. Not /onboarding — grade, target score and
-  // study commitment now come *after* the results (see
-  // (app)/onboarding), where "set a target now that you know your score"
-  // is a question a student wants to answer; before it, they were three
-  // screens between a new account and the first question. Not /home
-  // either: /home would only redirect here, and every extra hop through a
-  // Server Action redirect has been a real failure source on this host.
-  redirect("/diagnostic");
+  // Straight to /onboarding — grade, target score and study commitment,
+  // three screens, no welcome step (Owner, 2026-09-21: a new account must
+  // be asked these before the Diagnostic, not after). Not /home: /home
+  // would only redirect here, and every extra hop through a Server Action
+  // redirect has been a real failure source on this host.
+  redirect("/onboarding");
 }
 
 export async function loginAction(_prev: ActionState, formData: FormData): Promise<ActionState> {

@@ -17,8 +17,8 @@ test.describe("billing (PRD-003)", () => {
 
     await expect(page.getByText(/you're subscribed/i)).toBeVisible();
     await page.getByRole("link", { name: "Go to Dashboard" }).click();
-    // A paid student who hasn't taken the Diagnostic is still sent to it.
-    await expect(page).toHaveURL(/\/diagnostic$/);
+    await expect(page).toHaveURL(/\/home$/);
+    await expect(page.getByRole("heading", { name: /Welcome, Ada/ })).toBeVisible();
 
     // Billing page reflects the purchase
     await page.goto("/billing");

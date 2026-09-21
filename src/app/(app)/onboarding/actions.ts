@@ -33,10 +33,10 @@ export async function completeOnboardingAction(input: CompleteOnboardingActionIn
     studyCommitment: parsed.studyCommitment,
   });
 
-  // Onboarding now follows the Diagnostic results, so the next thing is the
-  // free first Practice Set — not /access (the school-vs-individual chooser
-  // is hidden at launch, which made it a $25/month card shown to a
-  // brand-new student before they'd seen anything; 25 of 104 never started
-  // the Diagnostic behind it).
-  redirect("/practice");
+  // To the dashboard, which shows the Begin Diagnostic card with the rest
+  // of the app around it — a new student can start the Diagnostic or look
+  // around first (Owner, 2026-09-21). Not /access: the school-vs-individual
+  // chooser is hidden at launch, which made it a $25/month card shown to a
+  // brand-new student before they'd seen anything.
+  redirect("/home");
 }

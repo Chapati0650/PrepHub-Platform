@@ -96,9 +96,9 @@ function StepHeading({ step, title, children }: { step: number; title: ReactNode
 }
 
 export function OnboardingWizard() {
-  // Starts on Grade: this wizard now runs after the Diagnostic results, so
-  // the welcome screen's "answer three quick questions" preamble is one
-  // more screen between a student and their free practice set.
+  // Starts on Grade: the welcome screen's "answer three quick questions"
+  // preamble was one more screen before the first question, and the grade
+  // step can say the same thing in one line.
   const [step, setStep] = useState(FIRST_STEP);
   const [grade, setGrade] = useState<number | null>(null);
   const [targetScoreMidpoint, setTargetScoreMidpoint] = useState<number | null | undefined>(undefined);
@@ -168,7 +168,7 @@ export function OnboardingWizard() {
       {step === 1 && (
         <div className="flex flex-col gap-8">
           <StepHeading step={1} title="What grade are you in?">
-            You have your score. Three quick questions and your free practice set opens.
+            Three quick questions so PrepHub can personalize your plan.
           </StepHeading>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {GRADES.map((g) => (
@@ -236,7 +236,7 @@ export function OnboardingWizard() {
           </Button>
         ) : (
           <Button size="cta" onClick={handleFinish} disabled={!canContinue || pending}>
-            {pending ? "Saving…" : "Open my free practice set"}
+            {pending ? "Saving…" : "Finish"}
           </Button>
         )}
         {step > FIRST_STEP && (

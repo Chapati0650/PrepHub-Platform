@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { uniqueEmail, signUpNewStudent, completeOnboardingAfterResults, payWithTestCard } from "./helpers";
+import { uniqueEmail, signUpNewStudent, payWithTestCard } from "./helpers";
 
 // Answers every question in the current diagnostic/practice runner by always
 // picking the first answer choice — content correctness doesn't matter for
@@ -37,9 +37,10 @@ test.describe("Diagnostic + Practice loop (PRD-012, PRD-005, PRD-006, PRD-007)",
     const email = uniqueEmail();
     await signUpNewStudent(page, { email, password: "hunter2222", grade: "11th" });
 
-    // Signup lands on the Diagnostic's single intro screen (2026-09-21: the
-    // six informational screens and the access chooser are gone from the
-    // path — 16 screens to the first question became 4).
+    // From the dashboard's card to the Diagnostic's single intro screen
+    // (2026-09-21: the six informational screens and the access chooser are
+    // gone from the path).
+    await page.getByRole("link", { name: "Begin Diagnostic" }).click();
     await expect(page).toHaveURL(/\/diagnostic$/);
     await expect(page.getByText("Talent may affect where you begin.")).toBeVisible();
     await page.getByRole("button", { name: "Begin Diagnostic" }).click();
@@ -55,11 +56,9 @@ test.describe("Diagnostic + Practice loop (PRD-012, PRD-005, PRD-006, PRD-007)",
     await expect(page.getByText("Your Initial PrepHub Score Prediction")).toBeVisible();
     await expect(page.getByText(/^\d{3,4}–\d{3,4}$/)).toBeVisible();
 
-    // The results carry the one-sentence analysis and lead into the
-    // post-results wizard (grade / target / commitment).
+    // The results carry the one-sentence analysis.
     await expect(page.getByText(/losing the most points|close to even/)).toBeVisible();
-    await page.getByRole("link", { name: "Set your target score" }).click();
-    await completeOnboardingAfterResults(page, "11th");
+    await expect(page.getByRole("link", { name: "Start your free practice set" })).toBeVisible();
 
     // The dashboard shows the diagnostic-completed state.
     await page.goto("/home");

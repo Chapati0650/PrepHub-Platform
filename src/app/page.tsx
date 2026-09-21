@@ -111,7 +111,7 @@ function Hero() {
             </LinkButton>
           </div>
           <p className="mt-6 text-sm text-muted-foreground">
-            The Diagnostic and your first practice set are free — no card. Premium from $8.25 a month.
+            The Diagnostic and your first practice set are free — no card required.
           </p>
         </div>
 

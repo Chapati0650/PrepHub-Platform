@@ -17,8 +17,8 @@ test.describe("authentication (PRD-001)", () => {
     await page.getByLabel("Password").fill("hunter2222");
     await page.getByRole("button", { name: "Log in", exact: true }).click();
 
-    // hasn't started the Diagnostic, so /home sends them straight to it
-    await expect(page).toHaveURL(/\/diagnostic$/);
+    // onboarded, Diagnostic not started: /home shows the Begin Diagnostic card
+    await expect(page).toHaveURL(/\/home$/);
     await expect(page.getByRole("heading", { name: /starting point/ })).toBeVisible();
   });
 
@@ -35,8 +35,8 @@ test.describe("authentication (PRD-001)", () => {
 
     await page.goto("/signup");
     await fillSignupForm();
-    // A brand-new account lands on the Diagnostic intro, nothing in between.
-    await expect(page).toHaveURL(/\/diagnostic$/);
+    // A brand-new account lands on the three onboarding questions.
+    await expect(page).toHaveURL(/\/onboarding$/);
     await page.getByRole("button", { name: "Log out" }).click();
     await expect(page).toHaveURL(/\/login$/);
 
@@ -88,7 +88,7 @@ test.describe("authentication (PRD-001)", () => {
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password").fill("brand-new-pw1");
     await page.getByRole("button", { name: "Log in", exact: true }).click();
-    await expect(page).toHaveURL(/\/diagnostic$/);
+    await expect(page).toHaveURL(/\/home$/);
   });
 
   test("self-service account deletion requires the correct password and then blocks login", async ({

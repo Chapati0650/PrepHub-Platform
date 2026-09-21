@@ -18,10 +18,6 @@ export default async function OnboardingPage() {
     select: { onboardingCompletedAt: true },
   });
   if (user.onboardingCompletedAt) redirect("/home");
-  // Onboarding follows the Diagnostic (its first step asks for a target
-  // score, which only makes sense once there is a predicted one).
-  const diagnostic = await prisma.diagnosticSession.findUnique({ where: { studentId: session.user.id }, select: { status: true } });
-  if (diagnostic?.status !== "COMPLETED") redirect("/diagnostic");
 
   return <OnboardingWizard />;
 }

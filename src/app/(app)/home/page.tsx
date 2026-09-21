@@ -103,16 +103,13 @@ export default async function HomePage() {
   // surface) at the school that published them.
   const announcements = communitySchoolId ? await getActiveAnnouncementsForStudents(communitySchoolId) : [];
 
-  // A brand-new student goes straight to the Diagnostic — the intro screen
-  // there says everything the old "welcome back, begin diagnostic" card
-  // here said, one screen earlier. Grade/target/commitment come after the
-  // results (see (app)/onboarding), so a student who has finished the
-  // Diagnostic but not that wizard is sent there first. Scoped to STUDENT:
-  // administrators never sign up through the public flow.
-  if (isStudent && data.diagnosticStatus === "NOT_STARTED") redirect("/diagnostic");
-  if (isStudent && data.diagnosticStatus === "COMPLETED" && !onboarding?.onboardingCompletedAt) {
-    redirect("/onboarding");
-  }
+  // The only forced redirect here: a student who hasn't answered the three
+  // onboarding questions. A student who hasn't started the Diagnostic sees
+  // the Begin Diagnostic card below *with the app around it* — they can
+  // start it or look around first (Owner, 2026-09-21; an earlier version
+  // sent them straight to /diagnostic and was reversed the same day).
+  // Scoped to STUDENT: administrators never sign up through the public flow.
+  if (isStudent && !onboarding?.onboardingCompletedAt) redirect("/onboarding");
 
   // A friend's 1v1 Rush link opened while signed out (see middleware.ts):
   // a returning student who logged in lands here, so take them to the
@@ -140,11 +137,13 @@ export default async function HomePage() {
             Step one
           </p>
           <h1 className="mt-2 text-display-sm text-balance">
-            Welcome back, {data.firstName}. Let&apos;s find your <Marker>starting point</Marker>.
+            {data.diagnosticStatus === "IN_PROGRESS" ? "Welcome back" : "Welcome"}, {data.firstName}. Let&apos;s find your{" "}
+            <Marker>starting point</Marker>.
           </h1>
           <p className="mt-4 max-w-prose text-lg text-muted-foreground">
-            21 questions across every SAT category. It generates your first Predicted SAT Score range and the
-            practice plan everything after this is built from.
+            21 questions across every SAT category, about 20 minutes. It generates your first Predicted SAT Score range
+            and the practice plan everything after this is built from. The Diagnostic and your first practice set are
+            free.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-5">
