@@ -9,6 +9,7 @@ import { finalizeDiagnosticCompletion } from "@/lib/diagnostic/complete-diagnost
 import { DiagnosticError } from "@/lib/diagnostic/errors";
 import { getStudentQuestionContent, getStudentQuestionFeedback } from "@/lib/session/question-content";
 import { prisma } from "@/lib/prisma";
+import { FUNNEL_EVENTS, track } from "@/lib/analytics/track";
 import { logUnauthorizedAccess } from "@/lib/logger";
 
 async function requireStudentId(): Promise<string> {
@@ -42,6 +43,7 @@ function requireOwnedAttempt<T extends { diagnosticSession: { studentId: string 
 export async function beginDiagnosticAction() {
   const studentId = await requireStudentId();
   await startOrResumeDiagnostic(studentId);
+  void track(FUNNEL_EVENTS.DIAGNOSTIC_STARTED, { userId: studentId });
 }
 
 export async function loadDiagnosticQuestionAction(attemptId: string) {

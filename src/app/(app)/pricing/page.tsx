@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Marker } from "@/components/ui/marker";
 import { cn } from "@/lib/utils";
+import { PageViewBeacon } from "@/components/analytics/page-view-beacon";
 
 const initialState: ActionState = {};
 
@@ -67,6 +68,7 @@ export default function PricingPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-10 p-6 pb-16 sm:p-10">
+      <PageViewBeacon name="paywall_viewed" />
       <div>
         <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">PrepHub Premium</p>
         <h1 className="mt-3 text-display-sm text-balance">

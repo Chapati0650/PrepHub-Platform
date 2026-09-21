@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { createCheckoutSession, type Plan } from "@/lib/billing";
+import { FUNNEL_EVENTS, track } from "@/lib/analytics/track";
 import { BillingError } from "@/lib/billing/errors";
 
 export type ActionState = { error?: string };
@@ -18,6 +19,7 @@ export async function subscribeAction(_prev: ActionState, formData: FormData): P
 
   const origin = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
+  void track(FUNNEL_EVENTS.CHECKOUT_STARTED, { userId: session.user.id, path: "/pricing" });
   let checkoutUrl: string;
   try {
     checkoutUrl = await createCheckoutSession(session.user.id, plan satisfies Plan, origin);

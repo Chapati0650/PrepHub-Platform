@@ -2,11 +2,12 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { readPendingRushCode } from "@/lib/rush/pending-join";
-import { TrendingUp, Check, ChevronRight, Pencil } from "lucide-react";
+import { TrendingUp, Check, ChevronRight, Pencil, Flame } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPaidAccess } from "@/lib/entitlements";
 import { isFreePracticeSet } from "@/lib/practice/free-tier";
+import { getDailyStatus } from "@/lib/daily/challenge";
 import { getDashboardData } from "@/lib/dashboard/dashboard-data";
 import { getActiveAnnouncementsForStudents, type AnnouncementEntry } from "@/lib/announcements";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
@@ -93,6 +94,7 @@ export default async function HomePage() {
   // student: Set 1 is free, Set 2 on is where Premium starts.
   const activeSet = isStudent && !paidAccess ? await prisma.practiceSet.findFirst({ where: { studentId: session.user.id, status: "ACTIVE" }, select: { setNumber: true } }) : null;
   const canPractice = paidAccess || !activeSet || isFreePracticeSet(activeSet.setNumber);
+  const daily = isStudent ? await getDailyStatus(session.user.id) : { answeredToday: false, streak: 0 };
   const communitySchoolId = membership?.status === "ACTIVE" ? membership.schoolId : adminAssignment?.organizationId;
   const hasSchoolCommunity = Boolean(communitySchoolId);
 
@@ -200,6 +202,29 @@ export default async function HomePage() {
           )}
         </div>
       </section>
+
+      {/* The Daily Challenge — free for everyone, the reason to open the app
+          tomorrow. One row, not a panel: it is a door, not a dashboard. */}
+      {isStudent && (
+        <Link
+          href="/daily"
+          className="flex items-center justify-between gap-4 rounded-2xl border border-border px-5 py-4 transition-colors hover:border-foreground/30"
+        >
+          <span className="flex items-center gap-3">
+            <Flame className="size-5 shrink-0 text-primary" aria-hidden />
+            <span>
+              <span className="block font-medium">{daily.answeredToday ? "Today's challenge: done." : "Today's Daily Challenge"}</span>
+              <span className="block text-sm text-muted-foreground">
+                {daily.answeredToday ? "Come back tomorrow for the next one." : "One hard question, free, every day. No clock."}
+              </span>
+            </span>
+          </span>
+          <span className="shrink-0 text-right">
+            <span className="block font-heading text-xl font-semibold tabular-nums">{daily.streak}</span>
+            <span className="block text-xs text-muted-foreground">day streak</span>
+          </span>
+        </Link>
+      )}
 
       {/* This week — one bordered row of four numbers, the reference's
           Analytics strip. Cells divide with rules; the row is the only box. */}

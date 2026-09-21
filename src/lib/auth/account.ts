@@ -1,5 +1,6 @@
 import { randomBytes, createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { FUNNEL_EVENTS, track } from "@/lib/analytics/track";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { sendEmail } from "@/lib/email";
 import { CURRENT_PRIVACY_VERSION, CURRENT_TOS_VERSION } from "@/lib/legal";
@@ -15,6 +16,12 @@ function hashToken(token: string): string {
 /** PRD-001: email/password signup. Google-account matching happens separately
  *  in the Auth.js signIn flow (allowDangerousEmailAccountLinking), not here. */
 export async function createAccount(input: SignUpInput) {
+  const created = await createAccountRow(input);
+  void track(FUNNEL_EVENTS.SIGNED_UP, { userId: created.id, path: "/signup" });
+  return created;
+}
+
+async function createAccountRow(input: SignUpInput) {
   const existing = await prisma.user.findUnique({ where: { email: input.email } });
   if (existing) {
     throw new AuthError("EMAIL_TAKEN", "An account with this email already exists.");

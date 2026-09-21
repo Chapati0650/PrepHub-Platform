@@ -23,6 +23,7 @@ import {
   BookOpen,
   GraduationCap,
   Swords,
+  Flame,
 } from "lucide-react";
 import { Logo, LogoMark } from "@/components/logo";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ type NavItem = { href: string; label: string; icon: ComponentType<{ className?: 
 const STUDENT_ITEMS: NavItem[] = [
   { href: "/home", label: "Home", icon: LayoutDashboard },
   { href: "/practice", label: "Practice", icon: PencilLine },
+  { href: "/daily", label: "Daily Challenge", icon: Flame },
   { href: "/800-club", label: "800 Club", icon: Trophy },
   { href: "/rush", label: "1v1 Rush", icon: Swords },
   { href: "/curriculum", label: "The Curriculum", icon: BookOpen },
@@ -51,6 +53,7 @@ const ADMIN_ITEMS: NavItem[] = [
 ];
 
 const OWNER_ITEMS: NavItem[] = [
+  { href: "/owner/funnel", label: "Funnel", icon: TrendingUp },
   { href: "/owner/schools", label: "Schools", icon: Building2 },
   { href: "/owner/users", label: "Users", icon: Users },
   { href: "/owner/content/questions", label: "Content", icon: FileText },

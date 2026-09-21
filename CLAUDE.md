@@ -857,6 +857,39 @@ the following, several of which deliberately override PRD text:
   `completeOnboardingAfterResults` drives the post-results wizard. The
   suite is timing-flaky against the dev server with parallel workers (a
   signup redirect can exceed the 5s URL assertion); `--workers=1` passes.
+- **Gotcha**: `redirect()` from `/home` arrives as a 200 with a streamed
+  client-side redirect (the app shell streams before the page body runs),
+  so a Playwright `goto("/home")` reports `/home` until `waitForURL`
+  settles on the target. Not a bug; don't chase it.
+
+## Funnel analytics and the Daily Challenge (2026-09-21)
+
+- **First-party analytics** (`src/lib/analytics/`): no third-party script.
+  `track()` writes an `AnalyticsEvent` row, fire-and-forget (a failed write
+  never fails the operation), at the moments no table records — a paywall
+  view (locked practice gateway, pricing page), a checkout start, a daily
+  answer — plus `signed_up`/`diagnostic_started`/`diagnostic_completed`
+  as a timeline. `getFunnelReport` counts the funnel from the *source
+  tables* (User, DiagnosticSession, PracticeSet, Subscription) so the
+  numbers are right for months before events existed, and from events only
+  for paywall/checkout. Public pages (landing, auth, signup) and `/pricing`
+  mount `PageViewBeacon`, a `navigator.sendBeacon` to `/api/beacon`, which
+  accepts exactly two event names and stores the referrer's *host* only.
+  The Owner reads it at `/owner/funnel` (7/30/90 days, per-day signups,
+  referrers). Test accounts (`example.com`) are excluded everywhere.
+- **Daily Challenge** (`src/lib/daily/challenge.ts`, `/daily`): one
+  published HARD question per UTC day, the same for everyone, free for
+  every account — the free tier's reason to come back (5 of 105 students
+  had returned after day one). Picked on the day's first request, seeded
+  by the date, preferring questions no earlier day used, pinned in
+  `DailyChallenge` (unique on `day`; a lost insert race re-reads). One
+  attempt per student per day (`@@unique([challengeId, studentId])`); the
+  correct answer and explanation render only after this student's answer.
+  Streak = consecutive UTC days answered, not broken until a day is
+  actually missed (`streakFromDays`, pure, tested). Outside the adaptive
+  engine like the 800 Club and Rush. The dashboard shows a one-row door
+  to it; the answered state nudges free students toward the 800 Club.
+- Migration `20260921202200_add_daily_challenge_and_analytics`.
 
 ## Gotcha: next-themes hydration mismatch
 

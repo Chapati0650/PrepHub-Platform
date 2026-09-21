@@ -6,6 +6,7 @@ import { generatePracticeSet } from "@/lib/adaptive/generate-practice-set";
 import { generateDiagnosticPrediction } from "@/lib/score/generate-diagnostic-prediction";
 import { logGenerationFailure } from "@/lib/logger";
 import { DiagnosticError } from "./errors";
+import { FUNNEL_EVENTS, track } from "@/lib/analytics/track";
 
 // PRD-012 §22 / PRD-014 §5 — completing the diagnostic creates all seven
 // Category States before any adaptive set can be generated. Idempotent: a
@@ -61,6 +62,7 @@ export async function completeDiagnostic(studentId: string) {
 export async function finalizeDiagnosticCompletion(studentId: string) {
   const session = await completeDiagnostic(studentId);
   const prediction = await generateDiagnosticPrediction(studentId);
+  void track(FUNNEL_EVENTS.DIAGNOSTIC_COMPLETED, { userId: studentId });
 
   try {
     await generatePracticeSet(studentId);

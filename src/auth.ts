@@ -4,6 +4,7 @@ import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { FUNNEL_EVENTS, track } from "@/lib/analytics/track";
 import { verifyPassword } from "@/lib/password";
 import { sendWelcomeEmail } from "@/lib/auth/account";
 import { authConfig } from "./auth.config";
@@ -33,6 +34,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // Best-effort — mirrors the credentials-signup path in
       // src/lib/auth/account.ts's createAccount.
       await sendWelcomeEmail(user);
+      void track(FUNNEL_EVENTS.SIGNED_UP, { userId: user.id, path: "/api/auth/google-sign-in" });
       return { ...user, name: user.firstName };
     },
   },

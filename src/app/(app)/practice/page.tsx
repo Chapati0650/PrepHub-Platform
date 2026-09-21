@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { canOpenPracticeSet, isFreePracticeSet } from "@/lib/practice/free-tier";
+import { FUNNEL_EVENTS, track } from "@/lib/analytics/track";
 import { generatePracticeSet } from "@/lib/adaptive/generate-practice-set";
 import { LinkButton } from "@/components/ui/link-button";
 import { Marker } from "@/components/ui/marker";
@@ -69,6 +70,7 @@ export default async function PracticePage() {
   // from Set 2 on, right after the student has watched their prediction
   // move once — the strongest possible case for the next one.
   if (!(await canOpenPracticeSet(studentId, set.setNumber))) {
+    void track(FUNNEL_EVENTS.PAYWALL_VIEWED, { userId: studentId, path: "/practice" });
     const [latest, previous] = await prisma.predictionHistoryEntry.findMany({
       where: { studentId },
       orderBy: { createdAt: "desc" },

@@ -1,5 +1,6 @@
 import { Logo } from "@/components/logo";
 import { Marker } from "@/components/ui/marker";
+import { PageViewBeacon } from "@/components/analytics/page-view-beacon";
 
 // These pages have no per-request server data, so Next.js would otherwise
 // statically prerender and CDN-cache them — confirmed live via response
@@ -21,6 +22,7 @@ export const dynamic = "force-dynamic";
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col lg:flex-row">
+      <PageViewBeacon />
       <div className="flex flex-1 flex-col px-6 py-10 sm:px-10">
         <Logo size="lg" />
         <div className="flex flex-1 items-center justify-center py-10">

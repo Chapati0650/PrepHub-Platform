@@ -79,19 +79,21 @@ model User {
   performedEvents    MembershipHistoryEvent[]  @relation("PerformedBy")
   verificationTokens SchoolVerificationToken[]
 
-  categoryStates       CategoryState[]
-  practiceSets         PracticeSet[]
-  finalizedAttempts    FinalizedAttempt[]
-  diagnosticSession    DiagnosticSession?
-  predictionHistory    PredictionHistoryEntry[]
-  clubSessions         ClubSession[]
-  lessonProgress       LessonProgress[]
-  collegeAppsProfile   CollegeAppsProfile?
-  collegeApplications  CollegeApplication[]
-  applicationItems     ApplicationItem[]
-  rushChallenges       RushChallenge[]
-  rushRuns             RushRun[]
-  announcementsCreated Announcement[]
+  categoryStates         CategoryState[]
+  practiceSets           PracticeSet[]
+  finalizedAttempts      FinalizedAttempt[]
+  diagnosticSession      DiagnosticSession?
+  predictionHistory      PredictionHistoryEntry[]
+  clubSessions           ClubSession[]
+  lessonProgress         LessonProgress[]
+  collegeAppsProfile     CollegeAppsProfile?
+  collegeApplications    CollegeApplication[]
+  applicationItems       ApplicationItem[]
+  rushChallenges         RushChallenge[]
+  rushRuns               RushRun[]
+  dailyChallengeAttempts DailyChallengeAttempt[]
+  analyticsEvents        AnalyticsEvent[]
+  announcementsCreated   Announcement[]
 
   @@map("users")
 }
@@ -536,6 +538,7 @@ model Question {
   finalizedAttempts  FinalizedAttempt[]
   clubSlots          ClubSlot[]
   rushSlots          RushSlot[]
+  dailyChallenges    DailyChallenge[]
 
   @@index([sourceImageHash])
   @@map("questions")
@@ -594,6 +597,7 @@ model QuestionRevision {
   diagnosticAttempts DiagnosticAttempt[]
   clubSlots          ClubSlot[]
   rushSlots          RushSlot[]
+  dailyChallenges    DailyChallenge[]
 
   @@map("question_revisions")
 }
@@ -1326,4 +1330,71 @@ model RushAnswer {
 
   @@unique([runId, position])
   @@map("rush_answers")
+}
+
+// ---------------------------------------------------------------------------
+// Daily Challenge — one hard question a day, free for every account (Owner
+// decision, 2026-09-21: the free tier needed something to come back for;
+// 5 of 105 students had returned after day one). The day's question is
+// chosen once (first request of the UTC day, seeded by the date) and
+// pinned here so everyone gets the same one and the review page can
+// always show it. Attempts are outside the adaptive engine, like the 800
+// Club and Rush: a single daily answer must never move an ability score.
+// ---------------------------------------------------------------------------
+
+model DailyChallenge {
+  id                 String   @id @default(cuid())
+  day                String   @unique // YYYY-MM-DD, UTC
+  questionId         String
+  questionRevisionId String
+  createdAt          DateTime @default(now())
+
+  question         Question                @relation(fields: [questionId], references: [id])
+  questionRevision QuestionRevision        @relation(fields: [questionRevisionId], references: [id])
+  attempts         DailyChallengeAttempt[]
+
+  @@map("daily_challenges")
+}
+
+model DailyChallengeAttempt {
+  id          String   @id @default(cuid())
+  challengeId String
+  studentId   String
+  answer      String
+  isCorrect   Boolean
+  answeredAt  DateTime @default(now())
+
+  challenge DailyChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  student   User           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([challengeId, studentId])
+  @@index([studentId, answeredAt])
+  @@map("daily_challenge_attempts")
+}
+
+// ---------------------------------------------------------------------------
+// First-party funnel events (2026-09-21). No third-party analytics: the
+// funnel is six server-side events written where the thing actually
+// happens (signup, diagnostic started/completed, paywall viewed, checkout
+// started, subscribed) plus a page-view beacon for the public pages, read
+// back by the Owner's Funnel page. Server-side, so ad blockers don't hide
+// the numbers that matter; a beacon only for the pages a session can't
+// identify. `userId` is nullable and cascades on delete — account deletion
+// is anonymizing (PRD-001), and an event row is not learning history.
+// ---------------------------------------------------------------------------
+
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  name      String
+  userId    String?
+  path      String?
+  referrer  String?
+  utmSource String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([name, createdAt])
+  @@index([userId])
+  @@map("analytics_events")
 }

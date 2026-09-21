@@ -1,3 +1,4 @@
+import { PageViewBeacon } from "@/components/analytics/page-view-beacon";
 // This page has no per-request server data, so Next.js would otherwise
 // statically prerender and CDN-cache it — confirmed live via response
 // headers showing a ~1-year Netlify Durable cache TTL. See the matching
@@ -8,5 +9,10 @@
 export const dynamic = "force-dynamic";
 
 export default function SignUpLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return (
+    <>
+      <PageViewBeacon />
+      {children}
+    </>
+  );
 }

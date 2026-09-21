@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { PageViewBeacon } from "@/components/analytics/page-view-beacon";
 import { LinkButton } from "@/components/ui/link-button";
 import { Marker } from "@/components/ui/marker";
 import { LandingVideoCard } from "./landing-videos";
@@ -41,6 +42,7 @@ export default async function RootPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      <PageViewBeacon />
       <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-background/85 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
           <Logo size="lg" />
