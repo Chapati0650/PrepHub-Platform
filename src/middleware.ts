@@ -35,6 +35,16 @@ import { RUSH_JOIN_COOKIE, RUSH_JOIN_COOKIE_MAX_AGE } from "@/lib/rush/join-cook
 // whatever the actual page/action does with the session in the same request.
 const isAppRoute = (pathname: string) => pathname.startsWith("/home") || pathname.startsWith("/settings");
 
+// The landing page's "already signed in? go to the product" redirect lives
+// here rather than in the page (2026-09-28). `auth()` in a Server Component
+// makes its route dynamic, so that one call forced a Node function to boot
+// and server-render the marketing page for *every* visitor, including the
+// first-timer with no session at all — measured on production at a 1.59s
+// TTFB cold versus 0.42s warm. Deciding it here instead lets `/` be a
+// prerendered, CDN-served page. Middleware only decodes the JWT cookie (no
+// database), so the signed-out path stays cheap.
+const isLanding = (pathname: string) => pathname === "/";
+
 // A friend's 1v1 Rush link (/rush/join/<code>) is the one URL a person with
 // no account is expected to open. Signed out, they go to signup with the
 // code kept in a cookie so /home can bring them back to the challenge once
@@ -46,13 +56,22 @@ const joinCodeOf = (pathname: string) => pathname.match(/^\/rush\/join\/([A-Za-z
 export default async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const joinCode = joinCodeOf(pathname);
-  if (!isAppRoute(pathname) && !joinCode) return NextResponse.next();
+  if (!isAppRoute(pathname) && !joinCode && !isLanding(pathname)) return NextResponse.next();
 
   const token = await getToken({
     req,
     secret: process.env.AUTH_SECRET,
     secureCookie: req.nextUrl.protocol === "https:",
   });
+
+  // `userId` (not the bare token) is the "really signed in" signal, matching
+  // what the page used to check: a deleted account's cookie still decodes
+  // until it expires, and its jwt callback returns an empty token — such a
+  // visitor should see the landing page, not bounce through /home.
+  if (isLanding(pathname)) {
+    if (token?.userId) return NextResponse.redirect(new URL("/home", req.url));
+    return NextResponse.next();
+  }
 
   if (joinCode) {
     if (token) {

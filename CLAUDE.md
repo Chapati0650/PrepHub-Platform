@@ -928,6 +928,49 @@ Netlify, and `prephubtp.com` verified in Resend. Test accounts
 (`example.com`) never receive lifecycle mail. Migration
 `20260921204113_add_email_sends`.
 
+## Page performance (2026-09-30, measured on production)
+
+Production TTFB was 0.42s warm but **1.59s cold**, and with only a few
+signups a day nearly every real visitor got the cold path.
+
+- **The landing page is prerendered** (`export const revalidate = 86400`)
+  and its "already signed in → /home" redirect lives in `src/middleware.ts`.
+  `auth()` in a Server Component makes the whole route dynamic, so that one
+  call forced a Node function to boot and server-render the marketing page
+  for every visitor, including first-timers with no session. The build now
+  shows `○ /` rather than `ƒ /`; locally it serves in 18–33ms against
+  ~600ms for a dynamic page. **Don't reintroduce `auth()`, `cookies()` or
+  `headers()` into `src/app/page.tsx`** — one call silently un-prerenders
+  it. Middleware only decodes the JWT cookie (no database) and checks
+  `token.userId`, matching what the page used to check: a deleted account's
+  cookie still decodes until it expires, so the bare token isn't enough.
+  Verified: signed out, signed in, after logout, and with a garbage session
+  cookie — all correct, no redirect loop.
+- **`hasPaidAccess` and `getAccessSummary` are wrapped in React `cache()`**,
+  memoized per request. The app shell calls `hasPaidAccess` on every
+  authenticated render to decide the Upgrade row, and most pages call it
+  again to gate themselves — `curriculum/queries.ts` alone called it three
+  times in one render, at three queries each. Outside a React request scope
+  (vitest, a cron route) `cache` degrades to a plain call rather than
+  throwing; the entitlements unit tests exercise exactly that and pass.
+- **`decidePaidAccess(role, subscription, membership)`** is the pure verdict;
+  `hasPaidAccess` is the fetching wrapper around it. `/home` calls the pure
+  one with rows it already loads, which is why its membership query now uses
+  `include: { organization: true }`. The entitlement rule still lives in one
+  place (PRD-017 §12) — only the fetching is skipped.
+- **The two study-streak scans are bounded** to `STREAK_HORIZON_MS` (two
+  years). They previously fetched a student's entire answer history on every
+  dashboard render to compute a number that only depends on the unbroken run
+  of days ending today.
+- Measured queries per render, before → after (student with a completed
+  Diagnostic): `/home` 29 → 26, `/daily` 17 → 14, `/curriculum` 11 → 8,
+  `/800-club` 13 → 10, `/rush` 15 → 12.
+- **Still outstanding, needs the Owner**: the production `DATABASE_URL` is
+  Neon's *direct* endpoint, not the `-pooler` one, so every cold serverless
+  instance opens a fresh Postgres connection (measured 693ms). And Neon is
+  in `us-east-2` while Netlify functions default to `us-east-1`, so every
+  query crosses regions.
+
 ## Gotcha: next-themes hydration mismatch
 
 `next-themes`' `useTheme()` reads the persisted theme from `localStorage`

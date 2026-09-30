@@ -140,11 +140,16 @@ export function streakFromDays(days: ReadonlySet<string>, today: string): number
 }
 
 // For the dashboard row: answered today? and the streak. Doesn't create
-// the day's challenge — the /daily page does that on first visit.
+// the day's challenge — the /daily page does that on first visit. One query
+// answers both, since the streak already needs the set of days answered.
 export async function getDailyStatus(studentId: string): Promise<{ answeredToday: boolean; streak: number }> {
-  const [today, streak] = await Promise.all([
-    prisma.dailyChallengeAttempt.findFirst({ where: { studentId, challenge: { day: dayKey() } }, select: { id: true } }),
-    getStreak(studentId),
-  ]);
-  return { answeredToday: today !== null, streak };
+  const today = dayKey();
+  const attempts = await prisma.dailyChallengeAttempt.findMany({
+    where: { studentId },
+    select: { challenge: { select: { day: true } } },
+    orderBy: { answeredAt: "desc" },
+    take: 400,
+  });
+  const days = new Set(attempts.map((a) => a.challenge.day));
+  return { answeredToday: days.has(today), streak: streakFromDays(days, today) };
 }

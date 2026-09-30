@@ -20,6 +20,9 @@ export type DashboardData = {
 };
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+// Two years: longer than any streak this product can have produced, and it
+// keeps the streak query from scanning a student's entire answer history.
+const STREAK_HORIZON_MS = 730 * 24 * 60 * 60 * 1000;
 
 export async function getDashboardData(studentId: string): Promise<DashboardData> {
   const [user, diagnostic] = await Promise.all([
@@ -45,6 +48,9 @@ export async function getDashboardData(studentId: string): Promise<DashboardData
   }
 
   const since = new Date(Date.now() - WEEK_MS);
+  // A study streak can only be as long as the run of consecutive days ending
+  // today, so anything older than this window is irrelevant to it.
+  const streakHorizon = new Date(Date.now() - STREAK_HORIZON_MS);
 
   const [
     latestPrediction,
@@ -65,9 +71,16 @@ export async function getDashboardData(studentId: string): Promise<DashboardData
     prisma.diagnosticAttempt.count({ where: { diagnosticSession: { studentId }, submittedAt: { gte: since } } }),
     prisma.finalizedAttempt.count({ where: { studentId } }),
     prisma.diagnosticAttempt.count({ where: { diagnosticSession: { studentId }, submittedAt: { not: null } } }),
-    prisma.finalizedAttempt.findMany({ where: { studentId }, select: { finalizedAt: true } }),
+    // Only for the study streak, which walks back from today until it finds
+    // a gap — so dates older than the longest possible streak can't change
+    // the answer. Bounded because these were unbounded scans that grew with
+    // every question a student had ever answered (2026-09-28).
+    prisma.finalizedAttempt.findMany({
+      where: { studentId, finalizedAt: { gte: streakHorizon } },
+      select: { finalizedAt: true },
+    }),
     prisma.diagnosticAttempt.findMany({
-      where: { diagnosticSession: { studentId }, submittedAt: { not: null } },
+      where: { diagnosticSession: { studentId }, submittedAt: { gte: streakHorizon } },
       select: { submittedAt: true },
     }),
     prisma.practiceSet.findMany({

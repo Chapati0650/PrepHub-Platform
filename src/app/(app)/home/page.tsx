@@ -5,7 +5,7 @@ import { readPendingRushCode } from "@/lib/rush/pending-join";
 import { TrendingUp, Check, ChevronRight, Pencil, Flame } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { hasPaidAccess } from "@/lib/entitlements";
+import { decidePaidAccess } from "@/lib/entitlements";
 import { isFreePracticeSet } from "@/lib/practice/free-tier";
 import { getDailyStatus } from "@/lib/daily/challenge";
 import { getDashboardData } from "@/lib/dashboard/dashboard-data";
@@ -71,10 +71,13 @@ export default async function HomePage() {
 
   const isAdmin = session.user.role === "SCHOOL_ADMINISTRATOR";
   const isStudent = session.user.role === "STUDENT";
-  const [data, membership, adminAssignment, profile, paidAccess] = await Promise.all([
+  const [data, membership, adminAssignment, profile, subscription] = await Promise.all([
     getDashboardData(session.user.id),
+    // Loaded with its organization because the entitlement decision needs
+    // the contract dates — this one row now answers both "which school?"
+    // and "do they have school-sponsored access?".
     !isAdmin
-      ? prisma.studentMembership.findUnique({ where: { studentId: session.user.id }, select: { status: true, schoolId: true } })
+      ? prisma.studentMembership.findUnique({ where: { studentId: session.user.id }, include: { organization: true } })
       : null,
     isAdmin
       ? prisma.administratorAssignment.findFirst({
@@ -86,9 +89,13 @@ export default async function HomePage() {
       select: { onboardingCompletedAt: true, targetScore: true },
     }),
     // The Premium panel is presentational, but it must agree with the real
-    // entitlement — administrators have inherent access and never see it.
-    hasPaidAccess(session.user.id),
+    // entitlement, so the verdict comes from the one decision function
+    // (decidePaidAccess) rather than a second guess — just without the three
+    // duplicate queries hasPaidAccess would re-issue for rows this page has
+    // already loaded.
+    prisma.subscription.findUnique({ where: { userId: session.user.id } }),
   ]);
+  const paidAccess = decidePaidAccess(session.user.role ?? null, subscription, membership);
   const onboarding = isStudent ? profile : null;
   // Which set is next decides what the one big button says for a free
   // student: Set 1 is free, Set 2 on is where Premium starts.

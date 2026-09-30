@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { getAccessSummary, hasPaidAccess } from "@/lib/entitlements";
+import { decidePaidAccess, getAccessSummary, hasPaidAccess } from "@/lib/entitlements";
 import { prisma } from "@/lib/prisma";
 
 vi.mock("@/lib/prisma", () => ({
@@ -38,6 +38,42 @@ function activeOrg(
     ...overrides,
   };
 }
+
+// The pure decision behind hasPaidAccess. The dashboard calls this directly
+// with rows it has already loaded, so it needs coverage of its own rather
+// than only through the fetching wrapper.
+describe("decidePaidAccess", () => {
+  const activeSub = { status: "ACTIVE", currentPeriodEnd: null, gracePeriodEndsAt: null, cancelAtPeriodEnd: false } as never;
+
+  it("is false for a student with nothing", () => {
+    expect(decidePaidAccess("STUDENT", null, null)).toBe(false);
+  });
+
+  it("is true for an active individual subscription", () => {
+    expect(decidePaidAccess("STUDENT", activeSub, null)).toBe(true);
+  });
+
+  it("is true for an active school membership", () => {
+    const membership = { status: "ACTIVE", expectedGraduationYear: new Date().getFullYear() + 1, organization: activeOrg() } as never;
+    expect(decidePaidAccess("STUDENT", null, membership)).toBe(true);
+  });
+
+  it("is true for a School Administrator with neither (PRD-011 §7)", () => {
+    expect(decidePaidAccess("SCHOOL_ADMINISTRATOR", null, null)).toBe(true);
+  });
+
+  it("is false for an unknown or missing role with nothing", () => {
+    expect(decidePaidAccess(null, null, null)).toBe(false);
+    expect(decidePaidAccess("OWNER", null, null)).toBe(false);
+  });
+
+  it("agrees with hasPaidAccess for the same rows", async () => {
+    mockUser.mockResolvedValue({ role: "STUDENT" });
+    mockSubscription.mockResolvedValue(activeSub);
+    mockMembership.mockResolvedValue(null);
+    expect(await hasPaidAccess("u1")).toBe(decidePaidAccess("STUDENT", activeSub, null));
+  });
+});
 
 describe("hasPaidAccess", () => {
   it("is false with no subscription and no school membership", async () => {

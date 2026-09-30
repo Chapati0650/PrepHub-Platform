@@ -1,6 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { PageViewBeacon } from "@/components/analytics/page-view-beacon";
 import { LinkButton } from "@/components/ui/link-button";
 import { Marker } from "@/components/ui/marker";
@@ -32,14 +30,14 @@ import { DiagnosticVisual, MasteryVisual } from "./landing-visuals";
 // are deliberately no testimonials, no student names, no university logos and
 // no score-improvement statistics — the reference site leans on all four, and
 // inventing any of them would be fabricated social proof.
-export default async function RootPage() {
-  const session = await auth();
-  // `session.user.id` (not the bare `session.user` object) is the real
-  // "authenticated" signal: a just-deleted account's jwt callback returns an
-  // empty token (see src/auth.ts), which Auth.js still surfaces as a truthy
-  // — but id-less — session.user for that one stale request.
-  if (session?.user?.id) redirect("/home");
+// Prerendered and revalidated daily: there is no per-visitor content on this
+// page, and the signed-in redirect now happens in middleware (see
+// src/middleware.ts for why). The only server work left is the cached
+// YouTube lookup in CredibilityBand, which refreshes in the background
+// rather than on a visitor's request.
+export const revalidate = 86400;
 
+export default function RootPage() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <PageViewBeacon />

@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -7,7 +8,14 @@ import { prisma } from "@/lib/prisma";
  *   hasPaidAccess = hasActiveIndividualSubscription OR hasActiveSchoolEntitlement
  *     OR (PRD-011 §7) the user is a School Administrator, always
  */
-export async function hasPaidAccess(userId: string): Promise<boolean> {
+// Memoized per request (React `cache`). The app shell calls this on every
+// authenticated page render to decide the Upgrade row, and most pages then
+// call it again to gate themselves — `curriculum/queries.ts` alone called it
+// three times in one render. Each call was three database round trips, so a
+// single page view could spend nine on one question whose answer cannot
+// change mid-request. The cache is per request, so a subscription that
+// changes between requests is still picked up immediately.
+export const hasPaidAccess = cache(async (userId: string): Promise<boolean> => {
   const [user, subscription, membership] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { role: true } }),
     prisma.subscription.findUnique({ where: { userId } }),
@@ -17,11 +25,29 @@ export async function hasPaidAccess(userId: string): Promise<boolean> {
     }),
   ]);
 
+  return decidePaidAccess(user?.role ?? null, subscription, membership);
+});
+
+/**
+ * The decision itself, with no database access — so a page that has already
+ * loaded the role, subscription and membership can reach the same verdict
+ * without a second round trip. `hasPaidAccess` above is the fetching wrapper
+ * and stays the default; this exists because the dashboard was issuing three
+ * duplicate queries per render (2026-09-28). Callers must pass rows loaded
+ * the same way `hasPaidAccess` loads them — in particular a membership with
+ * its `organization` included — and the entitlement rule still lives in
+ * exactly one place, which is the invariant that matters (PRD-017 §12).
+ */
+export function decidePaidAccess(
+  role: string | null,
+  subscription: SubscriptionRow,
+  membership: MembershipRow,
+): boolean {
   // PRD-011 §7: an Administrator "can use the full PrepHub student experience
   // for testing and evaluation" — unconditionally, not tied to their own
   // school's contract/billing status, since they have neither a subscription
   // nor a StudentMembership of their own to check.
-  if (user?.role === "SCHOOL_ADMINISTRATOR") return true;
+  if (role === "SCHOOL_ADMINISTRATOR") return true;
 
   return (
     hasActiveIndividualSubscription(subscription) || hasActiveSchoolEntitlement(membership)
@@ -101,7 +127,7 @@ export type AccessSummary =
 // paid access, not just the hasPaidAccess boolean. Built from the same
 // private helpers as hasPaidAccess so this stays the one place that logic
 // lives, per PRD-017 §12 — no separate re-derivation.
-export async function getAccessSummary(userId: string): Promise<AccessSummary> {
+export const getAccessSummary = cache(async (userId: string): Promise<AccessSummary> => {
   const [subscription, membership] = await Promise.all([
     prisma.subscription.findUnique({ where: { userId } }),
     prisma.studentMembership.findUnique({
@@ -117,4 +143,4 @@ export async function getAccessSummary(userId: string): Promise<AccessSummary> {
     return { type: "INDIVIDUAL", subscription: subscription! };
   }
   return { type: "NONE" };
-}
+});
