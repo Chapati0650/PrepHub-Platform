@@ -13,6 +13,8 @@ import {
   confirmPasswordResetSchema,
 } from "@/lib/validation/auth";
 import { createAccount, requestPasswordReset, confirmPasswordReset } from "@/lib/auth/account";
+import { isPartnerDomainEmail } from "@/lib/district/enrollment";
+import { requestSchoolVerification } from "@/lib/school-verification";
 import { AuthError } from "@/lib/auth/errors";
 import { checkRateLimitEnforced, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
 import { logAuthFailure, logRateLimitExceeded } from "@/lib/logger";
@@ -45,11 +47,29 @@ export async function signUpAction(_prev: ActionState, formData: FormData): Prom
     return { error: TOO_MANY_REQUESTS_MESSAGE };
   }
 
+  let created: Awaited<ReturnType<typeof createAccount>>;
   try {
-    await createAccount(parsed.data);
+    created = await createAccount(parsed.data);
   } catch (err) {
     if (err instanceof AuthError) return { error: err.message };
     throw err;
+  }
+
+  // Signing up with a school address on a partner district's domain: send the
+  // confirmation link straight away, so it is already waiting by the time the
+  // three onboarding questions are done.
+  //
+  // Credentials signup verifies no email at all — anyone could type an
+  // address at a partner domain — so this path cannot auto-enroll the way a
+  // Google Workspace sign-in does. One click in their inbox is the smallest
+  // honest version of it. Best-effort: a student who never clicks still has a
+  // working account, and /home shows them the prompt again.
+  if (await isPartnerDomainEmail(created.email)) {
+    try {
+      await requestSchoolVerification(created.id, created.email);
+    } catch {
+      // Already-linked email, inactive partner, etc. — never fail the signup.
+    }
   }
 
   // Immediately sign in the newly-created account rather than making the

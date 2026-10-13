@@ -287,6 +287,28 @@ export default async function SettingsPage() {
                       </>
                     )}
                   </Card>
+                  {/* The way into the school-access flow for a student whose
+                      district is a partner but who signed up with a personal
+                      address. It used to live on /access, which nothing has
+                      linked to since the signup funnel was shortened — so the
+                      flow existed but was unreachable. It belongs here and not
+                      in the new-student path: a chooser shown before a student
+                      has seen any value is what got it pulled in the first
+                      place. */}
+                  {accessSummary?.type !== "SCHOOL" && (
+                    <Card className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-lg font-semibold">Does your school provide PrepHub?</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          If your district partners with us, confirm your school email to get full access at no cost
+                          to you.
+                        </p>
+                      </div>
+                      <LinkButton variant="outline" className="shrink-0 rounded-full" href="/access/verify-school">
+                        Connect school access
+                      </LinkButton>
+                    </Card>
+                  )}
                 </Section>
               )}
 

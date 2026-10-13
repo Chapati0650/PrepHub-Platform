@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Check, Lock, Plus } from "lucide-react";
 import { auth } from "@/auth";
+import { COLLEGE_APPS_ENABLED } from "@/lib/features";
 import { canUseStudentExperience } from "@/lib/access";
 import { hasPaidAccess } from "@/lib/entitlements";
 import { getTracker, type TrackerApplication } from "@/lib/college-apps/tracker";
@@ -18,6 +19,11 @@ import { toggleItemAction } from "./actions";
 // deadline-first; freshmen and sophomores get "what this year is for" and
 // can start a list.
 export default async function CollegeAppsPage() {
+  // Hidden from the student experience (src/lib/features.ts). Redirect rather
+  // than 404 so a link already shared still lands somewhere sensible; the
+  // tracker data is untouched and returns intact when the flag flips.
+  if (!COLLEGE_APPS_ENABLED) redirect("/home");
+
   const session = await auth();
   if (!session?.user?.id) redirect("/home");
   if (!canUseStudentExperience(session.user.role)) redirect("/home");

@@ -6,6 +6,7 @@ import { TrendingUp, Check, ChevronRight, Pencil, Flame } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { decidePaidAccess } from "@/lib/entitlements";
+import { ensureDistrictMembership, isPartnerDomainEmail } from "@/lib/district/enrollment";
 import { isFreePracticeSet } from "@/lib/practice/free-tier";
 import { getDailyStatus } from "@/lib/daily/challenge";
 import { getDashboardData } from "@/lib/dashboard/dashboard-data";
@@ -86,7 +87,11 @@ export default async function HomePage() {
       : null,
     prisma.user.findUniqueOrThrow({
       where: { id: session.user.id },
-      select: { onboardingCompletedAt: true, targetScore: true },
+      // email/emailVerified ride along for the district check below — the
+      // session's copy isn't explicitly refreshed in the jwt callback, and
+      // this row is already being fetched, so reading them here is both
+      // authoritative and free.
+      select: { onboardingCompletedAt: true, targetScore: true, email: true, emailVerified: true },
     }),
     // The Premium panel is presentational, but it must agree with the real
     // entitlement, so the verdict comes from the one decision function
@@ -95,14 +100,43 @@ export default async function HomePage() {
     // already loaded.
     prisma.subscription.findUnique({ where: { userId: session.user.id } }),
   ]);
-  const paidAccess = decidePaidAccess(session.user.role ?? null, subscription, membership);
+  // District auto-enrollment, caught up lazily. Covers accounts that existed
+  // before their district became a partner, and Google sign-ins that never
+  // passed through onboarding's hook. Deliberately costs nothing in the
+  // common case: a student who already has a membership or a subscription
+  // never reaches it, and `isPartnerDomainEmail` answers from an in-process
+  // cache rather than a query, so an individual student adds no round trips.
+  let schoolMembership = membership;
+  let districtAccessPending = false;
+  if (
+    isStudent &&
+    !membership &&
+    !subscription &&
+    (await isPartnerDomainEmail(profile.email))
+  ) {
+    const outcome = await ensureDistrictMembership(session.user.id);
+    if (outcome === "CREATED") {
+      schoolMembership = await prisma.studentMembership.findUnique({
+        where: { studentId: session.user.id },
+        include: { organization: true },
+      });
+    }
+    // Signed up with a school address but the provider never verified it
+    // (credentials, not Google SSO). Free access is genuinely waiting for
+    // them — one click in the inbox — so this prompt replaces what would
+    // otherwise be an upgrade pitch aimed at a student whose district has
+    // already paid.
+    districtAccessPending = outcome === "NEEDS_EMAIL_VERIFICATION";
+  }
+  const paidAccess = decidePaidAccess(session.user.role ?? null, subscription, schoolMembership);
   const onboarding = isStudent ? profile : null;
   // Which set is next decides what the one big button says for a free
   // student: Set 1 is free, Set 2 on is where Premium starts.
   const activeSet = isStudent && !paidAccess ? await prisma.practiceSet.findFirst({ where: { studentId: session.user.id, status: "ACTIVE" }, select: { setNumber: true } }) : null;
   const canPractice = paidAccess || !activeSet || isFreePracticeSet(activeSet.setNumber);
   const daily = isStudent ? await getDailyStatus(session.user.id) : { answeredToday: false, streak: 0 };
-  const communitySchoolId = membership?.status === "ACTIVE" ? membership.schoolId : adminAssignment?.organizationId;
+  const communitySchoolId =
+    schoolMembership?.status === "ACTIVE" ? schoolMembership.schoolId : adminAssignment?.organizationId;
   const hasSchoolCommunity = Boolean(communitySchoolId);
 
   // PRD-011 §16 — school announcements appear inside PrepHub for every
@@ -170,6 +204,7 @@ export default async function HomePage() {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-8 p-4 pb-16 sm:p-8">
       <AnnouncementsBanner announcements={announcements} />
+      {districtAccessPending && <ClaimSchoolAccessBanner />}
 
       {/* Greeting row — the reference's "Good late night, <name>" with the
           day's two actions directly under it, and the streak where it keeps
@@ -452,6 +487,26 @@ function OwnerEntry({
       <p className="font-heading text-lg font-semibold">{title}</p>
       <p className="text-sm text-muted-foreground">{description}</p>
     </Link>
+  );
+}
+
+// Shown to a student whose email is on a partner district's domain but whose
+// address was never provider-verified. Their school has already paid, so this
+// is a claim prompt, not an upsell — the one surface-tint band on the page,
+// and no price anywhere on it.
+function ClaimSchoolAccessBanner() {
+  return (
+    <div className="flex w-full flex-col gap-2 rounded-2xl bg-surface-tint p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <div>
+        <p className="font-heading font-semibold">Your school provides PrepHub free.</p>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          We sent a confirmation link to your school email. Open it to unlock everything.
+        </p>
+      </div>
+      <LinkButton variant="outline" className="w-fit shrink-0 rounded-full" href="/access/verify-school">
+        Resend the link
+      </LinkButton>
+    </div>
   );
 }
 

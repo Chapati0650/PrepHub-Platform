@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import type { ApplicationItemKind, ApplicationPlan, ApplicationPlatform, ApplicationStatus } from "@/generated/prisma/client";
 import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
+import { COLLEGE_APPS_ENABLED } from "@/lib/features";
 import { hasPaidAccess } from "@/lib/entitlements";
 import { logUnauthorizedAccess } from "@/lib/logger";
 import { searchColleges } from "@/lib/colleges/directory";
@@ -26,6 +27,11 @@ export type CollegeAppsActionState = { error?: string; saved?: boolean };
 // College Apps is Premium (included in the single rate). Checked here, in
 // every action, not only on the page: a hidden button is not access control.
 async function requirePaidStudent(): Promise<string> {
+  // Hiding the nav item and redirecting the pages does not retire a Server
+  // Action — its ID stays callable from any page already open in a browser.
+  // All 8 actions funnel through here, so this is the one place the flag has
+  // to hold for the surface to actually be off.
+  if (!COLLEGE_APPS_ENABLED) throw new Error("Not authorized.");
   const session = await auth();
   if (!session?.user?.id) throw new Error("Not authorized.");
   if (!canUseStudentExperience(session.user.role)) {

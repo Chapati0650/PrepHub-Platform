@@ -29,6 +29,7 @@ import { Logo, LogoMark } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { COLLEGE_APPS_ENABLED } from "@/lib/features";
 
 type NavItem = { href: string; label: string; icon: ComponentType<{ className?: string }> };
 
@@ -39,7 +40,10 @@ const STUDENT_ITEMS: NavItem[] = [
   { href: "/800-club", label: "800 Club", icon: Trophy },
   { href: "/rush", label: "1v1 Rush", icon: Swords },
   { href: "/curriculum", label: "The Curriculum", icon: BookOpen },
-  { href: "/college-apps", label: "College Apps", icon: GraduationCap },
+  // College Apps sits here when COLLEGE_APPS_ENABLED is flipped back on.
+  ...(COLLEGE_APPS_ENABLED
+    ? [{ href: "/college-apps", label: "College Apps", icon: GraduationCap }]
+    : []),
   { href: "/progress", label: "Progress", icon: TrendingUp },
   { href: "/community", label: "Community", icon: Users },
   { href: "/settings", label: "Profile", icon: UserRound },

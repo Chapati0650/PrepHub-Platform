@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Check, ExternalLink, Trash2 } from "lucide-react";
 import { auth } from "@/auth";
+import { COLLEGE_APPS_ENABLED } from "@/lib/features";
 import { canUseStudentExperience } from "@/lib/access";
 import { hasPaidAccess } from "@/lib/entitlements";
 import { getApplication } from "@/lib/college-apps/tracker";
@@ -13,6 +14,11 @@ import { ApplicationForm, AddItemForm, RemoveCollegeButton } from "./application
 import { deleteItemAction, toggleItemAction } from "../actions";
 
 export default async function ApplicationPage({ params }: { params: Promise<{ applicationId: string }> }) {
+  // Hidden from the student experience (src/lib/features.ts). Redirect rather
+  // than 404 so a link already shared still lands somewhere sensible; the
+  // tracker data is untouched and returns intact when the flag flips.
+  if (!COLLEGE_APPS_ENABLED) redirect("/home");
+
   const session = await auth();
   if (!session?.user?.id) redirect("/home");
   if (!canUseStudentExperience(session.user.role)) redirect("/home");

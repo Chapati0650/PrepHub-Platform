@@ -315,6 +315,12 @@ enum MembershipStatus {
 enum ActivationMethod {
   SCHOOL_EMAIL_VERIFICATION
   OWNER_OVERRIDE
+  // The account's own email was already on a partner district's verified
+  // domain AND the provider had verified that email (Google Workspace SSO),
+  // so no separate confirmation link was needed. Distinct from
+  // SCHOOL_EMAIL_VERIFICATION so the audit trail can answer a district's
+  // "how did this student get access?" precisely.
+  DOMAIN_MATCH
 }
 
 // A student may have at most one active membership at a time (enforced in app logic

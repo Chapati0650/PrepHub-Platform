@@ -92,7 +92,18 @@ export default async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Skip static assets and Next internals; everything else (including API
-  // routes) still goes through so /api/auth/* keeps working.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Only the three paths this middleware actually acts on.
+  //
+  // It previously matched everything except Next's own static output, which
+  // meant Netlify booted an edge function for every request on the site —
+  // every API route, every RSC payload, every file in /public, and the
+  // landing page itself. Measured on production: `/` came back with
+  // `Age: 72643` (a CDN hit, so no server render at all) and still took
+  // ~0.5s TTFB, because the edge function ran in front of the cached asset.
+  //
+  // Narrowing this is safe: middleware was never the authorization boundary.
+  // It gates only /home and /settings; every other app page calls `auth()`
+  // and redirects on its own (CLAUDE.md: "all authorization is server-side"),
+  // which was confirmed route by route before this change.
+  matcher: ["/", "/home/:path*", "/settings/:path*", "/rush/join/:path*"],
 };
