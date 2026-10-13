@@ -15,16 +15,34 @@ import { prisma } from "@/lib/prisma";
 // single page view could spend nine on one question whose answer cannot
 // change mid-request. The cache is per request, so a subscription that
 // changes between requests is still picked up immediately.
-export const hasPaidAccess = cache(async (userId: string): Promise<boolean> => {
+/**
+ * The three rows every access decision is made from, fetched once per request.
+ *
+ * The app layout calls `hasPaidAccess` on every authenticated render, and the
+ * dashboard then needed the same membership and subscription rows for its own
+ * display — so each page view fetched both twice. Both now read this, and
+ * because it is React-cached the second reader pays nothing. Measured on
+ * /home: 25 queries down to 22.
+ */
+export const getAccessContext = cache(async (userId: string) => {
   const [user, subscription, membership] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { role: true } }),
+    prisma.user.findUnique({
+      where: { id: userId },
+      // email/emailVerified ride along for district domain enrollment, which
+      // runs on the same render and would otherwise re-read this row.
+      select: { role: true, email: true, emailVerified: true },
+    }),
     prisma.subscription.findUnique({ where: { userId } }),
     prisma.studentMembership.findUnique({
       where: { studentId: userId },
       include: { organization: true },
     }),
   ]);
+  return { user, subscription, membership };
+});
 
+export const hasPaidAccess = cache(async (userId: string): Promise<boolean> => {
+  const { user, subscription, membership } = await getAccessContext(userId);
   return decidePaidAccess(user?.role ?? null, subscription, membership);
 });
 
@@ -128,13 +146,9 @@ export type AccessSummary =
 // private helpers as hasPaidAccess so this stays the one place that logic
 // lives, per PRD-017 §12 — no separate re-derivation.
 export const getAccessSummary = cache(async (userId: string): Promise<AccessSummary> => {
-  const [subscription, membership] = await Promise.all([
-    prisma.subscription.findUnique({ where: { userId } }),
-    prisma.studentMembership.findUnique({
-      where: { studentId: userId },
-      include: { organization: true },
-    }),
-  ]);
+  // Same two rows hasPaidAccess reads, via the shared cached loader — Settings
+  // renders inside the app layout, which has already fetched them.
+  const { subscription, membership } = await getAccessContext(userId);
 
   if (hasActiveSchoolEntitlement(membership)) {
     return { type: "SCHOOL", organizationName: membership!.organization.officialName };

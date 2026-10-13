@@ -53,7 +53,7 @@ export async function getDashboardData(studentId: string): Promise<DashboardData
   const streakHorizon = new Date(Date.now() - STREAK_HORIZON_MS);
 
   const [
-    latestPrediction,
+    recentPredictions,
     diagnosticPrediction,
     weeklyPracticeAnswers,
     weeklyDiagnosticAnswers,
@@ -65,7 +65,7 @@ export async function getDashboardData(studentId: string): Promise<DashboardData
     categoryStates,
     lastCompletedSet,
   ] = await Promise.all([
-    prisma.predictionHistoryEntry.findFirst({ where: { studentId }, orderBy: { createdAt: "desc" } }),
+    prisma.predictionHistoryEntry.findMany({ where: { studentId }, orderBy: { createdAt: "desc" }, take: 2 }),
     prisma.predictionHistoryEntry.findFirst({ where: { studentId, sourceType: "DIAGNOSTIC" }, orderBy: { createdAt: "asc" } }),
     prisma.finalizedAttempt.count({ where: { studentId, finalizedAt: { gte: since } } }),
     prisma.diagnosticAttempt.count({ where: { diagnosticSession: { studentId }, submittedAt: { gte: since } } }),
@@ -112,8 +112,12 @@ export async function getDashboardData(studentId: string): Promise<DashboardData
   const abilityByCategory = new Map(categoryStates.map((s) => [s.category, s.ability]));
   const mastery = ALL_CATEGORIES.map((category) => ({ category, currentMastery: Math.round(abilityByCategory.get(category) ?? 0) }));
 
+  // Both come from the one take:2 fetch above — the most recent entry and the
+  // one before it were previously two separate round trips over the same
+  // ordering.
+  const [latestPrediction, previousPrediction] = recentPredictions;
+
   const recentImprovements: string[] = [];
-  const previousPrediction = await getSecondMostRecentPrediction(studentId);
   if (latestPrediction && previousPrediction && latestPrediction.representativeMidpoint > previousPrediction.representativeMidpoint) {
     recentImprovements.push(
       `Estimated SAT increased by ${latestPrediction.representativeMidpoint - previousPrediction.representativeMidpoint} points.`,
@@ -144,13 +148,4 @@ export async function getDashboardData(studentId: string): Promise<DashboardData
     mastery,
     recommendedPace,
   };
-}
-
-async function getSecondMostRecentPrediction(studentId: string) {
-  const [, second] = await prisma.predictionHistoryEntry.findMany({
-    where: { studentId },
-    orderBy: { createdAt: "desc" },
-    take: 2,
-  });
-  return second ?? null;
 }

@@ -5,7 +5,7 @@ import { readPendingRushCode } from "@/lib/rush/pending-join";
 import { TrendingUp, Check, ChevronRight, Pencil, Flame } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { decidePaidAccess } from "@/lib/entitlements";
+import { decidePaidAccess, getAccessContext } from "@/lib/entitlements";
 import { ensureDistrictMembership, isPartnerDomainEmail } from "@/lib/district/enrollment";
 import { isFreePracticeSet } from "@/lib/practice/free-tier";
 import { getDailyStatus } from "@/lib/daily/challenge";
@@ -72,14 +72,12 @@ export default async function HomePage() {
 
   const isAdmin = session.user.role === "SCHOOL_ADMINISTRATOR";
   const isStudent = session.user.role === "STUDENT";
-  const [data, membership, adminAssignment, profile, subscription] = await Promise.all([
+  // membership/subscription/user come from the one cached access loader the
+  // app layout already populated for its Upgrade row, so reading them here
+  // costs nothing instead of re-querying both rows.
+  const [data, access, adminAssignment, profile] = await Promise.all([
     getDashboardData(session.user.id),
-    // Loaded with its organization because the entitlement decision needs
-    // the contract dates — this one row now answers both "which school?"
-    // and "do they have school-sponsored access?".
-    !isAdmin
-      ? prisma.studentMembership.findUnique({ where: { studentId: session.user.id }, include: { organization: true } })
-      : null,
+    getAccessContext(session.user.id),
     isAdmin
       ? prisma.administratorAssignment.findFirst({
           where: { userId: session.user.id, removedAt: null, organization: { organizationType: "SCHOOL" } },
@@ -87,19 +85,11 @@ export default async function HomePage() {
       : null,
     prisma.user.findUniqueOrThrow({
       where: { id: session.user.id },
-      // email/emailVerified ride along for the district check below — the
-      // session's copy isn't explicitly refreshed in the jwt callback, and
-      // this row is already being fetched, so reading them here is both
-      // authoritative and free.
-      select: { onboardingCompletedAt: true, targetScore: true, email: true, emailVerified: true },
+      select: { onboardingCompletedAt: true, targetScore: true },
     }),
-    // The Premium panel is presentational, but it must agree with the real
-    // entitlement, so the verdict comes from the one decision function
-    // (decidePaidAccess) rather than a second guess — just without the three
-    // duplicate queries hasPaidAccess would re-issue for rows this page has
-    // already loaded.
-    prisma.subscription.findUnique({ where: { userId: session.user.id } }),
   ]);
+  const membership = isAdmin ? null : access.membership;
+  const subscription = access.subscription;
   // District auto-enrollment, caught up lazily. Covers accounts that existed
   // before their district became a partner, and Google sign-ins that never
   // passed through onboarding's hook. Deliberately costs nothing in the
@@ -112,7 +102,7 @@ export default async function HomePage() {
     isStudent &&
     !membership &&
     !subscription &&
-    (await isPartnerDomainEmail(profile.email))
+    (await isPartnerDomainEmail(access.user?.email))
   ) {
     const outcome = await ensureDistrictMembership(session.user.id);
     if (outcome === "CREATED") {

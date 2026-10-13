@@ -68,9 +68,8 @@ describe("getDashboardData", () => {
       startedAt: new Date("2026-01-01"),
       completedAt: new Date("2026-01-01"),
     });
-    mocked.predictionHistoryEntry.findFirst
-      .mockResolvedValueOnce({ displayedRangeMinimum: 810, displayedRangeMaximum: 880, representativeMidpoint: 845 }) // latest
-      .mockResolvedValueOnce({ representativeMidpoint: 605 }); // diagnostic baseline
+    mocked.predictionHistoryEntry.findMany.mockResolvedValue([{ displayedRangeMinimum: 810, displayedRangeMaximum: 880, representativeMidpoint: 845 }]); // latest
+    mocked.predictionHistoryEntry.findFirst.mockResolvedValue({ representativeMidpoint: 605 }); // diagnostic baseline
 
     const result = await getDashboardData("student1");
 
@@ -84,11 +83,9 @@ describe("getDashboardData", () => {
       startedAt: new Date(),
       completedAt: new Date(),
     });
-    mocked.predictionHistoryEntry.findFirst
-      .mockResolvedValueOnce({ displayedRangeMinimum: 810, displayedRangeMaximum: 880, representativeMidpoint: 845 })
-      .mockResolvedValueOnce({ representativeMidpoint: 605 });
+    mocked.predictionHistoryEntry.findFirst.mockResolvedValue({ representativeMidpoint: 605 });
     mocked.predictionHistoryEntry.findMany.mockResolvedValue([
-      { representativeMidpoint: 845 },
+      { displayedRangeMinimum: 810, displayedRangeMaximum: 880, representativeMidpoint: 845 },
       { representativeMidpoint: 765 }, // previous, lower -> +80 improvement
     ]);
 
@@ -103,9 +100,8 @@ describe("getDashboardData", () => {
       startedAt: new Date(),
       completedAt: new Date(),
     });
-    mocked.predictionHistoryEntry.findFirst
-      .mockResolvedValueOnce({ displayedRangeMinimum: 810, displayedRangeMaximum: 880, representativeMidpoint: 845 })
-      .mockResolvedValueOnce({ representativeMidpoint: 845 });
+    mocked.predictionHistoryEntry.findMany.mockResolvedValue([{ displayedRangeMinimum: 810, displayedRangeMaximum: 880, representativeMidpoint: 845 }]);
+    mocked.predictionHistoryEntry.findFirst.mockResolvedValue({ representativeMidpoint: 845 });
     mocked.categoryState.findMany.mockResolvedValue(categoryStatesAt(55)); // +5 from snapshot below
     mocked.practiceSet.findFirst.mockResolvedValue({
       categorySnapshots: [{ category: "ALGEBRA", abilityAtGeneration: 50 }],

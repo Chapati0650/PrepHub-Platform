@@ -1,6 +1,7 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
+import { cache } from "react";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -14,7 +15,7 @@ const credentialsSchema = z.object({
   password: z.string().min(1),
 });
 
-export const { handlers, signIn, signOut, auth } = NextAuth({
+const { handlers, signIn, signOut, auth: uncachedAuth } = NextAuth({
   ...authConfig,
   adapter: {
     ...PrismaAdapter(prisma),
@@ -122,3 +123,20 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
   },
 });
+
+export { handlers, signIn, signOut };
+
+/**
+ * Memoized per request. `auth()` is not free: its jwt callback reads the user
+ * row on every call so a revoked session stops working immediately (see the
+ * callback above). The app layout calls it and then so does the page, so every
+ * authenticated render paid for that lookup at least twice — confirmed by
+ * query logging on /home, which showed two identical role/tokenVersion
+ * selects before anything else ran.
+ *
+ * Safe because `auth()` is always called with no arguments here (verified
+ * across the codebase), so there is nothing to key the cache on, and React
+ * `cache` degrades to a plain call outside a request scope. Revocation is
+ * unaffected: the cache lives for one request, so the next one re-reads.
+ */
+export const auth = cache(uncachedAuth);
