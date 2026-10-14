@@ -23,15 +23,47 @@ export type OrganizationShape = {
   status: string;
   contractStartDate: Date;
   contractEndDate: Date;
+  /** DOMAIN | ROSTER | ROSTER_OR_DOMAIN — who the organization lets in. */
+  enrollmentMode?: string;
   /** Campuses under a DISTRICT; empty for a standalone SCHOOL. */
   schools: { id: string; officialName: string }[];
 };
+
+/**
+ * Is the organization's contract live right now? Separated out because both
+ * eligibility rules need it and neither should be able to drift from the
+ * entitlement service's view of the same window.
+ */
+export function contractState(
+  org: Pick<OrganizationShape, "status" | "contractStartDate" | "contractEndDate">,
+  now: Date,
+): "LIVE" | "STATUS" | "BEFORE_CONTRACT" | "AFTER_CONTRACT" {
+  if (org.status !== "ACTIVE") return "STATUS";
+  if (org.contractStartDate > now) return "BEFORE_CONTRACT";
+  if (org.contractEndDate <= now) return "AFTER_CONTRACT";
+  return "LIVE";
+}
+
+/** Does this organization still admit students by email domain alone? */
+export function domainEnrollmentAllowed(org: Pick<OrganizationShape, "enrollmentMode">): boolean {
+  // Undefined means a row loaded before the column existed — treat as DOMAIN,
+  // which is the column's own default, so behaviour can't change under anyone.
+  const mode = org.enrollmentMode ?? "DOMAIN";
+  return mode === "DOMAIN" || mode === "ROSTER_OR_DOMAIN";
+}
 
 export type PartnerResolution =
   /** The email's domain belongs to no active partner. */
   | { kind: "NO_PARTNER" }
   /** Matched, but the contract isn't live — enrolling would grant nothing. */
   | { kind: "NOT_LIVE"; reason: "STATUS" | "BEFORE_CONTRACT" | "AFTER_CONTRACT" }
+  /**
+   * The domain belongs to a partner that admits students by roster only, and
+   * this person isn't on it. Distinct from NO_PARTNER so the student can be
+   * told something true — their school uses PrepHub, they just aren't on the
+   * list yet — instead of a flat "no".
+   */
+  | { kind: "NOT_ON_ROSTER"; officialName: string }
   /** Unambiguous: exactly one campus this student can belong to. */
   | { kind: "READY"; organizationId: string; schoolId: string; officialName: string }
   /** A district with several campuses — we can't guess which one. */
@@ -52,13 +84,16 @@ export function resolvePartner(
   now: Date = new Date(),
 ): PartnerResolution {
   if (!org) return { kind: "NO_PARTNER" };
-  if (org.status !== "ACTIVE") return { kind: "NOT_LIVE", reason: "STATUS" };
   // Same contract-window rule as the entitlement service, checked here too:
   // creating a membership that `hasActiveSchoolEntitlement` would reject is
   // worse than not creating one, because the student then looks enrolled and
   // still can't use anything.
-  if (org.contractStartDate > now) return { kind: "NOT_LIVE", reason: "BEFORE_CONTRACT" };
-  if (org.contractEndDate <= now) return { kind: "NOT_LIVE", reason: "AFTER_CONTRACT" };
+  const contract = contractState(org, now);
+  if (contract !== "LIVE") return { kind: "NOT_LIVE", reason: contract };
+
+  // A roster-only organization has said its roster is the whole answer, so a
+  // matching email suffix is not enough on its own.
+  if (!domainEnrollmentAllowed(org)) return { kind: "NOT_ON_ROSTER", officialName: org.officialName };
 
   if (org.organizationType === "SCHOOL") {
     return { kind: "READY", organizationId: org.id, schoolId: org.id, officialName: org.officialName };

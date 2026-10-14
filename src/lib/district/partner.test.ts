@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { domainOf, resolvePartner, type OrganizationShape } from "@/lib/district/partner";
+import { domainEnrollmentAllowed, domainOf, resolvePartner, type OrganizationShape } from "@/lib/district/partner";
 
 describe("domainOf", () => {
   it("lowercases and strips surrounding whitespace", () => {
@@ -113,5 +113,47 @@ describe("resolvePartner", () => {
   it("allows the first instant of the contract", () => {
     const o = org({ organizationType: "SCHOOL", contractStartDate: NOW });
     expect(resolvePartner(o, NOW).kind).toBe("READY");
+  });
+});
+
+describe("domainEnrollmentAllowed", () => {
+  it("lets a DOMAIN organization admit by email suffix", () => {
+    expect(domainEnrollmentAllowed({ enrollmentMode: "DOMAIN" })).toBe(true);
+  });
+
+  it("lets ROSTER_OR_DOMAIN fall back to the suffix", () => {
+    expect(domainEnrollmentAllowed({ enrollmentMode: "ROSTER_OR_DOMAIN" })).toBe(true);
+  });
+
+  it("refuses the suffix for a ROSTER-only organization", () => {
+    expect(domainEnrollmentAllowed({ enrollmentMode: "ROSTER" })).toBe(false);
+  });
+
+  // Rows written before the column existed must keep behaving as they did.
+  it("treats a missing mode as DOMAIN, the column's own default", () => {
+    expect(domainEnrollmentAllowed({})).toBe(true);
+  });
+});
+
+describe("resolvePartner with enrollment modes", () => {
+  it("tells a roster-only school's student they are not on the list, not that there is no partner", () => {
+    const o = org({ organizationType: "SCHOOL", enrollmentMode: "ROSTER" });
+    expect(resolvePartner(o, NOW)).toEqual({ kind: "NOT_ON_ROSTER", officialName: `Northwest ISD` });
+  });
+
+  it("still admits by domain when the mode allows it", () => {
+    const o = org({ organizationType: "SCHOOL", enrollmentMode: "ROSTER_OR_DOMAIN" });
+    expect(resolvePartner(o, NOW).kind).toBe("READY");
+  });
+
+  // An expired contract outranks the enrollment mode: neither rule should let
+  // anyone in once the contract is over.
+  it("reports an expired contract even for a roster-only organization", () => {
+    const o = org({
+      organizationType: "SCHOOL",
+      enrollmentMode: "ROSTER",
+      contractEndDate: new Date("2026-09-30T00:00:00Z"),
+    });
+    expect(resolvePartner(o, NOW)).toEqual({ kind: "NOT_LIVE", reason: "AFTER_CONTRACT" });
   });
 });

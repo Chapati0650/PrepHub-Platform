@@ -6,7 +6,7 @@ import { TrendingUp, Check, ChevronRight, Pencil, Flame } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { decidePaidAccess, getAccessContext } from "@/lib/entitlements";
-import { ensureDistrictMembership, isPartnerDomainEmail } from "@/lib/district/enrollment";
+import { ensureDistrictMembership, isDistrictCandidateEmail } from "@/lib/district/enrollment";
 import { isFreePracticeSet } from "@/lib/practice/free-tier";
 import { getDailyStatus } from "@/lib/daily/challenge";
 import { getDashboardData } from "@/lib/dashboard/dashboard-data";
@@ -102,7 +102,7 @@ export default async function HomePage() {
     isStudent &&
     !membership &&
     !subscription &&
-    (await isPartnerDomainEmail(access.user?.email))
+    (await isDistrictCandidateEmail(access.user?.email))
   ) {
     const outcome = await ensureDistrictMembership(session.user.id);
     if (outcome === "CREATED") {

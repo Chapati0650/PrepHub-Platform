@@ -247,6 +247,11 @@ model Organization {
   // Percentage is then simply not shown rather than divide-by-null/zero).
   totalEnrollment Int?
 
+  /// Defaults to DOMAIN so existing organizations keep behaving exactly as
+  /// they do today; a district switches to ROSTER when it takes control of
+  /// eligibility.
+  enrollmentMode EnrollmentMode @default(DOMAIN)
+
   // PRD-002 §15.1: whether this org appears in the student-facing school/district
   // search directory at all — independent of `status` (a directory entry can exist
   // for "known but not partnered" schools without an active contract).
@@ -261,6 +266,8 @@ model Organization {
   archivedAt DateTime?
 
   domains              OrganizationDomain[]
+  rosterEntries        SchoolRosterEntry[]       @relation("RosterOrganization")
+  rosterSchoolEntries  SchoolRosterEntry[]       @relation("RosterSchool")
   administratorAssigns AdministratorAssignment[]
   studentMemberships   StudentMembership[]       @relation("MembershipOrganization")
   schoolMemberships    StudentMembership[]       @relation("MembershipSchool")
@@ -321,6 +328,20 @@ enum ActivationMethod {
   // SCHOOL_EMAIL_VERIFICATION so the audit trail can answer a district's
   // "how did this student get access?" precisely.
   DOMAIN_MATCH
+  // The student's identity was on a roster the district supplied. This is the
+  // authoritative path for a paid deployment: the district, not a shared
+  // secret or an email suffix, decides who is eligible.
+  ROSTER
+}
+
+/// How an organization decides who is eligible for its PrepHub access.
+/// A pilot can run on DOMAIN alone (no student data changes hands at all);
+/// a paid district moves to ROSTER so eligibility is theirs to control, and
+/// removing someone from the roster is what ends their access.
+enum EnrollmentMode {
+  DOMAIN
+  ROSTER
+  ROSTER_OR_DOMAIN
 }
 
 // A student may have at most one active membership at a time (enforced in app logic
@@ -1424,4 +1445,51 @@ model EmailSend {
 
   @@unique([userId, kind, day])
   @@map("email_sends")
+}
+
+/// One district-supplied eligible student.
+///
+/// This is the long-term shape of district onboarding: the district says who
+/// is eligible, and a person only gets school access by matching an entry. It
+/// is deliberately *not* an account — no credential is ever created or stored
+/// on a student's behalf, which keeps PrepHub out of credential custody for
+/// minors and keeps the data the district shares to the minimum needed to
+/// answer "is this person yours?".
+///
+/// `schoolId` is carried per entry, which is what makes a multi-campus
+/// district work: the roster names the campus, so nothing has to be guessed
+/// (the domain path can't do this, and defers instead).
+model SchoolRosterEntry {
+  id             String @id @default(cuid())
+  organizationId String // the district or standalone school that supplied it
+  schoolId       String // the specific campus this student belongs to
+
+  /// Lowercased. The identity a signing-in student is matched against.
+  email String
+  /// The district's own SIS identifier, when they supply one. Never required:
+  /// some districts will share an email and nothing else.
+  externalStudentId String?
+  /// Optional hints that save the student answering again; both are advisory.
+  firstName      String?
+  graduationYear Int?
+
+  /// Soft-removed rather than deleted, so a student taken off the roster still
+  /// has a record explaining why their access ended (deletion is anonymizing,
+  /// never row-removal — see CLAUDE.md).
+  removedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation("RosterOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  school       Organization @relation("RosterSchool", fields: [schoolId], references: [id])
+
+  /// One entry per email per organization. Not globally unique on email: a
+  /// student who transfers between districts legitimately appears on two
+  /// rosters, and "at most one active membership" is already enforced by
+  /// StudentMembership.studentId being unique.
+  @@unique([organizationId, email])
+  @@index([email])
+  @@index([organizationId, removedAt])
+  @@map("school_roster_entries")
 }

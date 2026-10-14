@@ -13,7 +13,7 @@ import {
   confirmPasswordResetSchema,
 } from "@/lib/validation/auth";
 import { createAccount, requestPasswordReset, confirmPasswordReset } from "@/lib/auth/account";
-import { isPartnerDomainEmail } from "@/lib/district/enrollment";
+import { isDistrictCandidateEmail } from "@/lib/district/enrollment";
 import { requestSchoolVerification } from "@/lib/school-verification";
 import { AuthError } from "@/lib/auth/errors";
 import { checkRateLimitEnforced, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
@@ -64,7 +64,7 @@ export async function signUpAction(_prev: ActionState, formData: FormData): Prom
   // Google Workspace sign-in does. One click in their inbox is the smallest
   // honest version of it. Best-effort: a student who never clicks still has a
   // working account, and /home shows them the prompt again.
-  if (await isPartnerDomainEmail(created.email)) {
+  if (await isDistrictCandidateEmail(created.email)) {
     try {
       await requestSchoolVerification(created.id, created.email);
     } catch {

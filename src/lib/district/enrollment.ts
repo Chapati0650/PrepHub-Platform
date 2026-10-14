@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { computeExpectedGraduationYear } from "@/lib/school-verification/graduation-year";
-import { domainOf, resolvePartner, type OrganizationShape, type PartnerResolution } from "@/lib/district/partner";
+import { computeExpectedGraduationYear, gradeFromGraduationYear } from "@/lib/school-verification/graduation-year";
+import { contractState, domainOf, resolvePartner, type OrganizationShape, type PartnerResolution } from "@/lib/district/partner";
 
 /**
  * District auto-enrollment: a student whose *own* account email is on a
@@ -26,6 +26,7 @@ export type EnrollmentOutcome =
   | "NO_PARTNER"
   | "NOT_LIVE"
   | "NEEDS_CAMPUS"
+  | "NOT_ON_ROSTER"
   | "NEEDS_EMAIL_VERIFICATION"
   | "NO_GRADE";
 
@@ -41,32 +42,69 @@ export type EnrollmentOutcome =
  * starts auto-enrolling up to TTL later.
  */
 const DOMAIN_CACHE_TTL_MS = 60_000;
-let domainCache: { domains: Set<string>; loadedAt: number } | null = null;
+let domainCache: { domains: Set<string>; anyRoster: boolean; loadedAt: number } | null = null;
 
-export async function getActivePartnerDomains(): Promise<Set<string>> {
-  if (domainCache && Date.now() - domainCache.loadedAt < DOMAIN_CACHE_TTL_MS) {
-    return domainCache.domains;
-  }
-  const rows = await prisma.organizationDomain.findMany({
-    where: { isActive: true },
-    select: { domain: true },
-  });
-  const domains = new Set(rows.map((r) => r.domain.trim().toLowerCase()));
-  domainCache = { domains, loadedAt: Date.now() };
-  return domains;
+async function getPartnerIndex(): Promise<{ domains: Set<string>; anyRoster: boolean }> {
+  if (domainCache && Date.now() - domainCache.loadedAt < DOMAIN_CACHE_TTL_MS) return domainCache;
+  const [rows, rosterCount] = await Promise.all([
+    prisma.organizationDomain.findMany({ where: { isActive: true }, select: { domain: true } }),
+    // Only "does any roster exist at all", never the entries themselves — a
+    // district roster can run to thousands of rows and has no business being
+    // held in memory on every serverless instance.
+    prisma.schoolRosterEntry.count({ where: { removedAt: null }, take: 1 }),
+  ]);
+  domainCache = {
+    domains: new Set(rows.map((r) => r.domain.trim().toLowerCase())),
+    anyRoster: rosterCount > 0,
+    loadedAt: Date.now(),
+  };
+  return domainCache;
 }
 
-/** Cheap pre-check: is this address even worth a partner lookup? */
-export async function isPartnerDomainEmail(rawEmail: string | null | undefined): Promise<boolean> {
+export async function getActivePartnerDomains(): Promise<Set<string>> {
+  return (await getPartnerIndex()).domains;
+}
+
+/**
+ * Cheap pre-check: is this address worth a full eligibility lookup?
+ *
+ * True when the domain belongs to a partner, or when any roster exists at all
+ * — a district may roster addresses that aren't on its own domain, and those
+ * can only be found by querying. When no district has uploaded a roster (the
+ * situation today) this stays a pure in-memory check and individual students
+ * pay nothing for it.
+ */
+export async function isDistrictCandidateEmail(rawEmail: string | null | undefined): Promise<boolean> {
   if (!rawEmail) return false;
   const domain = domainOf(rawEmail);
   if (!domain) return false;
-  return (await getActivePartnerDomains()).has(domain);
+  const index = await getPartnerIndex();
+  return index.domains.has(domain) || index.anyRoster;
 }
+
 
 /** Test seam — the module-level cache would otherwise leak between cases. */
 export function __resetPartnerDomainCache(): void {
   domainCache = null;
+}
+
+/**
+ * Looks for a district-supplied roster entry matching this email.
+ *
+ * This is the authoritative rule and runs before the domain rule: the roster
+ * names the student's campus explicitly, which is what lets a multi-campus
+ * district work at all (the domain rule has to defer there, because
+ * `StudentMembership.schoolId` must resolve to exactly one campus).
+ */
+export async function lookupRosterEntry(rawEmail: string, now: Date = new Date()) {
+  const email = rawEmail.trim().toLowerCase();
+  const entry = await prisma.schoolRosterEntry.findFirst({
+    where: { email, removedAt: null },
+    include: { organization: true },
+  });
+  if (!entry) return null;
+  const contract = contractState(entry.organization, now);
+  return { entry, contract };
 }
 
 /** Looks up the partner organization that owns an email's domain. */
@@ -103,30 +141,50 @@ export async function ensureDistrictMembership(userId: string): Promise<Enrollme
   const existing = await prisma.studentMembership.findUnique({ where: { studentId: userId } });
   if (existing) return "ALREADY_MEMBER";
 
-  const resolution = await lookupPartnerByEmail(user.email);
-  if (resolution.kind === "NO_PARTNER") return "NO_PARTNER";
-  if (resolution.kind === "NOT_LIVE") return "NOT_LIVE";
-  if (resolution.kind === "NEEDS_CAMPUS") return "NEEDS_CAMPUS";
+  // The roster is checked first: it is the district's own statement about who
+  // is eligible, and it names the campus, so it answers more precisely than a
+  // domain ever can.
+  const roster = await lookupRosterEntry(user.email);
+  let target: { organizationId: string; schoolId: string; via: "ROSTER" | "DOMAIN_MATCH"; graduationYear?: number | null };
 
-  // The domain matches a live partner. Everything past here is about whether
-  // we're allowed to act on it yet.
+  if (roster) {
+    if (roster.contract !== "LIVE") return "NOT_LIVE";
+    target = {
+      organizationId: roster.entry.organizationId,
+      schoolId: roster.entry.schoolId,
+      via: "ROSTER",
+      graduationYear: roster.entry.graduationYear,
+    };
+  } else {
+    const resolution = await lookupPartnerByEmail(user.email);
+    if (resolution.kind === "NO_PARTNER") return "NO_PARTNER";
+    if (resolution.kind === "NOT_LIVE") return "NOT_LIVE";
+    if (resolution.kind === "NOT_ON_ROSTER") return "NOT_ON_ROSTER";
+    if (resolution.kind === "NEEDS_CAMPUS") return "NEEDS_CAMPUS";
+    target = { organizationId: resolution.organizationId, schoolId: resolution.schoolId, via: "DOMAIN_MATCH" };
+  }
+
+  // Everything past here is about whether we're allowed to act on the match.
   if (!user.emailVerified) return "NEEDS_EMAIL_VERIFICATION";
-  // `currentGrade` is required on the membership and onboarding is what
-  // collects it, so a brand-new account enrolls the moment onboarding
-  // finishes rather than at signup.
-  if (user.grade == null) return "NO_GRADE";
+  // `currentGrade` is required on the membership. Onboarding is what collects
+  // it, so a brand-new account normally enrolls the moment onboarding
+  // finishes — unless the roster already told us the graduation year, in
+  // which case the district has answered it for us and the student can be
+  // enrolled before they have answered anything.
+  const grade = user.grade ?? gradeFromGraduationYear(target.graduationYear ?? null);
+  if (grade == null) return "NO_GRADE";
 
   try {
     await prisma.studentMembership.create({
       data: {
         studentId: user.id,
-        organizationId: resolution.organizationId,
-        schoolId: resolution.schoolId,
+        organizationId: target.organizationId,
+        schoolId: target.schoolId,
         verifiedSchoolEmail: user.email.toLowerCase(),
-        currentGrade: user.grade,
-        expectedGraduationYear: computeExpectedGraduationYear(user.grade),
+        currentGrade: grade,
+        expectedGraduationYear: target.graduationYear ?? computeExpectedGraduationYear(grade),
         status: "ACTIVE",
-        activationMethod: "DOMAIN_MATCH",
+        activationMethod: target.via,
       },
     });
     return "CREATED";
