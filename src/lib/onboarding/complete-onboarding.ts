@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { StudyCommitment } from "@/generated/prisma/client";
-import { ensureDistrictMembership } from "@/lib/district/enrollment";
+import { ensureDistrictMembership, type EnrollmentOutcome } from "@/lib/district/enrollment";
 import { logEvent } from "@/lib/logger";
 
 export type CompleteOnboardingInput = {
@@ -9,7 +9,10 @@ export type CompleteOnboardingInput = {
   studyCommitment: StudyCommitment;
 };
 
-export async function completeOnboarding(userId: string, input: CompleteOnboardingInput): Promise<void> {
+export async function completeOnboarding(
+  userId: string,
+  input: CompleteOnboardingInput,
+): Promise<EnrollmentOutcome | null> {
   await prisma.user.update({
     where: { id: userId },
     data: {
@@ -29,11 +32,12 @@ export async function completeOnboarding(userId: string, input: CompleteOnboardi
   // or fail the core operation). If it fails, the student still finished
   // onboarding, and the lazy call on /home picks them up on the next render.
   try {
-    await ensureDistrictMembership(userId);
+    return await ensureDistrictMembership(userId);
   } catch (err) {
     logEvent("SCHOOL_VERIFICATION_FAILURE", "District auto-enrollment failed after onboarding", {
       accountId: userId,
       reason: err instanceof Error ? err.message : "unknown",
     });
+    return null;
   }
 }

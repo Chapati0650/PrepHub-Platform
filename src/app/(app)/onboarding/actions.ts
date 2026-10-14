@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { completeOnboarding } from "@/lib/onboarding/complete-onboarding";
@@ -27,11 +28,19 @@ export async function completeOnboardingAction(input: CompleteOnboardingActionIn
     throw new Error("Invalid target score");
   }
 
-  await completeOnboarding(session.user.id, {
+  const enrollment = await completeOnboarding(session.user.id, {
     grade: parsed.grade,
     targetScore: parsed.targetScoreMidpoint,
     studyCommitment: parsed.studyCommitment,
   });
+
+  // A district student enrolled a moment ago, inside this same action. Without
+  // this the shell rendered for the redirect below still carries the pre-
+  // enrollment answer and shows "Upgrade · 50% off" in the sidebar beside a
+  // dashboard full of paid access — confirmed in a browser, and it cleared on
+  // the next reload, which is exactly the kind of bug that never shows up in a
+  // unit test. Revalidating the layout makes the first screen correct.
+  if (enrollment === "CREATED") revalidatePath("/", "layout");
 
   // To the dashboard, which shows the Begin Diagnostic card with the rest
   // of the app around it — a new student can start the Diagnostic or look

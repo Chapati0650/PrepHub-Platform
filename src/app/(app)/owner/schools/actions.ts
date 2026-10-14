@@ -35,6 +35,13 @@ import {
   schoolTransferSchema,
 } from "@/lib/validation/owner";
 import { logUnauthorizedAccess } from "@/lib/logger";
+import {
+  RosterError,
+  commitRosterUpload,
+  previewRosterUpload,
+  removeRosterEntry,
+  setEnrollmentMode,
+} from "@/lib/owner/roster";
 
 export type ActionState = { error?: string; success?: boolean };
 
@@ -384,5 +391,95 @@ export async function resolveSchoolTransferAction(
     throw err;
   }
   revalidatePath(`/owner/schools/${currentOrganizationId}`);
+  return { success: true };
+}
+
+// ---- Roster ----------------------------------------------------------------
+
+export type RosterPreviewState = {
+  error?: string;
+  preview?: {
+    toAdd: number;
+    toUpdate: number;
+    untouched: number;
+    alreadyRegistered: number;
+    headerless: boolean;
+    sample: { email: string; campusName: string; firstName: string | null; graduationYear: number | null }[];
+    errors: { line: number; value: string; reason: string }[];
+    validCount: number;
+  };
+  /** Echoed back so the confirm step commits exactly what was previewed. */
+  input?: string;
+};
+
+/** Dry run: shows the Owner what an upload would do before anything is written. */
+export async function previewRosterAction(
+  _prev: RosterPreviewState,
+  formData: FormData,
+): Promise<RosterPreviewState> {
+  await requireOwner();
+  const id = String(formData.get("id") ?? "");
+  const input = String(formData.get("roster") ?? "");
+  if (!input.trim()) return { error: "Paste a roster first." };
+
+  try {
+    const p = await previewRosterUpload(id, input);
+    const byId = new Map(p.campuses.map((c) => [c.id, c.officialName]));
+    return {
+      input,
+      preview: {
+        toAdd: p.toAdd,
+        toUpdate: p.toUpdate,
+        untouched: p.untouched,
+        alreadyRegistered: p.alreadyRegistered,
+        headerless: p.parsed.headerless,
+        validCount: p.parsed.rows.length,
+        // Enough to eyeball that the columns were read the way the Owner meant.
+        sample: p.parsed.rows.slice(0, 5).map((r) => ({
+          email: r.email,
+          campusName: byId.get(r.schoolId) ?? r.schoolId,
+          firstName: r.firstName,
+          graduationYear: r.graduationYear,
+        })),
+        errors: p.parsed.errors.slice(0, 25),
+      },
+    };
+  } catch (err) {
+    if (err instanceof RosterError) return { error: err.message };
+    throw err;
+  }
+}
+
+export async function commitRosterAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  await requireOwner();
+  const id = String(formData.get("id") ?? "");
+  const input = String(formData.get("roster") ?? "");
+  try {
+    await commitRosterUpload(id, input);
+  } catch (err) {
+    if (err instanceof RosterError) return { error: err.message };
+    throw err;
+  }
+  revalidatePath(`/owner/schools/${id}`);
+  return { success: true };
+}
+
+export async function removeRosterEntryAction(formData: FormData): Promise<void> {
+  await requireOwner();
+  const id = String(formData.get("id") ?? "");
+  await removeRosterEntry(id, String(formData.get("entryId") ?? ""));
+  revalidatePath(`/owner/schools/${id}`);
+}
+
+export async function setEnrollmentModeAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  await requireOwner();
+  const id = String(formData.get("id") ?? "");
+  try {
+    await setEnrollmentMode(id, String(formData.get("enrollmentMode") ?? ""));
+  } catch (err) {
+    if (err instanceof RosterError) return { error: err.message };
+    throw err;
+  }
+  revalidatePath(`/owner/schools/${id}`);
   return { success: true };
 }

@@ -8,13 +8,6 @@ import { prisma } from "@/lib/prisma";
  *   hasPaidAccess = hasActiveIndividualSubscription OR hasActiveSchoolEntitlement
  *     OR (PRD-011 §7) the user is a School Administrator, always
  */
-// Memoized per request (React `cache`). The app shell calls this on every
-// authenticated page render to decide the Upgrade row, and most pages then
-// call it again to gate themselves — `curriculum/queries.ts` alone called it
-// three times in one render. Each call was three database round trips, so a
-// single page view could spend nine on one question whose answer cannot
-// change mid-request. The cache is per request, so a subscription that
-// changes between requests is still picked up immediately.
 /**
  * The three rows every access decision is made from, fetched once per request.
  *
@@ -24,7 +17,7 @@ import { prisma } from "@/lib/prisma";
  * because it is React-cached the second reader pays nothing. Measured on
  * /home: 25 queries down to 22.
  */
-export const getAccessContext = cache(async (userId: string) => {
+async function loadAccessContext(userId: string) {
   const [user, subscription, membership] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
@@ -39,12 +32,35 @@ export const getAccessContext = cache(async (userId: string) => {
     }),
   ]);
   return { user, subscription, membership };
+}
+
+type AccessContext = Awaited<ReturnType<typeof loadAccessContext>>;
+
+// React `cache` memoizes a mutable box rather than the promise itself, which
+// is what makes the memo invalidatable. District enrollment can create a
+// membership midway through a render, and without this the rest of that
+// render would keep seeing the student as unenrolled — which showed up as an
+// "Upgrade" row in the sidebar next to a page full of paid content.
+const accessBox = cache((userId: string) => {
+  void userId; // the memo key; React caches one box per user per request
+  return { value: null as Promise<AccessContext> | null };
 });
 
-export const hasPaidAccess = cache(async (userId: string): Promise<boolean> => {
+export async function getAccessContext(userId: string): Promise<AccessContext> {
+  const box = accessBox(userId);
+  box.value ??= loadAccessContext(userId);
+  return box.value;
+}
+
+/** Drops the memo after a write that changes the answer, within one request. */
+export function invalidateAccessContext(userId: string): void {
+  accessBox(userId).value = null;
+}
+
+export async function hasPaidAccess(userId: string): Promise<boolean> {
   const { user, subscription, membership } = await getAccessContext(userId);
   return decidePaidAccess(user?.role ?? null, subscription, membership);
-});
+}
 
 /**
  * The decision itself, with no database access — so a page that has already
@@ -145,7 +161,7 @@ export type AccessSummary =
 // paid access, not just the hasPaidAccess boolean. Built from the same
 // private helpers as hasPaidAccess so this stays the one place that logic
 // lives, per PRD-017 §12 — no separate re-derivation.
-export const getAccessSummary = cache(async (userId: string): Promise<AccessSummary> => {
+export async function getAccessSummary(userId: string): Promise<AccessSummary> {
   // Same two rows hasPaidAccess reads, via the shared cached loader — Settings
   // renders inside the app layout, which has already fetched them.
   const { subscription, membership } = await getAccessContext(userId);
@@ -157,4 +173,4 @@ export const getAccessSummary = cache(async (userId: string): Promise<AccessSumm
     return { type: "INDIVIDUAL", subscription: subscription! };
   }
   return { type: "NONE" };
-});
+}

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { hasPaidAccess } from "@/lib/entitlements";
+import { catchUpDistrictEnrollment } from "@/lib/district/enrollment";
 import { logoutAction } from "./actions";
 import { AppShell } from "@/components/app-shell";
 
@@ -30,6 +31,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!session?.user?.id) redirect("/login");
 
   const role = session.user.role ?? "STUDENT";
+
+  // District enrollment is caught up here, in the layout, rather than in a
+  // page. It has to happen before `showUpgrade` is computed and it must be
+  // somewhere every authenticated route passes through.
+  //
+  // Doing it in the page body was wrong in a way that only showed up in a
+  // browser: the layout had already read the access context — React-cached,
+  // so a write the page made afterwards was invisible to it — and rendered
+  // "Upgrade · 50% off" in the sidebar while the page beside it rendered the
+  // student's full paid access. It corrected itself on the next navigation,
+  // but a district student's very first screen is exactly where an upgrade
+  // prompt must never appear.
+  if (role === "STUDENT") await catchUpDistrictEnrollment(session.user.id);
 
   // The shell's Upgrade row and launch-pricing banner are purely
   // presentational — nothing behind them is gated here — but they must still

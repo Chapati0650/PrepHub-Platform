@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getAccessContext, invalidateAccessContext } from "@/lib/entitlements";
 import { computeExpectedGraduationYear, gradeFromGraduationYear } from "@/lib/school-verification/graduation-year";
 import { contractState, domainOf, resolvePartner, type OrganizationShape, type PartnerResolution } from "@/lib/district/partner";
 
@@ -86,6 +87,29 @@ export async function isDistrictCandidateEmail(rawEmail: string | null | undefin
 /** Test seam — the module-level cache would otherwise leak between cases. */
 export function __resetPartnerDomainCache(): void {
   domainCache = null;
+}
+
+/**
+ * Enrols a student who became eligible after their account already existed —
+ * their district signed up, or they were added to its roster.
+ *
+ * Called from the app layout so it runs before anything reads the entitlement,
+ * and returns the one outcome a caller needs to act on. Costs nothing in the
+ * common case: a student who already has a membership or a subscription is
+ * dismissed from the cached access context without a query, and an address on
+ * no partner domain is rejected from an in-memory set.
+ */
+export async function catchUpDistrictEnrollment(userId: string): Promise<EnrollmentOutcome> {
+  const { user, subscription, membership } = await getAccessContext(userId);
+  if (membership) return "ALREADY_MEMBER";
+  if (subscription) return "NO_PARTNER";
+  if (!(await isDistrictCandidateEmail(user?.email))) return "NO_PARTNER";
+  const outcome = await ensureDistrictMembership(userId);
+  // The access context was read before the membership existed, so anything
+  // reading it later in this same render would still see an unenrolled
+  // student — the bug this function exists to prevent.
+  if (outcome === "CREATED") invalidateAccessContext(userId);
+  return outcome;
 }
 
 /**

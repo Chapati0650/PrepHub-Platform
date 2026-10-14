@@ -6,7 +6,7 @@ import { TrendingUp, Check, ChevronRight, Pencil, Flame } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { decidePaidAccess, getAccessContext } from "@/lib/entitlements";
-import { ensureDistrictMembership, isDistrictCandidateEmail } from "@/lib/district/enrollment";
+import { isDistrictCandidateEmail } from "@/lib/district/enrollment";
 import { isFreePracticeSet } from "@/lib/practice/free-tier";
 import { getDailyStatus } from "@/lib/daily/challenge";
 import { getDashboardData } from "@/lib/dashboard/dashboard-data";
@@ -96,28 +96,15 @@ export default async function HomePage() {
   // common case: a student who already has a membership or a subscription
   // never reaches it, and `isPartnerDomainEmail` answers from an in-process
   // cache rather than a query, so an individual student adds no round trips.
-  let schoolMembership = membership;
-  let districtAccessPending = false;
-  if (
-    isStudent &&
-    !membership &&
-    !subscription &&
-    (await isDistrictCandidateEmail(access.user?.email))
-  ) {
-    const outcome = await ensureDistrictMembership(session.user.id);
-    if (outcome === "CREATED") {
-      schoolMembership = await prisma.studentMembership.findUnique({
-        where: { studentId: session.user.id },
-        include: { organization: true },
-      });
-    }
-    // Signed up with a school address but the provider never verified it
-    // (credentials, not Google SSO). Free access is genuinely waiting for
-    // them — one click in the inbox — so this prompt replaces what would
-    // otherwise be an upgrade pitch aimed at a student whose district has
-    // already paid.
-    districtAccessPending = outcome === "NEEDS_EMAIL_VERIFICATION";
-  }
+  // Enrollment itself happens in the app layout, which runs first and
+  // invalidates the cached context, so the membership read above is already
+  // current. This only decides whether to show the claim prompt.
+  const schoolMembership = membership;
+  const districtAccessPending =
+    isStudent && !membership && !subscription && !access.user?.emailVerified
+      ? await isDistrictCandidateEmail(access.user?.email)
+      : false;
+
   const paidAccess = decidePaidAccess(session.user.role ?? null, subscription, schoolMembership);
   const onboarding = isStudent ? profile : null;
   // Which set is next decides what the one big button says for a free

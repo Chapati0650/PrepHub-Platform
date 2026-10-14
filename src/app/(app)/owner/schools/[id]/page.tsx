@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, Building2 } from "lucide-react";
 import { getOrganizationDetail, listAllSchools } from "@/lib/owner/organizations";
 import { listMemberships } from "@/lib/owner/memberships";
+import { listRoster } from "@/lib/owner/roster";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -14,6 +15,7 @@ import { TotalEnrollmentForm } from "./total-enrollment-form";
 import { AdministratorsPanel } from "./administrators-panel";
 import { AddSchoolForm } from "./add-school-form";
 import { MembershipsPanel } from "./memberships-panel";
+import { RosterPanel } from "./roster-panel";
 
 export default async function OrganizationDetailPage({
   params,
@@ -24,6 +26,7 @@ export default async function OrganizationDetailPage({
   const org = await getOrganizationDetail(id);
   const memberships = await listMemberships(id);
   const allSchools = await listAllSchools();
+  const roster = await listRoster(id);
 
   const eligibleSchools =
     org.organizationType === "DISTRICT"
@@ -158,6 +161,27 @@ export default async function OrganizationDetailPage({
       </Card>
 
       <Separator />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Roster &amp; access</CardTitle>
+          <CardDescription>
+            Who this organization lets in, and the list of students it has told us are eligible. A roster entry
+            is not an account — students still sign up themselves and are recognised when they do.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <RosterPanel
+            id={org.id}
+            enrollmentMode={org.enrollmentMode}
+            entries={roster.entries}
+            total={roster.total}
+            joined={roster.joined}
+            hasDomain={org.domains.some((d) => d.isActive)}
+            multiCampus={eligibleSchools.length > 1}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
