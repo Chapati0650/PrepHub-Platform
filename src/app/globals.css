@@ -8,7 +8,6 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
   /* Deliberately Geist Sans, not the brand display face (Fredoka) — a
      rounded, bold, "friendly mascot" font on every single heading read as
      a children's learning game rather than a serious SAT-prep tool (real

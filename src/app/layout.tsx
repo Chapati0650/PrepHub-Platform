@@ -1,17 +1,11 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Fredoka } from "next/font/google";
-import "katex/dist/katex.min.css";
+import { Geist, Fredoka } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/toast";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
   subsets: ["latin"],
 });
 
@@ -22,7 +16,7 @@ const geistMono = Geist_Mono({
 const fredoka = Fredoka({
   variable: "--font-fredoka",
   subsets: ["latin"],
-  weight: ["500", "600", "700"],
+  weight: ["500"],
 });
 
 // Titles and share cards were "PrepHub" with no Open Graph tags — every
@@ -53,7 +47,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${fredoka.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${fredoka.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">

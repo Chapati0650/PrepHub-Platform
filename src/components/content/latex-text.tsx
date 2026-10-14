@@ -1,3 +1,4 @@
+import "katex/dist/katex.min.css";
 import katex from "katex";
 
 // PRD-013 §12: full LaTeX rendering in question text, answer choices, and
