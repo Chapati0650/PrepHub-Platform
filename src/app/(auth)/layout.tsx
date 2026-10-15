@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+import { auth } from "@/auth";
 import { Logo } from "@/components/logo";
 import { Marker } from "@/components/ui/marker";
 import { PageViewBeacon } from "@/components/analytics/page-view-beacon";
@@ -19,7 +21,16 @@ export const dynamic = "force-dynamic";
 // half of the viewport was empty tint. The brand panel now carries the same
 // deep-teal block and marker motif as the landing page, so signing in looks
 // like the same product the visitor just came from.
-export default function AuthLayout({ children }: { children: React.ReactNode }) {
+// Already signed in? These pages have nothing to offer — go to the product.
+// This lived in middleware against `/` until it became clear that running an
+// edge function in front of the landing page stops it being a CDN asset.
+// Here it is free: this layout is already force-dynamic. `userId`, not the
+// bare token, is the "really signed in" signal — a deleted account's cookie
+// still decodes until it expires.
+export default async function AuthLayout({ children }: { children: React.ReactNode }) {
+  const session = await auth();
+  if (session?.user?.id) redirect("/home");
+
   return (
     <div className="flex min-h-screen flex-col lg:flex-row">
       <PageViewBeacon />
