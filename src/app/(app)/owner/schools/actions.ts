@@ -34,6 +34,7 @@ import {
   graduationInfoSchema,
   schoolTransferSchema,
 } from "@/lib/validation/owner";
+import { prisma } from "@/lib/prisma";
 import { logUnauthorizedAccess } from "@/lib/logger";
 import {
   RosterError,
@@ -482,4 +483,13 @@ export async function setEnrollmentModeAction(_prev: ActionState, formData: Form
   }
   revalidatePath(`/owner/schools/${id}`);
   return { success: true };
+}
+
+/** Sets or clears the mark this organization's students see in the sidebar. */
+export async function setOrganizationLogoAction(id: string, logoMediaId: string | null): Promise<void> {
+  await requireOwner();
+  await prisma.organization.update({ where: { id }, data: { logoMediaId } });
+  revalidatePath(`/owner/schools/${id}`);
+  // Students see it in the app shell, which every authenticated route renders.
+  revalidatePath("/", "layout");
 }

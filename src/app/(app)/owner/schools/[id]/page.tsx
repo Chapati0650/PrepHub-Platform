@@ -16,6 +16,7 @@ import { AdministratorsPanel } from "./administrators-panel";
 import { AddSchoolForm } from "./add-school-form";
 import { MembershipsPanel } from "./memberships-panel";
 import { RosterPanel } from "./roster-panel";
+import { LogoForm } from "./logo-form";
 
 export default async function OrganizationDetailPage({
   params,
@@ -161,6 +162,19 @@ export default async function OrganizationDetailPage({
       </Card>
 
       <Separator />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>District branding</CardTitle>
+          <CardDescription>
+            Shown to this organization&apos;s students inside the product, so PrepHub reads as something their school
+            provides.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <LogoForm id={org.id} logoMediaId={org.logoMediaId} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

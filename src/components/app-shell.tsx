@@ -2,6 +2,7 @@
 
 import { useState, type ComponentType } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -138,6 +139,7 @@ export function AppShell({
   role,
   user,
   showUpgrade,
+  provider,
   logoutAction,
   children,
 }: {
@@ -145,6 +147,8 @@ export function AppShell({
   user: { name: string; email: string };
   /** Student without paid access: shows the sidebar Upgrade row and the launch-pricing banner. */
   showUpgrade: boolean;
+  /** The school or district providing this student's access, when there is one. */
+  provider?: { name: string; logoMediaId: string | null } | null;
   logoutAction: () => Promise<void>;
   children: React.ReactNode;
 }) {
@@ -226,6 +230,34 @@ export function AppShell({
               50% off
             </span>
           </Link>
+        )}
+
+        {/* A district student's own school, shown where the Upgrade row sits
+            for everyone else — the two can never both apply, since a student
+            with school access is never shown an upgrade prompt. The point is
+            that PrepHub should read as something their school provides, not
+            as a stranger they happened to sign up with. */}
+        {provider && (
+          <div className="mb-2 flex items-center gap-2.5 px-3 py-2">
+            {provider.logoMediaId && (
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-white p-0.5">
+                <Image
+                  src={`/api/media/${provider.logoMediaId}`}
+                  alt=""
+                  width={24}
+                  height={24}
+                  unoptimized
+                  className="max-h-full w-auto object-contain"
+                />
+              </span>
+            )}
+            <span className="min-w-0">
+              <span className="block text-caption tracking-[0.12em] text-sidebar-foreground/50 uppercase">
+                Provided by
+              </span>
+              <span className="block truncate text-sm text-sidebar-foreground/85">{provider.name}</span>
+            </span>
+          </div>
         )}
 
         {/* Account block: who is signed in, with the settings gear as the

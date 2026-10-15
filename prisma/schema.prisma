@@ -252,6 +252,12 @@ model Organization {
   /// eligibility.
   enrollmentMode EnrollmentMode @default(DOMAIN)
 
+  /// The district's own mark, shown to its students inside the product so the
+  /// platform reads as something their school provides rather than a stranger
+  /// they signed up with. Optional — everything works without it.
+  logoMediaId String?
+  logo        MediaAsset? @relation("OrganizationLogo", fields: [logoMediaId], references: [id])
+
   // PRD-002 §15.1: whether this org appears in the student-facing school/district
   // search directory at all — independent of `status` (a directory entry can exist
   // for "known but not partnered" schools without an active contract).
@@ -497,6 +503,7 @@ model MediaAsset {
   lessonVideoFor          Lesson[]               @relation("LessonVideo")
 
   @@map("media_assets")
+  organizationLogos Organization[] @relation("OrganizationLogo")
 }
 
 // PRD-013 §6, PRD-015 §8: optional grouping of up to 3 math-only questions that

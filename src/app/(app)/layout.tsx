@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { hasPaidAccess } from "@/lib/entitlements";
+import { getAccessContext, hasPaidAccess } from "@/lib/entitlements";
 import { catchUpDistrictEnrollment } from "@/lib/district/enrollment";
 import { logoutAction } from "./actions";
 import { AppShell } from "@/components/app-shell";
@@ -53,11 +53,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // the Owner never buys the product.
   const showUpgrade = role === "STUDENT" && !(await hasPaidAccess(session.user.id));
 
+  // The school providing this student's access, for the sidebar. Free: it
+  // comes from the same cached context the entitlement decision already read,
+  // so no extra query. Only an ACTIVE membership counts — a removed or
+  // graduated one should stop branding the product.
+  const { membership } = await getAccessContext(session.user.id);
+  const provider =
+    membership?.status === "ACTIVE"
+      ? { name: membership.organization.officialName, logoMediaId: membership.organization.logoMediaId }
+      : null;
+
   return (
     <AppShell
       role={role}
       user={{ name: session.user.name ?? "", email: session.user.email ?? "" }}
       showUpgrade={showUpgrade}
+      provider={provider}
       logoutAction={logoutAction}
     >
       {children}
