@@ -6,7 +6,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { FUNNEL_EVENTS, track } from "@/lib/analytics/track";
-import { verifyPassword } from "@/lib/password";
+import { hashPassword, needsRehash, verifyPassword } from "@/lib/password";
 import { sendWelcomeEmail } from "@/lib/auth/account";
 import { authConfig } from "./auth.config";
 
@@ -74,6 +74,17 @@ const { handlers, signIn, signOut, auth: uncachedAuth } = NextAuth({
 
         const valid = await verifyPassword(password, user.passwordHash);
         if (!valid) return null;
+
+        // The password is correct and in hand, so this is the one moment the
+        // stored hash can be re-costed without asking the user for anything.
+        // Deliberately not awaited: it must never add latency to the login it
+        // is trying to make faster, and a failure just means the account is
+        // migrated on some later sign-in instead.
+        if (needsRehash(user.passwordHash)) {
+          void hashPassword(password)
+            .then((passwordHash) => prisma.user.update({ where: { id: user.id }, data: { passwordHash } }))
+            .catch(() => {});
+        }
 
         return {
           id: user.id,
