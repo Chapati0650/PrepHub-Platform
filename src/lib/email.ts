@@ -9,6 +9,26 @@ type SendEmailInput = {
   text: string;
 };
 
+/**
+ * Why this returns a result instead of just logging: with no log aggregator
+ * (GER §16 says backend logs are sufficient for V1), a swallowed Resend
+ * rejection is invisible — which is exactly how every transactional email
+ * silently went nowhere between launch and 2026-10-17. Callers on a critical
+ * path still ignore it, so a failed send never breaks the operation it is
+ * attached to; the Owner status page is the one caller that reads it.
+ */
+export type SendEmailResult = { ok: true } | { ok: false; reason: string };
+
+/** True when a Resend client could be constructed, i.e. the key is present. */
+export function isEmailConfigured(): boolean {
+  return resendClient !== null;
+}
+
+/** The address sends are attempted from, for display on the status page. */
+export function emailFromAddress(): string {
+  return process.env.EMAIL_FROM ?? "PrepHub <no-reply@prephubtp.com>";
+}
+
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 // Dev-only "outbox" file so E2E tests (which can't receive real email) can read
@@ -23,7 +43,7 @@ const DEV_OUTBOX_PATH = path.join(process.cwd(), ".dev-emails.jsonl");
 // Side effects like this must never block or fail the core operation they're
 // attached to (see CLAUDE.md) — callers should fire-and-log, not await-and-throw
 // on the caller's critical path.
-export async function sendEmail({ to, subject, text }: SendEmailInput): Promise<void> {
+export async function sendEmail({ to, subject, text }: SendEmailInput): Promise<SendEmailResult> {
   if (!resendClient) {
     // In production this branch means RESEND_API_KEY is missing, so every
     // password reset and lifecycle email is silently going nowhere. Log it as
@@ -36,7 +56,7 @@ export async function sendEmail({ to, subject, text }: SendEmailInput): Promise<
         subject,
         errorType: "MissingApiKey",
       });
-      return;
+      return { ok: false, reason: "RESEND_API_KEY is not set in this environment." };
     }
 
     console.info(`[dev email] to=${to} subject="${subject}"\n${text}`);
@@ -46,14 +66,14 @@ export async function sendEmail({ to, subject, text }: SendEmailInput): Promise<
     ).catch(() => {
       // Best-effort only — never fail the caller's operation over a dev convenience file.
     });
-    return;
+    return { ok: true };
   }
 
   // Resend only sends from a domain verified in its dashboard. The site's
   // domain is prephubtp.com; the old hard-coded prephub.app address would
   // have been rejected the moment a key was added.
   const { error } = await resendClient.emails.send({
-    from: process.env.EMAIL_FROM ?? "PrepHub <no-reply@prephubtp.com>",
+    from: emailFromAddress(),
     to,
     subject,
     text,
@@ -65,5 +85,8 @@ export async function sendEmail({ to, subject, text }: SendEmailInput): Promise<
       subject,
       errorType: error.name,
     });
+    return { ok: false, reason: `${error.name}: ${error.message}` };
   }
+
+  return { ok: true };
 }

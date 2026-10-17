@@ -10,6 +10,7 @@ import {
   TrendingUp,
   Users,
   UserRound,
+  Activity,
   ClipboardList,
   IdCard,
   Megaphone,
@@ -65,6 +66,7 @@ const OWNER_ITEMS: NavItem[] = [
   // can see exactly what a district sees without a second account. Write
   // actions refuse it (see requireAdminWriteContext).
   { href: "/admin", label: "Admin View", icon: ClipboardList },
+  { href: "/owner/status", label: "Status", icon: Activity },
   { href: "/owner/content/questions", label: "Content", icon: FileText },
   { href: "/settings", label: "Account", icon: Settings },
 ];
