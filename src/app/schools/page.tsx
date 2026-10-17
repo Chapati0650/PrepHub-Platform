@@ -83,12 +83,13 @@ function Hero() {
             For schools and districts
           </p>
           <h1 className="mt-4 font-heading text-display-sm font-semibold tracking-tight text-balance sm:text-display">
-            SAT prep your students will actually <Marker>open</Marker>
+            SAT prep your students will actually <Marker>use</Marker>
           </h1>
           <p className="mt-6 max-w-xl text-lg text-muted-foreground sm:text-xl">
-            A site license only moves a score if students come back to it. PrepHub is adaptive
-            underneath and built like something a teenager would choose to use — daily questions,
-            streaks, and head-to-head rounds against a classmate.
+            Most licensed test prep is expensive, forgettable, and quietly unused. PrepHub is
+            adaptive underneath and built like something a teenager would choose to open. Daily
+            questions, streaks, and 1v1 games against classmates are what keep students coming
+            back.
           </p>
           <div className="mt-9 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-6">
             <LinkButton size="cta" href={SCHOOLS_MAILTO}>
@@ -104,22 +105,29 @@ function Hero() {
           </p>
         </div>
 
-        <CampusOverviewVisual />
+        <MeasurementPanel />
       </div>
     </section>
   );
 }
 
 /**
- * The administrator's own first screen, as a mock. Counts only — see the
- * header comment on why there is deliberately no score-gain field here.
+ * What a district will be able to measure, as metric names with no numbers.
+ *
+ * This replaced a mocked "campus overview" showing a fictional school's
+ * registration rate and activity totals. Two problems with that, both raised
+ * by the Owner: no pilot is running, so a dashboard full of numbers implied
+ * a deployment that does not exist, and a real school's analytics are not
+ * ours to put on a public page even in mocked form. Naming the metrics
+ * communicates the same value and claims nothing untrue.
  */
-function CampusOverviewVisual() {
-  const stats = [
-    { label: "Registered", value: "412" },
-    { label: "Diagnostics done", value: "288" },
-    { label: "Questions answered", value: "61,204" },
-    { label: "Practice Sets", value: "1,377" },
+function MeasurementPanel() {
+  const metrics = [
+    { n: "01", label: "Registration rate", note: "How many of your eligible students have an account." },
+    { n: "02", label: "Average score gain", note: "First predicted score against latest, per student." },
+    { n: "03", label: "College readiness crossings", note: "Students who were below a benchmark and now meet both." },
+    { n: "04", label: "Questions answered and study time", note: "Campus totals, plus how the top of the cohort compares." },
+    { n: "05", label: "Weakest categories", note: "Which of the seven tested areas is costing your campus most." },
   ];
   return (
     <div className="relative">
@@ -133,33 +141,29 @@ function CampusOverviewVisual() {
       />
       <div className="relative rounded-3xl border border-border bg-card p-6 shadow-lg sm:p-8">
         <p className="text-caption font-medium tracking-wide text-muted-foreground uppercase">
-          Campus overview
+          Your campus report
         </p>
         <p className="mt-1 font-heading text-card-title font-semibold tracking-tight">
-          Northside High School
+          What you will be able to measure
         </p>
 
-        {/* A row of rules rather than four bordered cards — the house pattern
-            for a stat row. */}
-        <div className="mt-6 grid grid-cols-2 divide-x divide-y divide-border overflow-hidden rounded-xl border border-border">
-          {stats.map((s) => (
-            <div key={s.label} className="p-4">
-              <p className="font-heading text-2xl font-semibold tabular-nums">{s.value}</p>
-              <p className="mt-0.5 text-sm text-muted-foreground">{s.label}</p>
+        <dl className="mt-6 divide-y divide-border border-y border-border">
+          {metrics.map((m) => (
+            <div key={m.n} className="flex gap-4 py-3">
+              <span className="font-heading text-sm font-semibold tabular-nums text-muted-foreground/70">
+                {m.n}
+              </span>
+              <span className="min-w-0">
+                <dt className="font-medium">{m.label}</dt>
+                <dd className="mt-0.5 text-sm text-muted-foreground">{m.note}</dd>
+              </span>
             </div>
           ))}
-        </div>
+        </dl>
 
-        <div className="mt-6 flex items-baseline justify-between gap-4">
-          <p className="text-sm text-muted-foreground">Registration</p>
-          <p className="font-heading text-lg font-semibold tabular-nums">21%</p>
-        </div>
-        <div className="mt-2 h-2 overflow-hidden rounded-full bg-foreground/10">
-          <div className="h-full w-[21%] rounded-full bg-primary" />
-        </div>
         <p className="mt-4 text-sm text-muted-foreground">
-          412 of 1,940 eligible students. Campus totals only — no screen in PrepHub shows an
-          administrator an individual student&apos;s performance.
+          Campus totals only. No screen in PrepHub shows an administrator an individual
+          student&apos;s performance.
         </p>
       </div>
     </div>
@@ -174,9 +178,9 @@ function WhyBand() {
     <section className="bg-surface-deep text-surface-deep-foreground">
       <div className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-20">
         <h2 className="max-w-3xl font-heading text-display-sm font-semibold tracking-tight text-balance sm:text-display">
-          Two things decide whether a license moves a score.
+          Three things decide whether a license moves a score.
         </h2>
-        <div className="mt-12 grid gap-10 border-t border-surface-deep-foreground/15 pt-12 sm:grid-cols-2 sm:gap-16">
+        <div className="mt-12 grid gap-10 border-t border-surface-deep-foreground/15 pt-12 md:grid-cols-3 md:gap-10">
           <div>
             <p className="font-heading text-lg font-semibold tabular-nums text-surface-deep-foreground/50">
               01
@@ -184,11 +188,11 @@ function WhyBand() {
             <h3 className="mt-2 font-heading text-card-title font-semibold tracking-tight">
               Does the student open it?
             </h3>
-            <p className="mt-3 text-lg text-surface-deep-foreground/75">
-              The students who need practice most are the hardest to keep in a product. PrepHub
-              answers that with structure rather than nagging: one hard question a day that every
-              student in the country gets, a streak worth protecting, and a ten-question round a
-              student can play live against a classmate.
+            <p className="mt-3 text-surface-deep-foreground/75">
+              The first screen has to earn a second one. PrepHub looks and moves like something a
+              student would open on their own rather than a worksheet in a browser, and that is
+              what gets a skeptical teenager past the login screen in a homeroom period instead of
+              quietly closing the tab.
             </p>
           </div>
           <div>
@@ -196,12 +200,29 @@ function WhyBand() {
               02
             </p>
             <h3 className="mt-2 font-heading text-card-title font-semibold tracking-tight">
-              Does the practice match the student?
+              Does the practice help?
             </h3>
-            <p className="mt-3 text-lg text-surface-deep-foreground/75">
-              Every set is generated from that student&apos;s own per-category ability scores and
-              weighted toward the categories costing them the most points — not a fixed syllabus,
-              and not one worksheet the whole class gets.
+            <p className="mt-3 text-surface-deep-foreground/75">
+              Every set is generated from that student&apos;s own per category ability scores and
+              weighted toward whatever is costing them the most points right now. Nobody gets a
+              fixed syllabus and nobody gets the worksheet the whole class gets. The questions move
+              as the student does, and their predicted score moves with them.
+            </p>
+          </div>
+          <div>
+            <p className="font-heading text-lg font-semibold tabular-nums text-surface-deep-foreground/50">
+              03
+            </p>
+            <h3 className="mt-2 font-heading text-card-title font-semibold tracking-tight">
+              Do students come back?
+            </h3>
+            <p className="mt-3 text-surface-deep-foreground/75">
+              This is where most licenses quietly die, so we work the launch with you. A homeroom
+              session where every student logs in for the first time, with us there in person to
+              help. A weekly slot where the platform actually gets used. Follow up emails to
+              everyone who has not registered a week in. Campus wide challenges with a reward when
+              enough students hit their weekly goal, and team competitions we fund and hand over
+              ourselves.
             </p>
           </div>
         </div>
@@ -216,10 +237,7 @@ function WhyBand() {
           </div>
           <div>
             <p className="font-heading text-display-sm font-semibold tracking-tight sm:text-display">
-              Brilliant.org
-            </p>
-            <p className="mt-2 text-lg text-surface-deep-foreground/75">
-              Official sponsor of the PrepHub channel.
+              Sponsored by Brilliant.org
             </p>
           </div>
         </div>
@@ -232,7 +250,7 @@ const SETUP_STEPS = [
   {
     n: "01",
     title: "Send a roster, or just your domain",
-    body: "Upload a CSV of student emails — campus and graduation year optional, any column order — or simply tell us your email domain and every address on it is recognized. Both are built; most districts start with one and add the other later.",
+    body: "Upload a CSV of student emails, with campus and graduation year optional and any column order. Or simply tell us your email domain and every address on it is recognized. Both are built, and most districts start with one and add the other later.",
   },
   {
     n: "02",
@@ -334,7 +352,7 @@ function ForStudents() {
 const ADMIN_FEATURES = [
   {
     name: "Campus overview",
-    body: "Eligible enrollment, how many of those students have registered, and all-time activity totals for the campus — questions answered, Diagnostics completed, Practice Sets finished.",
+    body: "Eligible enrollment, how many of those students have registered, and all-time activity totals for the campus including questions answered, Diagnostics completed and Practice Sets finished.",
   },
   {
     name: "Student directory",
@@ -394,7 +412,7 @@ const CCMR_GROUPS = [
   {
     tag: "Below both, heading to work or the military",
     title: "Career-ready still needs the score",
-    body: "A CTE student with an industry-based certification is career-ready only if they also meet TSI criteria — no college enrollment required. The certification is already yours; the score is the gate.",
+    body: "A CTE student with an industry-based certification is career-ready only if they also meet TSI criteria, with no college enrollment required. The certification is already yours. The score is the gate.",
     money: false,
   },
 ];
@@ -476,7 +494,7 @@ function Ccmr() {
             special-education amount rose from $2,000 under House Bill 2 (89th Legislature, 2025).
             College-ready requires TSI criteria plus immediate postsecondary enrollment;
             career-ready requires TSI criteria plus an industry-based certification. PrepHub is SAT
-            preparation and not a guarantee of a bonus — we are glad to go through your own TAPR
+            preparation and not a guarantee of a bonus. We are glad to go through your own TAPR
             numbers with you before you commit to anything.
           </p>
         </div>
@@ -488,7 +506,7 @@ function Ccmr() {
 const PRIVACY_POINTS = [
   {
     name: "Administrators never see an individual student's performance",
-    body: "This is enforced by the shape of the data rather than by a filter someone could switch off: the queries behind every campus figure return totals with no field that could carry one student's score.",
+    body: "This is enforced by the shape of the data rather than by a filter someone could switch off. The queries behind every campus figure return totals with no field that could carry one student's score.",
   },
   {
     name: "A student's account is theirs",

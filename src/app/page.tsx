@@ -77,9 +77,6 @@ function Hero() {
               I already have an account
             </LinkButton>
           </div>
-          <p className="mt-6 text-sm text-muted-foreground">
-            The Diagnostic and your first practice set are free — no card required.
-          </p>
         </div>
 
         <HeroVisual />
@@ -134,7 +131,7 @@ async function CredibilityBand() {
     <section className="bg-surface-deep text-surface-deep-foreground">
       <div className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-20">
         <p className="text-caption font-medium tracking-[0.12em] text-surface-deep-foreground/60 uppercase">
-          Built on a following that already trusts the teaching
+          Built on a following that already trusts our teaching
         </p>
         <div className="mt-10 grid items-end gap-10 sm:grid-cols-2 sm:gap-16">
           <div>
@@ -145,10 +142,7 @@ async function CredibilityBand() {
           </div>
           <div>
             <p className="font-heading text-display-sm font-semibold tracking-tight sm:text-display">
-              Brilliant.org
-            </p>
-            <p className="mt-2 text-lg text-surface-deep-foreground/75">
-              Official sponsor of the PrepHub channel.
+              Sponsored by Brilliant.org
             </p>
           </div>
         </div>
@@ -161,7 +155,7 @@ async function CredibilityBand() {
         <div className="mt-16 border-t border-surface-deep-foreground/15 pt-12">
           <div className="flex flex-wrap items-baseline justify-between gap-4">
             <h2 className="font-heading text-xl font-semibold tracking-tight sm:text-2xl">
-              The same teaching, <Marker>free on YouTube</Marker>.
+              As seen on <Marker>YouTube</Marker>
             </h2>
             <a
               href="https://www.youtube.com/@prephubtp"
@@ -328,7 +322,7 @@ function FeatureSections() {
             </h2>
             <p className="mt-5 text-lg text-muted-foreground">
               Your ability score moves per category after every question you finalize. The next set
-              is built from those numbers — not from a fixed syllabus, and not from what you
+              is built from those numbers, not from a fixed syllabus and not from what you
               answered first.
             </p>
           </div>
@@ -342,7 +336,7 @@ function FeatureSections() {
             </h2>
             <p className="mt-5 text-lg text-muted-foreground">
               Every question carries a written, step-by-step explanation of how the answer is
-              reached — so a wrong answer turns into something you learn from instead of a red X.
+              reached, so a wrong answer turns into something you learn from instead of a red X.
             </p>
           </div>
           <div className="rounded-3xl border border-border bg-card p-6 shadow-sm md:order-1 sm:p-8">
@@ -360,7 +354,7 @@ function FeatureSections() {
                 <p className="mb-1 text-caption font-medium tracking-wide text-muted-foreground uppercase">
                   Step 2
                 </p>
-                Divide both sides by 3 — x = 5, which matches answer choice B.
+                Divide both sides by 3, so x = 5, which matches answer choice B.
               </div>
             </div>
           </div>
