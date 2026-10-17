@@ -1,10 +1,9 @@
-import Link from "next/link";
 import { PageViewBeacon } from "@/components/analytics/page-view-beacon";
+import { SiteFooter, SiteHeader } from "@/components/marketing/site-chrome";
 import { LinkButton } from "@/components/ui/link-button";
 import { Marker } from "@/components/ui/marker";
 import { LandingVideoCard } from "./landing-videos";
 import { getLandingVideos } from "@/lib/youtube/landing-videos";
-import { Logo } from "@/components/logo";
 import { DiagnosticVisual, MasteryVisual } from "./landing-visuals";
 
 // The public marketing page — shown only to signed-out visitors; anyone with
@@ -41,19 +40,7 @@ export default function RootPage() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <PageViewBeacon />
-      <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-background/85 backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
-          <Logo size="lg" />
-          <div className="flex items-center gap-2">
-            <LinkButton variant="ghost" className="rounded-full px-5" href="/login" hardNavigation>
-              Log in
-            </LinkButton>
-            <LinkButton className="rounded-full px-5" href="/signup" hardNavigation>
-              Sign up
-            </LinkButton>
-          </div>
-        </div>
-      </header>
+      <SiteHeader />
 
       <Hero />
       <CredibilityBand />
@@ -61,25 +48,7 @@ export default function RootPage() {
       <FeatureSections />
       <ClosingCta />
 
-      <footer className="border-t border-border">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-12 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-col gap-2">
-            <Logo />
-            <p>Adaptive SAT preparation that adjusts to you.</p>
-          </div>
-          <div className="flex gap-6">
-            <Link href="/terms" className="hover:text-foreground">
-              Terms
-            </Link>
-            <Link href="/privacy" className="hover:text-foreground">
-              Privacy
-            </Link>
-            <Link href="/login" className="hover:text-foreground">
-              Log in
-            </Link>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
