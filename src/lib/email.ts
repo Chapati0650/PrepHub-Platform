@@ -25,6 +25,20 @@ const DEV_OUTBOX_PATH = path.join(process.cwd(), ".dev-emails.jsonl");
 // on the caller's critical path.
 export async function sendEmail({ to, subject, text }: SendEmailInput): Promise<void> {
   if (!resendClient) {
+    // In production this branch means RESEND_API_KEY is missing, so every
+    // password reset and lifecycle email is silently going nowhere. Log it as
+    // a delivery failure so it surfaces in the function logs instead of a
+    // console.info nobody reads, and skip the dev outbox below: a serverless
+    // filesystem discards that file anyway.
+    if (process.env.NODE_ENV === "production") {
+      logEmailDeliveryFailure("RESEND_API_KEY is not configured - email was not sent", {
+        email: to,
+        subject,
+        errorType: "MissingApiKey",
+      });
+      return;
+    }
+
     console.info(`[dev email] to=${to} subject="${subject}"\n${text}`);
     await appendFile(
       DEV_OUTBOX_PATH,
