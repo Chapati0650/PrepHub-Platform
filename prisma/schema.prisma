@@ -85,6 +85,7 @@ model User {
   diagnosticSession      DiagnosticSession?
   predictionHistory      PredictionHistoryEntry[]
   clubSessions           ClubSession[]
+  focusedSessions        FocusedSession[]
   lessonProgress         LessonProgress[]
   collegeAppsProfile     CollegeAppsProfile?
   collegeApplications    CollegeApplication[]
@@ -501,9 +502,9 @@ model MediaAsset {
   answerChoiceImageFor    QuestionAnswerChoice[] @relation("AnswerChoiceImage")
   explanationStepImageFor ExplanationStep[]      @relation("ExplanationStepImage")
   lessonVideoFor          Lesson[]               @relation("LessonVideo")
+  organizationLogos       Organization[]         @relation("OrganizationLogo")
 
   @@map("media_assets")
-  organizationLogos Organization[] @relation("OrganizationLogo")
 }
 
 // PRD-013 §6, PRD-015 §8: optional grouping of up to 3 math-only questions that
@@ -572,6 +573,7 @@ model Question {
   diagnosticAttempts DiagnosticAttempt[]
   finalizedAttempts  FinalizedAttempt[]
   clubSlots          ClubSlot[]
+  focusedSlots       FocusedSlot[]
   rushSlots          RushSlot[]
   dailyChallenges    DailyChallenge[]
 
@@ -631,6 +633,7 @@ model QuestionRevision {
   blueprintSlots     BlueprintSlot[]
   diagnosticAttempts DiagnosticAttempt[]
   clubSlots          ClubSlot[]
+  focusedSlots       FocusedSlot[]
   rushSlots          RushSlot[]
   dailyChallenges    DailyChallenge[]
 
@@ -1472,13 +1475,13 @@ model SchoolRosterEntry {
   schoolId       String // the specific campus this student belongs to
 
   /// Lowercased. The identity a signing-in student is matched against.
-  email String
+  email             String
   /// The district's own SIS identifier, when they supply one. Never required:
   /// some districts will share an email and nothing else.
   externalStudentId String?
   /// Optional hints that save the student answering again; both are advisory.
-  firstName      String?
-  graduationYear Int?
+  firstName         String?
+  graduationYear    Int?
 
   /// Soft-removed rather than deleted, so a student taken off the roster still
   /// has a record explaining why their access ended (deletion is anonymizing,
@@ -1499,4 +1502,76 @@ model SchoolRosterEntry {
   @@index([email])
   @@index([organizationId, removedAt])
   @@map("school_roster_entries")
+}
+
+// ---------------------------------------------------------------------------
+// Focused Practice
+// ---------------------------------------------------------------------------
+// The student chooses a category and a difficulty and drills it. Added
+// 2026-10-17 because the only practice a student could steer was the
+// Diagnostic's successor sets, which are deliberately chosen *for* them.
+//
+// Like the 800 Club and 1v1 Rush, these live in their own tables and are
+// invisible to the adaptive engine. That isolation is the whole reason the
+// feature is safe to offer: a student picking "Advanced Math, Hard" is a
+// self-selected, deliberately unrepresentative sample, and PRD-014's ability
+// update and PRD-016's prediction both assume the engine chose the
+// questions. Letting a drill move the Predicted SAT Score would let a
+// student farm Easy questions in their best category and watch a number that
+// no longer means anything. Nothing in src/lib/adaptive reads these rows.
+enum FocusedDifficulty {
+  EASY
+  MEDIUM
+  HARD
+  MIXED
+}
+
+enum FocusedSessionStatus {
+  ACTIVE
+  COMPLETED
+}
+
+model FocusedSession {
+  id              String               @id @default(cuid())
+  studentId       String
+  category        QuestionCategory
+  difficulty      FocusedDifficulty
+  status          FocusedSessionStatus @default(ACTIVE)
+  randomSeed      String
+  currentPosition Int                  @default(0)
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  student User          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  slots   FocusedSlot[]
+
+  @@index([studentId, status])
+  @@index([studentId, category])
+  @@map("focused_sessions")
+}
+
+model FocusedSlot {
+  id                 String  @id @default(cuid())
+  sessionId          String
+  position           Int
+  questionId         String
+  questionRevisionId String
+  draftAnswer        String?
+  skipped            Boolean @default(false)
+
+  // Same shape as ClubSlot: the attempt lives inline because a slot is
+  // answered at most once, and `finalizedAt IS NULL` inside a transaction is
+  // the idempotency check.
+  answer      String?
+  isCorrect   Boolean?
+  finalizedAt DateTime?
+
+  session          FocusedSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question         Question         @relation(fields: [questionId], references: [id])
+  questionRevision QuestionRevision @relation(fields: [questionRevisionId], references: [id])
+
+  @@unique([sessionId, position])
+  @@index([questionId])
+  @@map("focused_slots")
 }

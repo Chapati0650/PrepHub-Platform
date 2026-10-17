@@ -1,8 +1,10 @@
 import { ClipboardList, BarChart3 } from "lucide-react";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { getAdminOverviewData } from "@/lib/admin/overview";
+import { getCampusImpact } from "@/lib/admin/impact";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
+import { OwnerSchoolSwitcher } from "./school-switcher";
 
 const ACCESS_STATUS_LABELS: Record<string, string> = {
   SETUP: "Setting Up",
@@ -21,8 +23,13 @@ function formatMonthYear(date: Date): string {
 // structurally excludes the administrator's own learning activity (§7) —
 // `getAdminOverviewData` scopes every query through `StudentMembership`,
 // which the administrator account never has.
-export default async function AdminOverviewPage() {
-  const { schoolId } = await requireAdminSchoolContext();
+export default async function AdminOverviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ school?: string }>;
+}) {
+  const { school } = await searchParams;
+  const { schoolId, viewingAsOwner, availableSchools } = await requireAdminSchoolContext(school);
 
   if (!schoolId) {
     return (
@@ -38,10 +45,17 @@ export default async function AdminOverviewPage() {
     );
   }
 
-  const data = await getAdminOverviewData(schoolId);
+  const [data, impact] = await Promise.all([
+    getAdminOverviewData(schoolId),
+    getCampusImpact(schoolId),
+  ]);
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8">
+      {viewingAsOwner && (
+        <OwnerSchoolSwitcher basePath="/admin" schools={availableSchools} currentSchoolId={schoolId} />
+      )}
+
       <PageHeader eyebrow="Admin Overview" title={data.schoolName} />
 
       {/* Enrollment & Registration */}
@@ -88,6 +102,88 @@ export default async function AdminOverviewPage() {
         </p>
       </div>
 
+      {/* Results — PRD-011 §10 extended (2026-10-17). Every figure is a count
+          or a distribution statistic; `biggestScoreGain` and
+          `topStudentStudyHours` are extremes of a distribution, not a named
+          student, so this stays aggregate-only (§7). */}
+      <div>
+        <h2 className="mb-3 text-sm font-semibold">Results</h2>
+        {impact.measurableStudents === 0 ? (
+          <EmptyState
+            icon={BarChart3}
+            title="No measurable gains yet"
+            description="A student needs a Diagnostic and at least one completed Practice Set before their score movement can be measured. These numbers appear once that happens."
+          />
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <Stat
+                label="Avg. Score Gain"
+                value={impact.averageScoreGain !== null ? formatGain(impact.averageScoreGain) : "—"}
+              />
+              <Stat
+                label="Biggest Score Gain"
+                value={impact.biggestScoreGain !== null ? formatGain(impact.biggestScoreGain) : "—"}
+              />
+              <Stat
+                label="Students Improved"
+                value={`${impact.studentsImproved} of ${impact.measurableStudents}`}
+              />
+              <Stat
+                label="Avg. Study Time"
+                value={impact.averageStudyHours !== null ? `${impact.averageStudyHours}h` : "—"}
+              />
+              <Stat
+                label="Top Student Study Time"
+                value={impact.topStudentStudyHours !== null ? `${impact.topStudentStudyHours}h` : "—"}
+              />
+              <Stat label="Students Studying" value={impact.activeStudents.toLocaleString()} />
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Score gains compare each student&apos;s first PrepHub Score Prediction with their
+              latest. Study time is derived from completed session length.
+            </p>
+          </>
+        )}
+      </div>
+
+      {/* College readiness benchmark */}
+      <div>
+        <h2 className="mb-3 text-sm font-semibold">College Readiness Benchmark</h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat label="Crossed the Benchmark" value={impact.benchmark.crossed.toLocaleString()} />
+          <Stat label="Already Met, Held" value={impact.benchmark.held.toLocaleString()} />
+          <Stat label="Still Below" value={impact.benchmark.below.toLocaleString()} />
+          <Stat label="Fell Back" value={impact.benchmark.slipped.toLocaleString()} />
+        </div>
+        {impact.benchmark.below > 0 && (
+          <div className="mt-3 rounded-lg border border-border p-4 text-sm">
+            <p className="font-medium">Of the students still below, how far</p>
+            <div className="mt-2 flex flex-col gap-1 text-muted-foreground">
+              <Shortfall
+                label="Missing Math only"
+                count={impact.benchmark.shortfall.MISSES_MATH_ONLY}
+              />
+              <Shortfall
+                label="Missing Reading & Writing only"
+                count={impact.benchmark.shortfall.MISSES_READING_ONLY}
+              />
+              <Shortfall label="Missing both" count={impact.benchmark.shortfall.MISSES_BOTH} />
+            </div>
+            <p className="mt-2 text-xs">
+              A student missing one subject is the closest to a readiness credit.
+            </p>
+          </div>
+        )}
+        <p className="mt-2 text-xs text-muted-foreground">
+          &ldquo;Crossed&rdquo; counts students who were below at least one Texas Success
+          Initiative criterion at their first prediction and now meet both
+          ({impact.benchmark.readingWritingBenchmark} Reading &amp; Writing,{" "}
+          {impact.benchmark.mathBenchmark} Math). Based on PrepHub Score Predictions, which are
+          estimates and not official College Board results or an official CCMR determination.
+        </p>
+      </div>
+
       {/* School Access */}
       <div>
         <h2 className="mb-3 text-sm font-semibold">School Access</h2>
@@ -105,6 +201,19 @@ export default async function AdminOverviewPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function formatGain(points: number): string {
+  return points > 0 ? `+${points}` : String(points);
+}
+
+function Shortfall({ label, count }: { label: string; count: number }) {
+  return (
+    <span className="flex items-center justify-between gap-4">
+      <span>{label}</span>
+      <span className="font-medium tabular-nums text-foreground">{count}</span>
+    </span>
   );
 }
 

@@ -1,5 +1,6 @@
 import { Mail } from "lucide-react";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
+import { OwnerSchoolSwitcher } from "../school-switcher";
 import { getSchoolAccessInfo } from "@/lib/admin/access-info";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -23,8 +24,13 @@ function formatMonthYear(date: Date): string {
 // not show contract amount, invoices, or other billing/contract-management
 // detail — "the dashboard does not function as a billing or
 // contract-management portal."
-export default async function SchoolAccessPage() {
-  const { schoolId } = await requireAdminSchoolContext();
+export default async function SchoolAccessPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ school?: string }>;
+}) {
+  const { school } = await searchParams;
+  const { schoolId, viewingAsOwner, availableSchools } = await requireAdminSchoolContext(school);
 
   if (!schoolId) {
     return (
@@ -41,6 +47,10 @@ export default async function SchoolAccessPage() {
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8">
+      {viewingAsOwner && (
+        <OwnerSchoolSwitcher basePath="/admin/access" schools={availableSchools} currentSchoolId={schoolId} />
+      )}
+
       <PageHeader eyebrow="Administrator" title="School Access & Support" />
 
       <div className="rounded-lg border border-border p-6">

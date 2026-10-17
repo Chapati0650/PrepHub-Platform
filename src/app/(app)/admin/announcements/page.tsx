@@ -1,4 +1,5 @@
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
+import { OwnerSchoolSwitcher } from "../school-switcher";
 import { listAnnouncements } from "@/lib/announcements";
 import { PageHeader } from "@/components/page-header";
 import { AnnouncementsPanel } from "./announcements-panel";
@@ -6,8 +7,13 @@ import { AnnouncementsPanel } from "./announcements-panel";
 // PRD-011 §16-§18 — the administrator's brief, one-way communication tool:
 // create, preview, publish (with email delivery to every registered student),
 // and manage active/previous announcements.
-export default async function AnnouncementsPage() {
-  const { schoolId } = await requireAdminSchoolContext();
+export default async function AnnouncementsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ school?: string }>;
+}) {
+  const { school } = await searchParams;
+  const { schoolId, viewingAsOwner, availableSchools } = await requireAdminSchoolContext(school);
 
   if (!schoolId) {
     return (
@@ -24,6 +30,10 @@ export default async function AnnouncementsPage() {
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8">
+      {viewingAsOwner && (
+        <OwnerSchoolSwitcher basePath="/admin/announcements" schools={availableSchools} currentSchoolId={schoolId} />
+      )}
+
       <PageHeader
         eyebrow="Administrator"
         title="Announcements"

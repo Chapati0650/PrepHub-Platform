@@ -61,6 +61,10 @@ const OWNER_ITEMS: NavItem[] = [
   { href: "/owner/funnel", label: "Funnel", icon: TrendingUp },
   { href: "/owner/schools", label: "Schools", icon: Building2 },
   { href: "/owner/users", label: "Users", icon: Users },
+  // The Owner's read-only preview of the School Administrator area, so they
+  // can see exactly what a district sees without a second account. Write
+  // actions refuse it (see requireAdminWriteContext).
+  { href: "/admin", label: "Admin View", icon: ClipboardList },
   { href: "/owner/content/questions", label: "Content", icon: FileText },
   { href: "/settings", label: "Account", icon: Settings },
 ];

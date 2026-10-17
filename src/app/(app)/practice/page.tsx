@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { Lock, AlertCircle } from "lucide-react";
@@ -143,10 +144,31 @@ export default async function PracticePage() {
 // column with a glyph on top, a heading, a line of grey text and a button was
 // the shape all three took, and it is the shape every generated "status
 // screen" takes.
+// Every state of this page sits inside the shell, so the Focused Practice
+// door belongs here rather than in each branch — a student who has finished
+// their set, is mid-set, or is looking at a paywall all have the same reason
+// to want to drill one category.
 function PracticeShell({ children }: { children: ReactNode }) {
   return (
-    <div className="mx-auto w-full max-w-2xl p-6 sm:p-10">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-6 sm:p-10">
       <div className="rounded-3xl bg-surface-tint p-8 sm:p-12">{children}</div>
+      <Link
+        href="/practice/focused"
+        className="group flex items-center justify-between gap-4 rounded-2xl border border-border p-5 transition-colors hover:bg-muted/50"
+      >
+        <span className="min-w-0">
+          <span className="block font-heading font-semibold tracking-tight">Focused Practice</span>
+          <span className="mt-0.5 block text-sm text-muted-foreground">
+            Pick a category and difficulty and drill 10 questions on exactly that.
+          </span>
+        </span>
+        <span
+          className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+          aria-hidden
+        >
+          &rarr;
+        </span>
+      </Link>
     </div>
   );
 }

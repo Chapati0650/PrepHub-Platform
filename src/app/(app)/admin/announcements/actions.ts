@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdminSchoolContext } from "@/lib/admin/school-context";
+import { requireAdminWriteContext } from "@/lib/admin/school-context";
 import { publishAnnouncement, removeAnnouncement } from "@/lib/announcements";
 import { AdminError } from "@/lib/admin/errors";
 import { createAnnouncementSchema } from "@/lib/validation/admin";
@@ -13,8 +13,9 @@ function formEntries(formData: FormData) {
 }
 
 export async function publishAnnouncementAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const { schoolId, userId } = await requireAdminSchoolContext();
-  if (!schoolId) return { error: "Not authorized." };
+  const context = await requireAdminWriteContext();
+  if ("error" in context) return context;
+  const { schoolId, userId } = context;
 
   const raw = formEntries(formData);
   const parsed = createAnnouncementSchema.safeParse({
@@ -31,8 +32,9 @@ export async function publishAnnouncementAction(_prev: ActionState, formData: Fo
 }
 
 export async function removeAnnouncementAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const { schoolId } = await requireAdminSchoolContext();
-  if (!schoolId) return { error: "Not authorized." };
+  const context = await requireAdminWriteContext();
+  if ("error" in context) return context;
+  const { schoolId } = context;
 
   const announcementId = formData.get("announcementId");
   if (typeof announcementId !== "string" || !announcementId) return { error: "Missing announcement id." };

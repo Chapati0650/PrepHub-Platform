@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdminSchoolContext } from "@/lib/admin/school-context";
+import { requireAdminWriteContext } from "@/lib/admin/school-context";
 import { updateStudentInfo } from "@/lib/admin/student-directory";
 import { AdminError } from "@/lib/admin/errors";
 import { updateStudentInfoSchema } from "@/lib/validation/admin";
@@ -13,8 +13,9 @@ function formEntries(formData: FormData) {
 }
 
 export async function updateStudentInfoAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const { schoolId } = await requireAdminSchoolContext();
-  if (!schoolId) return { error: "Not authorized." };
+  const context = await requireAdminWriteContext();
+  if ("error" in context) return context;
+  const { schoolId } = context;
 
   const membershipId = formData.get("membershipId");
   if (typeof membershipId !== "string" || !membershipId) return { error: "Missing student id." };

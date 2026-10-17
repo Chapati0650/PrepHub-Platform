@@ -1,4 +1,5 @@
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
+import { OwnerSchoolSwitcher } from "../school-switcher";
 import { getStudentDirectory, type StudentDirectoryFilters } from "@/lib/admin/student-directory";
 import { PageHeader } from "@/components/page-header";
 import { StudentDirectoryTable } from "./student-directory-table";
@@ -24,7 +25,10 @@ function parseFilters(searchParams: SearchParams): StudentDirectoryFilters {
 // the URL (mirroring the Owner Questions table's pattern) so they survive
 // navigation and are shareable/bookmarkable.
 export default async function StudentDirectoryPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const { schoolId } = await requireAdminSchoolContext();
+  const params = await searchParams;
+  const { schoolId, viewingAsOwner, availableSchools } = await requireAdminSchoolContext(
+    one(params.school),
+  );
 
   if (!schoolId) {
     return (
@@ -43,6 +47,10 @@ export default async function StudentDirectoryPage({ searchParams }: { searchPar
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-4 sm:p-8">
+      {viewingAsOwner && (
+        <OwnerSchoolSwitcher basePath="/admin/students" schools={availableSchools} currentSchoolId={schoolId} />
+      )}
+
       <PageHeader eyebrow="Administrator" title="Student Directory" />
       <StudentDirectoryTable students={students} filters={filters} currentYear={currentYear} />
     </div>
