@@ -24,9 +24,30 @@ export function isEmailConfigured(): boolean {
   return resendClient !== null;
 }
 
-/** The address sends are attempted from, for display on the status page. */
+/**
+ * The address sends are attempted from.
+ *
+ * The local part is arbitrary on a verified domain, and the display name is
+ * what a student actually reads in their inbox list. `no-reply@` is the most
+ * impersonal signal there is — it announces that nobody is listening — and
+ * four of these emails are signed by a named person, so the envelope should
+ * agree with the signature.
+ */
 export function emailFromAddress(): string {
-  return process.env.EMAIL_FROM ?? "PrepHub <no-reply@prephubtp.com>";
+  return process.env.EMAIL_FROM ?? "Prithvi at PrepHub <prithvi@mail.prephubtp.com>";
+}
+
+/**
+ * Where a student's reply goes.
+ *
+ * Unset means replies bounce, which is the default behaviour of the address
+ * above and undoes the point of it. This is deliberately allowed to be an
+ * ordinary personal inbox: a Reply-To is only ever seen by someone who
+ * already received an email, so unlike an address printed on a public page
+ * it is not exposed to scrapers.
+ */
+export function emailReplyTo(): string | undefined {
+  return process.env.EMAIL_REPLY_TO || undefined;
 }
 
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -72,8 +93,10 @@ export async function sendEmail({ to, subject, text }: SendEmailInput): Promise<
   // Resend only sends from a domain verified in its dashboard. The site's
   // domain is prephubtp.com; the old hard-coded prephub.app address would
   // have been rejected the moment a key was added.
+  const replyTo = emailReplyTo();
   const { error } = await resendClient.emails.send({
     from: emailFromAddress(),
+    ...(replyTo ? { replyTo } : {}),
     to,
     subject,
     text,

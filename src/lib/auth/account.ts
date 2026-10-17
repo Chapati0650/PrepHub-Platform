@@ -100,7 +100,15 @@ export async function requestPasswordReset(email: string): Promise<void> {
   await sendEmail({
     to: user.email,
     subject: "Reset your PrepHub password",
-    text: `Click the link below to reset your password. This link expires in 1 hour and can only be used once.\n\n${resetUrl}\n\nIf you didn't request this, you can safely ignore this email.`,
+    text: `Hi ${user.firstName},
+
+Here's the link to reset your PrepHub password. It expires in an hour and works once:
+
+${resetUrl}
+
+If you didn't ask for this you can ignore this email and nothing changes. If you're stuck getting back in, just reply to this and I'll sort it out.
+
+— Prithvi, PrepHub`,
   });
 }
 

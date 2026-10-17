@@ -129,9 +129,9 @@ export async function sendDailyReminders(now = new Date()): Promise<number> {
 ${paid ? "Half a set today keeps your prediction moving. Your next questions are ready:" : "One hard question, no clock, and your streak stays alive:"}
 ${SITE}${paid ? "/practice" : "/daily"}
 
-You can turn these reminders off any time in Settings → Notifications.
+You can turn these off any time in Settings → Notifications.
 
-— PrepHub`,
+— Prithvi, PrepHub`,
     });
     sent++;
   }

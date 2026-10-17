@@ -129,7 +129,16 @@ export async function syncSubscriptionFromStripe(
       await sendEmail({
         to: user.email,
         subject: "We couldn't process your PrepHub payment",
-        text: `Your last payment didn't go through. You have 7 days to update your payment method before Personalized Practice access ends. Manage billing at ${process.env.NEXTAUTH_URL ?? "http://localhost:3000"}/billing.`,
+        text: `Hi ${user.firstName},
+
+Your last payment didn't go through. Nothing has been lost — your practice, your prediction and your streak are all exactly where you left them. You have 7 days to update your card before Personalized Practice pauses.
+
+You can update it here:
+${process.env.NEXTAUTH_URL ?? "http://localhost:3000"}/billing
+
+If this is bad timing or something isn't working, reply to this and we'll figure it out.
+
+— Prithvi, PrepHub`,
       }).catch(() => {});
     }
   }

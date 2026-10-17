@@ -66,11 +66,26 @@ export async function requestSchoolVerification(studentId: string, rawEmail: str
     },
   });
 
+  // Addressed by name like every other email we send; studentId is already
+  // in scope, and a missing row simply falls back to a neutral greeting.
+  const student = await prisma.user.findUnique({
+    where: { id: studentId },
+    select: { firstName: true },
+  });
+
   const verifyUrl = `${process.env.NEXTAUTH_URL ?? "http://localhost:3000"}/access/verify-school/${rawToken}`;
   await sendEmail({
     to: email,
     subject: "Verify your school email for PrepHub",
-    text: `Open the link below to verify your school email and activate school-provided PrepHub access. This link expires in 24 hours and can only be used once.\n\n${verifyUrl}`,
+    text: `Hi ${student?.firstName ?? "there"},
+
+Open the link below to verify your school email and switch on the PrepHub access your school provides. It expires in 24 hours and works once:
+
+${verifyUrl}
+
+If the link has expired by the time you get to it, request a new one from the access page and it'll send another. Any trouble, just reply to this.
+
+— Prithvi, PrepHub`,
   });
 }
 
