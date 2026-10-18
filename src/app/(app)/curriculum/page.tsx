@@ -6,7 +6,8 @@ import { canUseStudentExperience } from "@/lib/access";
 import { getCurriculumOverview } from "@/lib/curriculum/queries";
 import { LinkButton } from "@/components/ui/link-button";
 import { Marker } from "@/components/ui/marker";
-import { TeacherCard, TEACHER } from "./teacher-card";
+import { TeacherCard } from "./teacher-card";
+import { TEACHER } from "@/lib/teacher";
 
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);

@@ -8,6 +8,7 @@ import {
 } from "@/components/marketing/site-chrome";
 import { LinkButton } from "@/components/ui/link-button";
 import { Marker } from "@/components/ui/marker";
+import { TEACHER } from "@/lib/teacher";
 
 // The district-facing page, reached from the "For Schools" tab in the public
 // header. It answers the questions a school administrator actually asks, in
@@ -86,10 +87,9 @@ function Hero() {
             SAT prep your students will actually <Marker>use</Marker>
           </h1>
           <p className="mt-6 max-w-xl text-lg text-muted-foreground sm:text-xl">
-            Most licensed test prep is expensive, forgettable, and quietly unused. PrepHub is
-            adaptive underneath and built like something a teenager would choose to open. Daily
-            questions, streaks, and 1v1 games against classmates are what keep students coming
-            back.
+            Most licensed test prep is expensive, forgettable, and unused by students.
+            PrepHub&apos;s adaptive engine gives every student a personalized learning experience,
+            while our daily questions, streaks, and 1v1 games keep them coming back.
           </p>
           <div className="mt-9 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-6">
             <LinkButton size="cta" href={SCHOOLS_MAILTO}>
@@ -161,10 +161,6 @@ function MeasurementPanel() {
           ))}
         </dl>
 
-        <p className="mt-4 text-sm text-muted-foreground">
-          Campus totals only. No screen in PrepHub shows an administrator an individual
-          student&apos;s performance.
-        </p>
       </div>
     </div>
   );
@@ -203,10 +199,10 @@ function WhyBand() {
               Does the practice help?
             </h3>
             <p className="mt-3 text-surface-deep-foreground/75">
-              Every set is generated from that student&apos;s own per category ability scores and
-              weighted toward whatever is costing them the most points right now. Nobody gets a
-              fixed syllabus and nobody gets the worksheet the whole class gets. The questions move
-              as the student does, and their predicted score moves with them.
+              Every set is generated from that student&apos;s own category ability scores and
+              weighted toward whatever is costing them the most points right now. No student gets a
+              one-size-fits-all syllabus or a practice set that looks the same as the person next to
+              them. The questions move with the student, so no one is left behind.
             </p>
           </div>
           <div>
@@ -217,12 +213,12 @@ function WhyBand() {
               Do students come back?
             </h3>
             <p className="mt-3 text-surface-deep-foreground/75">
-              This is where most licenses quietly die, so we work the launch with you. A homeroom
-              session where every student logs in for the first time, with us there in person to
-              help. A weekly slot where the platform actually gets used. Follow up emails to
-              everyone who has not registered a week in. Campus wide challenges with a reward when
-              enough students hit their weekly goal, and team competitions we fund and hand over
-              ourselves.
+              This is where most licenses fail, so we work through the launch with you. That
+              includes a homeroom session where every student logs in for the first time with in
+              person support, a weekly slot where the platform actually gets used, and follow up
+              emails to students who have not registered a week in. To keep students hooked, we run
+              campus wide challenges with a reward when enough of them hit their weekly goal, and
+              team competitions with prizes that we fund ourselves.
             </p>
           </div>
         </div>
@@ -239,6 +235,44 @@ function WhyBand() {
             <p className="font-heading text-display-sm font-semibold tracking-tight sm:text-display">
               Sponsored by Brilliant.org
             </p>
+          </div>
+        </div>
+
+        {/* Who built it, on the credibility band rather than buried lower.
+            The claim this page makes is that the product is built for how
+            teenagers actually behave, and the strongest evidence for that is
+            that it was written by someone who sat the test recently and
+            teaches it to teenagers daily. Bio, photo and credentials come
+            from the single TEACHER constant the Curriculum already uses, so
+            the site cannot end up making two different claims about the same
+            person. */}
+        <div className="mt-16 grid gap-8 border-t border-surface-deep-foreground/15 pt-12 sm:grid-cols-[auto_1fr] sm:gap-10">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={TEACHER.photo}
+            alt={`${TEACHER.name}, founder and teacher at PrepHub`}
+            width={112}
+            height={112}
+            className="size-28 shrink-0 rounded-full object-cover object-top ring-4 ring-surface-deep-foreground/15"
+          />
+          <div>
+            <p className="text-caption font-medium tracking-[0.12em] text-surface-deep-foreground/60 uppercase">
+              Who writes it
+            </p>
+            <p className="mt-2 font-heading text-card-title font-semibold tracking-tight">
+              {TEACHER.name}
+            </p>
+            <p className="mt-3 max-w-2xl text-lg text-surface-deep-foreground/75">
+              Every question, explanation and lesson in PrepHub is written by one person who scored
+              perfectly on both the SAT and the PSAT, and who has spent years teaching the digital
+              SAT to teenagers. That is the whole reason this product is shaped around what keeps a
+              student coming back rather than around a textbook.
+            </p>
+            <ul className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-sm text-surface-deep-foreground/75">
+              {TEACHER.credentials.map((c) => (
+                <li key={c}>{c}</li>
+              ))}
+            </ul>
           </div>
         </div>
       </div>
@@ -329,8 +363,8 @@ function ForStudents() {
           What the <Marker>student</Marker> gets.
         </h2>
         <p className="mt-5 max-w-2xl text-lg text-muted-foreground">
-          Every student on your roster gets all of it. There is no tier held back from a district
-          license, and no feature that costs extra per student.
+          Every student on your roster gets full access. There are no tiers held back from a
+          district license, and no features that cost extra.
         </p>
 
         {/* One divide-y list, not six bordered cards. Full width rather than
@@ -375,8 +409,9 @@ function ForAdministrators() {
         What the <Marker>administrator</Marker> gets.
       </h2>
       <p className="mt-5 max-w-2xl text-lg text-muted-foreground">
-        One shared account per campus, and the full student product alongside it so you can sit the
-        Diagnostic yourself before you ask a student to.
+        Campus administrators are given admin accounts with thorough analytics on student
+        performance. The account comes with the full student experience too, for administrators who
+        want to try the product out themselves.
       </p>
       <dl className="mt-12 divide-y divide-border border-y border-border">
         {ADMIN_FEATURES.map((f) => (
