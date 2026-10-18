@@ -98,6 +98,12 @@ export default async function OwnerStatusPage() {
       note: "Unset means uploaded media goes to local disk, which a serverless host discards.",
     },
     {
+      name: "NEXT_PUBLIC_DESMOS_API_KEY",
+      set: Boolean(process.env.NEXT_PUBLIC_DESMOS_API_KEY),
+      required: false,
+      note: "Unset means sessions fall back to the four-function calculator instead of Desmos. Inlined at build time, so it needs a redeploy to take effect.",
+    },
+    {
       name: "YOUTUBE_API_KEY",
       set: Boolean(process.env.YOUTUBE_API_KEY),
       required: false,

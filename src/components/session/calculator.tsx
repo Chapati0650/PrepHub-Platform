@@ -6,6 +6,10 @@ import { FourFunctionCalculator } from "./four-function-calculator";
 // fallback described in PRD-012 §21 / PRD-006. NEXT_PUBLIC_ env vars are
 // inlined at build time, so this check is static and identical on server
 // and client renders (no hydration-mismatch risk).
-export function Calculator() {
-  return process.env.NEXT_PUBLIC_DESMOS_API_KEY ? <DesmosCalculator /> : <FourFunctionCalculator />;
+export function Calculator({ defaultOpen = false }: { defaultOpen?: boolean } = {}) {
+  return process.env.NEXT_PUBLIC_DESMOS_API_KEY ? (
+    <DesmosCalculator defaultOpen={defaultOpen} />
+  ) : (
+    <FourFunctionCalculator defaultOpen={defaultOpen} />
+  );
 }

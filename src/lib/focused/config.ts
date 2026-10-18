@@ -20,6 +20,20 @@ import type { FocusedDifficulty, QuestionCategory } from "@/generated/prisma/cli
  */
 export const FOCUSED_SESSION_SIZE = 10;
 
+/**
+ * How many questions a drill can be. The student picks, because "I have ten
+ * minutes" and "I am sitting down with this properly" are different sessions
+ * and a single fixed length serves neither well. Bounded rather than free
+ * text so a drill can never be longer than a Practice Set, which would blur
+ * what the two are for.
+ */
+export const FOCUSED_LENGTH_OPTIONS = [5, 10, 20] as const;
+
+export function parseFocusedLength(value: unknown): number {
+  const n = Number(value);
+  return (FOCUSED_LENGTH_OPTIONS as readonly number[]).includes(n) ? n : FOCUSED_SESSION_SIZE;
+}
+
 export const FOCUSED_CATEGORY_ORDER: readonly QuestionCategory[] = [
   "READING_COMPREHENSION",
   "GRAMMAR",

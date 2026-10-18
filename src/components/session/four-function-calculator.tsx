@@ -27,8 +27,8 @@ function safeEvaluate(expression: string): string {
   }
 }
 
-export function FourFunctionCalculator() {
-  const [open, setOpen] = useState(false);
+export function FourFunctionCalculator({ defaultOpen = false }: { defaultOpen?: boolean } = {}) {
+  const [open, setOpen] = useState(defaultOpen);
   const [expression, setExpression] = useState("");
 
   const press = (key: string) => {

@@ -10,7 +10,7 @@ import {
   getStudentQuestionContent,
   getStudentQuestionFeedback,
 } from "@/lib/session/question-content";
-import { isFocusedDifficulty, isQuestionCategory } from "@/lib/focused/config";
+import { isFocusedDifficulty, isQuestionCategory, parseFocusedLength } from "@/lib/focused/config";
 import { FocusedError } from "@/lib/focused/errors";
 import {
   completeFocusedSession,
@@ -59,10 +59,13 @@ export async function startFocusedSessionAction(formData: FormData): Promise<voi
   if (!isQuestionCategory(category)) throw new Error("Unknown category.");
   if (!isFocusedDifficulty(difficulty)) throw new Error("Unknown difficulty.");
   if (!(await hasPaidAccess(studentId))) redirect("/pricing");
+  // Anything not in the allowed set falls back to the default rather than
+  // erroring, so a hand-edited form cannot ask for a 500-question drill.
+  const size = parseFocusedLength(formData.get("length"));
 
   let sessionId: string;
   try {
-    sessionId = (await openFocusedSession(studentId, category, difficulty)).id;
+    sessionId = (await openFocusedSession(studentId, category, difficulty, size)).id;
   } catch (err) {
     if (err instanceof FocusedError && err.code === "NO_QUESTIONS") {
       redirect(`/practice/focused?empty=${category}`);

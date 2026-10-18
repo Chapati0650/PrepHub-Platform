@@ -42,8 +42,8 @@ function loadDesmosScript(): Promise<void> {
   return scriptLoadPromise;
 }
 
-export function DesmosCalculator() {
-  const [open, setOpen] = useState(false);
+export function DesmosCalculator({ defaultOpen = false }: { defaultOpen?: boolean } = {}) {
+  const [open, setOpen] = useState(defaultOpen);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);

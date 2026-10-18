@@ -72,7 +72,6 @@ export function SessionRunner(props: SessionRunnerProps) {
   // question navigator.
   const [navOpen, setNavOpen] = useState(false);
   const [timerHidden, setTimerHidden] = useState(false);
-  const [strikeMode, setStrikeMode] = useState(false);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [eliminated, setEliminated] = useState<Map<string, Set<string>>>(new Map());
 
@@ -251,21 +250,6 @@ export function SessionRunner(props: SessionRunnerProps) {
                   Mark for Review
                 </button>
               </div>
-              {loaded.content.questionType === "MULTIPLE_CHOICE" && (
-                <button
-                  type="button"
-                  onClick={() => setStrikeMode((v) => !v)}
-                  aria-pressed={strikeMode}
-                  aria-label="Toggle answer elimination"
-                  title="Cross out answers you have ruled out"
-                  className={[
-                    "rounded border px-1.5 py-0.5 font-heading text-xs font-bold line-through",
-                    strikeMode ? "border-primary bg-primary text-primary-foreground" : "border-foreground/40",
-                  ].join(" ")}
-                >
-                  ABC
-                </button>
-              )}
             </div>
 
             <div className="pt-5">
@@ -282,7 +266,7 @@ export function SessionRunner(props: SessionRunnerProps) {
 
               {calculatorOpen && loaded.content.calculatorSetting === "ALLOWED" && (
                 <div className="mt-4">
-                  <Calculator />
+                  <Calculator defaultOpen />
                 </div>
               )}
 
@@ -303,12 +287,11 @@ export function SessionRunner(props: SessionRunnerProps) {
                           onClick={() => {
                             if (isOut) return;
                             updateDraft(choice.id);
-                            void handleSubmit(choice.id);
                           }}
                           aria-pressed={isSelected}
                           className={[
                             "flex flex-1 items-center gap-4 rounded-lg border-2 px-4 py-3 text-left text-base transition-colors",
-                            isSelected && !currentItem.submitted && "border-primary bg-primary/5",
+                            isSelected && !currentItem.submitted && "border-primary bg-primary/10",
                             !isSelected && !showCorrect && !showWrongSelection && "border-border hover:border-foreground/40",
                             showCorrect && "border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50",
                             showWrongSelection && "border-destructive bg-destructive/5",
@@ -340,7 +323,7 @@ export function SessionRunner(props: SessionRunnerProps) {
                         {/* Bluebook puts the cross-out control outside the
                             choice, so ruling an answer out can never be
                             mistaken for selecting it. */}
-                        {strikeMode && !currentItem.submitted && (
+                        {!currentItem.submitted && (
                           <button
                             type="button"
                             onClick={() => toggleEliminated(choice.id)}
@@ -377,12 +360,16 @@ export function SessionRunner(props: SessionRunnerProps) {
               </div>
 
               {!currentItem.submitted ? (
+                // Selecting no longer grades. A tap used to submit on the
+                // spot, which made trying a choice indistinguishable from
+                // committing to one — a student comparing options had
+                // already been marked wrong. Both question types now take an
+                // explicit Submit, and until then the choice is only a saved
+                // draft.
                 <div className="mt-6 flex flex-wrap gap-3">
-                  {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && (
-                    <Button size="cta" onClick={() => void handleSubmit()} disabled={!draft || submitting}>
-                      {submitting ? "Submitting…" : "Submit answer"}
-                    </Button>
-                  )}
+                  <Button size="cta" onClick={() => void handleSubmit()} disabled={!draft || submitting}>
+                    {submitting ? "Submitting…" : "Submit answer"}
+                  </Button>
                   <Button size="cta" variant="ghost" onClick={handleSkip} disabled={submitting}>
                     Skip for now
                   </Button>

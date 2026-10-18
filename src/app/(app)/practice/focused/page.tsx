@@ -9,8 +9,10 @@ import {
   FOCUSED_DIFFICULTY_BLURBS,
   FOCUSED_DIFFICULTY_LABELS,
   FOCUSED_DIFFICULTY_ORDER,
-  FOCUSED_SESSION_SIZE,
+  FOCUSED_LENGTH_OPTIONS,
+  parseFocusedLength,
 } from "@/lib/focused/config";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -27,19 +29,23 @@ import { startFocusedSessionAction } from "./actions";
 export default async function FocusedPracticePage({
   searchParams,
 }: {
-  searchParams: Promise<{ empty?: string }>;
+  searchParams: Promise<{ empty?: string; length?: string }>;
 }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/home");
   if (!canUseStudentExperience(session.user.role)) redirect("/home");
   const studentId = session.user.id;
 
-  const [{ categories, analytics }, paidAccess, { empty }] = await Promise.all([
+  const [{ categories, analytics }, paidAccess, { empty, length }] = await Promise.all([
     getFocusedOverview(studentId),
     hasPaidAccess(studentId),
     searchParams,
   ]);
 
+  // The chosen length lives in the URL rather than client state, so each
+  // difficulty button stays a plain form submit and the choice survives a
+  // refresh or a shared link.
+  const chosenLength = parseFocusedLength(length);
   const activeSession = categories.find((c) => c.activeSessionId);
 
   return (
@@ -53,8 +59,7 @@ export default async function FocusedPracticePage({
         </h1>
         <p className="mt-4 max-w-prose text-muted-foreground">
           Your Practice Sets are built for you. This is the opposite: pick the category and the
-          difficulty yourself and drill {FOCUSED_SESSION_SIZE} questions on exactly what you want
-          to work on.
+          difficulty yourself and drill exactly what you want to work on.
         </p>
       </div>
 
@@ -111,6 +116,31 @@ export default async function FocusedPracticePage({
           category, matching the house pattern for long lists. */}
       <section className="flex flex-col">
         <h2 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+          How many questions
+        </h2>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {FOCUSED_LENGTH_OPTIONS.map((n) => (
+            <Link
+              key={n}
+              href={`/practice/focused?length=${n}`}
+              aria-current={n === chosenLength ? "true" : undefined}
+              className={
+                n === chosenLength
+                  ? "rounded-full bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground"
+                  : "rounded-full border border-border px-4 py-1.5 text-sm hover:bg-muted"
+              }
+            >
+              {n}
+            </Link>
+          ))}
+        </div>
+        <p className="mt-2 text-sm text-muted-foreground">
+          A thin category may have fewer than this. A drill is never padded with a repeat.
+        </p>
+      </section>
+
+      <section className="flex flex-col">
+        <h2 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
           Choose a category
         </h2>
         <div className="mt-4 flex flex-col divide-y divide-border border-y border-border">
@@ -134,6 +164,7 @@ export default async function FocusedPracticePage({
                   <form key={d} action={startFocusedSessionAction}>
                     <input type="hidden" name="category" value={c.category} />
                     <input type="hidden" name="difficulty" value={d} />
+                    <input type="hidden" name="length" value={chosenLength} />
                     <Button
                       type="submit"
                       size="sm"

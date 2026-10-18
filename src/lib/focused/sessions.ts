@@ -110,6 +110,7 @@ export async function openFocusedSession(
   studentId: string,
   category: QuestionCategory,
   difficulty: FocusedDifficulty,
+  size: number = FOCUSED_SESSION_SIZE,
 ): Promise<{ id: string }> {
   const existing = await prisma.focusedSession.findFirst({
     where: { studentId, category, status: "ACTIVE" },
@@ -148,7 +149,7 @@ export async function openFocusedSession(
     })),
     seenQuestionIds: new Set(seen.map((s) => s.questionId)),
     difficulty,
-    size: FOCUSED_SESSION_SIZE,
+    size,
     random: createRandom(randomSeed),
   });
 
