@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
@@ -40,10 +41,15 @@ export default async function ProgressPage() {
             There is nothing to plot yet. Once you finish the Diagnostic, every prediction and milestone from then on
             lands here.
           </p>
-          <div className="mt-8">
+          <div className="mt-8 flex flex-wrap items-center gap-3">
             <LinkButton size="cta" href="/diagnostic">
               {data.diagnosticStatus === "IN_PROGRESS" ? "Resume Diagnostic" : "Begin Diagnostic"}
             </LinkButton>
+            {/* Not a dead end. Practice that needs no ability data exists and
+                is one click away rather than something to go hunting for. */}
+            <Link href="/daily" className="text-sm underline underline-offset-4 hover:text-foreground">
+              Or answer today&apos;s Daily Challenge &rarr;
+            </Link>
           </div>
         </div>
       </div>

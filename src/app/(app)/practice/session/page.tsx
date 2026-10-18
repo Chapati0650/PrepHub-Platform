@@ -16,7 +16,10 @@ export default async function PracticeSessionPage() {
   const studentId = session.user.id;
 
   const diagnostic = await prisma.diagnosticSession.findUnique({ where: { studentId } });
-  if (diagnostic?.status !== "COMPLETED") redirect("/diagnostic");
+  // To /practice rather than /diagnostic: that page now explains why
+  // Personalized Practice needs the Diagnostic and offers practice that
+  // works without it, which a bare bounce to the Diagnostic skipped past.
+  if (diagnostic?.status !== "COMPLETED") redirect("/practice");
 
   const set = await prisma.practiceSet.findFirst({
     where: { studentId, status: "ACTIVE" },

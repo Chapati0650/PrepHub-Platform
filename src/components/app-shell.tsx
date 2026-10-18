@@ -325,7 +325,7 @@ export function AppShell({
         {showUpgrade && (
           <div className="flex items-center justify-center gap-x-4 gap-y-1 bg-marker px-4 py-2 text-sm text-surface-deep">
             <p>
-              <span className="font-semibold">Launch pricing</span> — PrepHub Premium is 50% off
+              <span className="font-semibold">Launch pricing</span>, PrepHub Premium is 50% off
             </p>
             <Link
               href="/pricing"

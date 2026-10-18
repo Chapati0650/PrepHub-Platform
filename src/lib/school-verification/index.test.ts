@@ -5,6 +5,7 @@ import {
   completeSchoolVerification,
 } from "@/lib/school-verification";
 import { prisma } from "@/lib/prisma";
+import { sendEmail } from "@/lib/email";
 import { scheduleSubscriptionNonRenewal } from "@/lib/billing";
 
 vi.mock("@/lib/prisma", () => ({
@@ -12,7 +13,7 @@ vi.mock("@/lib/prisma", () => ({
     studentMembership: { findUnique: vi.fn(), create: vi.fn() },
     organizationDomain: { findFirst: vi.fn() },
     schoolVerificationToken: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
-    user: { findUniqueOrThrow: vi.fn() },
+    user: { findUniqueOrThrow: vi.fn(), findUnique: vi.fn() },
     $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   },
 }));
@@ -88,12 +89,34 @@ describe("requestSchoolVerification", () => {
     });
     mocked.schoolVerificationToken.create.mockResolvedValue({});
 
+    mocked.user.findUnique.mockResolvedValue({ firstName: "Ada" });
+
     await requestSchoolVerification("student1", "  Kid@K12.FriscoISD.org  ");
 
     const createCall = mocked.schoolVerificationToken.create.mock.calls[0][0];
     expect(createCall.data.studentId).toBe("student1");
     expect(createCall.data.requestedEmail).toBe("kid@k12.friscoisd.org"); // trimmed + lowercased
     expect(createCall.data.matchedOrganizationId).toBe("org1");
+
+    // Addressed by name, like every other email the product sends.
+    const sent = vi.mocked(sendEmail).mock.calls[0][0];
+    expect(sent.text).toContain("Hi Ada,");
+    expect(sent.text).toContain("— Prithvi, PrepHub");
+  });
+
+  it("falls back to a neutral greeting when the student row is missing", async () => {
+    mockNoExisting();
+    mocked.organizationDomain.findFirst.mockResolvedValue({
+      organizationId: "org1",
+      organization: activeOrg,
+    });
+    mocked.schoolVerificationToken.create.mockResolvedValue({});
+    mocked.user.findUnique.mockResolvedValue(null);
+
+    await requestSchoolVerification("student1", "kid@k12.friscoisd.org");
+
+    const sent = vi.mocked(sendEmail).mock.calls[0][0];
+    expect(sent.text).toContain("Hi there,");
   });
 });
 

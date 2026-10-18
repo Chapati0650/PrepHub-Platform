@@ -30,6 +30,33 @@ function formatStudyTime(seconds: number): string {
 // PRD-004 — Student Home Dashboard. "Practice happens elsewhere" (§2.4): this
 // page only surfaces progress and routes into Practice/Diagnostic, it never
 // renders a question itself.
+// Surfaces that work with no Diagnostic behind them, shown on the
+// pre-Diagnostic dashboard. None of these read CategoryState, so none of
+// them need ability data to exist. The Daily Challenge is first because it
+// is the only one free on every account.
+const PRE_DIAGNOSTIC_LINKS = [
+  {
+    href: "/daily",
+    label: "Daily Challenge",
+    note: "One hard question, the same one everybody gets today. Free on every account.",
+  },
+  {
+    href: "/practice/focused",
+    label: "Focused Practice",
+    note: "Pick a category and a difficulty and drill ten questions on exactly that.",
+  },
+  {
+    href: "/rush",
+    label: "1v1 Rush",
+    note: "Ten questions on a clock, against a classmate or on your own.",
+  },
+  {
+    href: "/curriculum",
+    label: "The Curriculum",
+    note: "The video course, module by module, whenever you want it.",
+  },
+];
+
 export default async function HomePage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
@@ -159,9 +186,9 @@ export default async function HomePage() {
             <Marker>starting point</Marker>.
           </h1>
           <p className="mt-4 max-w-prose text-lg text-muted-foreground">
-            21 questions across every SAT category, about 20 minutes. It generates your first Predicted SAT Score range
-            and the practice plan everything after this is built from. The Diagnostic and your first practice set are
-            free.
+            21 questions across every SAT category, about 20 minutes. It generates your first
+            Predicted SAT Score range and the practice plan everything after this is built from.
+            Your answers save as you go, so you can stop part way and come back.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-5">
@@ -174,6 +201,39 @@ export default async function HomePage() {
             </Link>
           )}
         </div>
+
+        {/* The Diagnostic stays the lead, but it is no longer the only thing
+            on the page. This screen used to be a single button, which read as
+            a toll gate and gave a student who did not want 21 questions right
+            now nowhere to go but away. Everything below works before the
+            Diagnostic has run. */}
+        <section className="border-t border-border pt-8">
+          <h2 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+            Or start somewhere smaller
+          </h2>
+          <div className="mt-4 flex flex-col divide-y divide-border border-y border-border">
+            {PRE_DIAGNOSTIC_LINKS.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="group flex items-center justify-between gap-4 py-4"
+              >
+                <span className="min-w-0">
+                  <span className="block font-heading font-semibold tracking-tight">
+                    {item.label}
+                  </span>
+                  <span className="mt-0.5 block text-sm text-muted-foreground">{item.note}</span>
+                </span>
+                <span
+                  className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+                  aria-hidden
+                >
+                  &rarr;
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
       </div>
     );
   }

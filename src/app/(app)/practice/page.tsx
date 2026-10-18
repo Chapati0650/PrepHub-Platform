@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { canOpenPracticeSet, isFreePracticeSet } from "@/lib/practice/free-tier";
+import { hasPaidAccess } from "@/lib/entitlements";
 import { FUNNEL_EVENTS, track } from "@/lib/analytics/track";
 import { generatePracticeSet } from "@/lib/adaptive/generate-practice-set";
 import { LinkButton } from "@/components/ui/link-button";
@@ -20,7 +21,51 @@ export default async function PracticePage() {
   const studentId = session.user.id;
 
   const diagnostic = await prisma.diagnosticSession.findUnique({ where: { studentId } });
-  if (diagnostic?.status !== "COMPLETED") redirect("/diagnostic");
+
+  // Was a bare redirect("/diagnostic"), which bounced anyone clicking
+  // Practice in the nav with no reason given and read as a toll gate. The
+  // dependency is real rather than arbitrary, so it is explained instead:
+  // a Personalized Practice set is generated from the student's per-category
+  // ability scores, and those rows only exist once the Diagnostic has been
+  // completed. Practice they *can* do right now is offered alongside, so
+  // this is a fork rather than a wall.
+  if (diagnostic?.status !== "COMPLETED") {
+    const started = diagnostic?.status === "IN_PROGRESS";
+    const paid = await hasPaidAccess(studentId);
+    return (
+      <PracticeShell>
+        <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+          Personalized Practice
+        </p>
+        <h1 className="mt-3 text-display-sm text-balance">
+          Your sets are built from your <Marker>Diagnostic</Marker>.
+        </h1>
+        <p className="mt-4 text-lg text-muted-foreground">
+          Every practice set is generated from your own score in each of the seven categories and
+          weighted toward whichever ones are costing you the most. Until the Diagnostic has run
+          there is nothing to build that from, which is the only reason this is locked.
+        </p>
+        <p className="mt-3 text-muted-foreground">
+          {started
+            ? "You have already started it and your answers are saved, so you can pick up where you stopped."
+            : "It is 21 questions and takes about 20 minutes. Your answers save as you go, so you can stop and come back."}
+        </p>
+        <div className="mt-8 flex flex-wrap items-center gap-3">
+          <LinkButton size="cta" href="/diagnostic">
+            {started ? "Resume Diagnostic" : "Start the Diagnostic"}
+          </LinkButton>
+          <LinkButton size="cta" variant="outline" href={paid ? "/practice/focused" : "/daily"}>
+            {paid ? "Drill a category instead" : "Try today's Daily Challenge"}
+          </LinkButton>
+        </div>
+        <p className="mt-5 text-sm text-muted-foreground">
+          {paid
+            ? "Focused Practice lets you pick a category and difficulty and work on it right now, without waiting for the Diagnostic."
+            : "The Daily Challenge is one hard question a day, free on every account, and it works before the Diagnostic."}
+        </p>
+      </PracticeShell>
+    );
+  }
 
   let set = await prisma.practiceSet.findFirst({
     where: { studentId, status: "ACTIVE" },
