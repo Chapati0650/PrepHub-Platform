@@ -13,18 +13,21 @@ export function PracticeRunner({
   practiceSetId,
   setNumber,
   items,
+  studentName,
   initialPosition,
   initialQuestion,
 }: {
   practiceSetId: string;
   setNumber: number;
   items: SessionRunnerItem[];
+  studentName?: string;
   initialPosition: number;
   initialQuestion: LoadedQuestion;
 }) {
   return (
     <SessionRunner
       title={`Practice Set ${setNumber}`}
+      studentName={studentName}
       initialItems={items}
       initialPosition={initialPosition}
       initialQuestion={initialQuestion}

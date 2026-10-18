@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Bookmark, ChevronUp, Calculator as CalcIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LatexText } from "@/components/content/latex-text";
@@ -36,6 +37,8 @@ export type LoadedQuestion = {
 
 export type SessionRunnerProps = {
   title: string;
+  /** Shown bottom-left, where Bluebook prints the test taker's name. */
+  studentName?: string;
   initialItems: SessionRunnerItem[];
   initialPosition: number;
   initialQuestion: LoadedQuestion;
@@ -61,8 +64,39 @@ export function SessionRunner(props: SessionRunnerProps) {
   const [blankWarning, setBlankWarning] = useState<number | null>(null);
   const [completeError, setCompleteError] = useState<string | null>(null);
 
+  // Bluebook's test-taking aids. Elimination, the timer toggle and the
+  // navigator are view state only and reset on reload, which matches how
+  // little they cost to re-apply. "Mark for Review" is deliberately *not*
+  // new state: it maps onto the existing persisted `skipped` flag, which
+  // already survives a reload and already has its own colour in the
+  // question navigator.
+  const [navOpen, setNavOpen] = useState(false);
+  const [timerHidden, setTimerHidden] = useState(false);
+  const [strikeMode, setStrikeMode] = useState(false);
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [eliminated, setEliminated] = useState<Map<string, Set<string>>>(new Map());
+
   const currentItem = items[position];
   const loaded = cache.get(currentItem.id);
+
+  function toggleEliminated(choiceId: string) {
+    setEliminated((prev) => {
+      const next = new Map(prev);
+      const forItem = new Set(next.get(currentItem.id) ?? []);
+      if (forItem.has(choiceId)) forItem.delete(choiceId);
+      else forItem.add(choiceId);
+      next.set(currentItem.id, forItem);
+      return next;
+    });
+  }
+
+  // Bluebook's Mark for Review does not advance to the next question;
+  // handleSkip does. Same persisted flag, different gesture.
+  function toggleMarked() {
+    const next = !currentItem.skipped;
+    setItems((prev) => prev.map((it) => (it.id === currentItem.id ? { ...it, skipped: next } : it)));
+    void props.saveDraft(currentItem.id, { skipped: next });
+  }
 
   async function goToPosition(nextPosition: number) {
     if (nextPosition === position) return;
@@ -137,188 +171,317 @@ export function SessionRunner(props: SessionRunnerProps) {
     state: (it.position === position ? "current" : it.submitted ? "submitted" : it.skipped ? "skipped" : "unanswered") as NavItemState,
   }));
 
+  const marked = currentItem.skipped;
+  const eliminatedHere = eliminated.get(currentItem.id) ?? new Set<string>();
+
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-5 p-4 pb-16 sm:p-8">
-      <div className="flex items-baseline justify-between gap-4">
-        <h1 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">{props.title}</h1>
-        <span className="text-sm tabular-nums text-muted-foreground">
-          Question {position + 1} of {items.length}
-        </span>
-      </div>
-
-      <SessionNavGrid items={navItems} onSelect={(p) => void goToPosition(p)} />
-
-      {completeError && (
-        <Alert variant="destructive">
-          <AlertDescription>{completeError}</AlertDescription>
-        </Alert>
-      )}
-
-      {loading || !loaded ? (
-        <div className="py-16 text-sm text-muted-foreground">Loading question…</div>
-      ) : (
-        /* No card border. The session runner is the app shell's focus mode —
-           there is nothing else on screen for a frame to separate the question
-           from, so the outline was chrome around the whole viewport. The rule
-           under the meta row does the one real job the border had: marking
-           where the question itself starts. */
-        <div>
-          <div className="mb-5 flex items-center justify-between gap-4 border-b border-border pb-3">
-            <span className="text-xs text-muted-foreground">{CALCULATOR_LABELS[loaded.content.calculatorSetting]}</span>
-            <TimerBadge suggestedTimeSeconds={loaded.content.suggestedTimeSeconds} resetKey={currentItem.id} />
+    // Laid out like Bluebook: a band at the top carrying the section label,
+    // the clock and the tools, the question in the middle, and a band at the
+    // bottom carrying the name, the navigator and Back/Next. The dashed
+    // rules are Bluebook's too, and they are most of why this reads as the
+    // real thing rather than a generic quiz.
+    //
+    // Brand colour is kept for the controls rather than Bluebook's blue. The
+    // shape is what creates the familiarity; repainting the product another
+    // organisation's blue is a separate decision and not one this makes.
+    <div className="flex min-h-screen flex-col bg-background">
+      <header className="border-b border-dashed border-foreground/40 px-4 py-3 sm:px-8">
+        <div className="mx-auto grid w-full max-w-5xl grid-cols-[1fr_auto_1fr] items-center gap-4">
+          <div className="min-w-0">
+            <p className="truncate font-heading text-sm font-semibold tracking-tight sm:text-base">{props.title}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {loaded ? CALCULATOR_LABELS[loaded.content.calculatorSetting] : " "}
+            </p>
           </div>
 
-          {/* PRD-006/Brilliant reference: question text stays "large, comfortable"
-              even as the app's base font-size tightened for density elsewhere
-              (globals.css) — this is the one place that should read generously,
-              not compactly. */}
-          <QuestionStatement
-            text={loaded.content.questionText}
-            imageId={loaded.content.questionImageId}
-            mediaBasePath="/api/media"
-            textClassName="text-lg leading-relaxed"
-          />
+          <div className="flex flex-col items-center">
+            {loaded && !timerHidden && (
+              <TimerBadge suggestedTimeSeconds={loaded.content.suggestedTimeSeconds} resetKey={currentItem.id} />
+            )}
+            <button
+              type="button"
+              onClick={() => setTimerHidden((v) => !v)}
+              className="mt-1 rounded-full border border-border px-3 py-0.5 text-xs font-medium hover:bg-muted"
+            >
+              {timerHidden ? "Show" : "Hide"}
+            </button>
+          </div>
 
-          {loaded.content.calculatorSetting === "ALLOWED" && (
-            <div className="mt-4">
-              <Calculator />
-            </div>
-          )}
-
-          <div className="mt-6 flex flex-col gap-2.5">
-            {loaded.content.questionType === "MULTIPLE_CHOICE" ? (
-              loaded.content.answerChoices.map((choice, choiceIndex) => {
-                const isSelected = draft === choice.id;
-                const showCorrect = currentItem.submitted && loaded.feedback?.correctChoiceId === choice.id;
-                const showWrongSelection = currentItem.submitted && isSelected && loaded.feedback?.correctChoiceId !== choice.id;
-                return (
-                  <button
-                    key={choice.id}
-                    type="button"
-                    disabled={currentItem.submitted || submitting}
-                    onClick={() => {
-                      updateDraft(choice.id);
-                      void handleSubmit(choice.id);
-                    }}
-                    aria-pressed={isSelected}
-                    className={[
-                      "flex items-start gap-4 rounded-xl border p-4 text-left text-base transition-colors",
-                      isSelected && !currentItem.submitted && "border-primary bg-primary/5",
-                      !isSelected && !showCorrect && !showWrongSelection && "border-border hover:border-foreground/25",
-                      showCorrect && "border-2 border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50",
-                      showWrongSelection && "border-destructive bg-destructive/5",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                  >
-                    {/* A/B/C/D, the way the choice is labelled on the real
-                        test and in Bluebook. Purely presentational (the button
-                        itself still carries the selection state), but it is
-                        what makes four bordered rows read as an SAT question
-                        rather than a generic list of options. */}
-                    <span
-                      aria-hidden
-                      className={[
-                        "mt-px flex size-7 shrink-0 items-center justify-center rounded-full border text-sm font-semibold",
-                        isSelected && !currentItem.submitted
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-foreground/20 text-muted-foreground",
-                      ].join(" ")}
-                    >
-                      {String.fromCharCode(65 + choiceIndex)}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <LatexText text={choice.text} />
-                      {choice.imageId && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={`/api/media/${choice.imageId}`} alt="" className="mt-2 max-w-full rounded" />
-                      )}
-                    </span>
-                  </button>
-                );
-              })
-            ) : (
-              <input
-                type="text"
-                value={draft}
-                onChange={(e) => updateDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleSubmit();
-                }}
-                disabled={currentItem.submitted}
-                placeholder="Enter your answer"
-                aria-label="Your answer"
-                className="max-w-xs rounded-xl border border-border p-3 text-base disabled:bg-muted"
-              />
+          <div className="flex items-center justify-end gap-4">
+            {loaded?.content.calculatorSetting === "ALLOWED" && (
+              <button
+                type="button"
+                onClick={() => setCalculatorOpen((v) => !v)}
+                aria-pressed={calculatorOpen}
+                className="flex flex-col items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+              >
+                <CalcIcon className="size-5" aria-hidden />
+                Calculator
+              </button>
             )}
           </div>
+        </div>
+      </header>
 
-          {!currentItem.submitted ? (
-            <div className="mt-6 flex flex-wrap gap-3">
-              {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && (
-                <Button size="cta" onClick={() => void handleSubmit()} disabled={!draft || submitting}>
-                  {submitting ? "Submitting…" : "Submit answer"}
-                </Button>
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 sm:px-8">
+        {completeError && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertDescription>{completeError}</AlertDescription>
+          </Alert>
+        )}
+
+        {loading || !loaded ? (
+          <div className="py-16 text-sm text-muted-foreground">Loading question…</div>
+        ) : (
+          <>
+            {/* Bluebook's question strip: a filled number badge, Mark for
+                Review, and the answer-elimination toggle on the right. */}
+            <div className="flex items-center justify-between gap-3 border-b-2 border-dashed border-foreground/40 bg-muted/70 px-3 py-1.5">
+              <div className="flex items-center gap-3">
+                <span className="flex size-7 items-center justify-center bg-foreground font-heading text-sm font-bold text-background">
+                  {position + 1}
+                </span>
+                <button
+                  type="button"
+                  onClick={toggleMarked}
+                  aria-pressed={marked}
+                  className="flex items-center gap-1.5 text-sm hover:underline"
+                >
+                  <Bookmark className={marked ? "size-4 fill-current" : "size-4"} aria-hidden />
+                  Mark for Review
+                </button>
+              </div>
+              {loaded.content.questionType === "MULTIPLE_CHOICE" && (
+                <button
+                  type="button"
+                  onClick={() => setStrikeMode((v) => !v)}
+                  aria-pressed={strikeMode}
+                  aria-label="Toggle answer elimination"
+                  title="Cross out answers you have ruled out"
+                  className={[
+                    "rounded border px-1.5 py-0.5 font-heading text-xs font-bold line-through",
+                    strikeMode ? "border-primary bg-primary text-primary-foreground" : "border-foreground/40",
+                  ].join(" ")}
+                >
+                  ABC
+                </button>
               )}
-              <Button size="cta" variant="ghost" onClick={handleSkip} disabled={submitting}>
-                Skip for now
-              </Button>
             </div>
-          ) : (
-            <div className="mt-6 flex flex-col gap-3">
-              <p className={`font-heading text-lg font-semibold ${currentItem.isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
-                {currentItem.isCorrect ? "Correct!" : "Incorrect."}
-              </p>
-              {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && loaded.feedback && (
-                <p className="text-sm text-muted-foreground">Accepted answer: {loaded.feedback.acceptedAnswers[0]}</p>
+
+            <div className="pt-5">
+              {/* No tinted panel behind the stem. Bluebook sets the question
+                  as plain text on the page, and the box made every question
+                  look like a callout rather than the thing being asked. */}
+              <QuestionStatement
+                text={loaded.content.questionText}
+                imageId={loaded.content.questionImageId}
+                mediaBasePath="/api/media"
+                className="bg-transparent p-0"
+                textClassName="text-lg leading-relaxed"
+              />
+
+              {calculatorOpen && loaded.content.calculatorSetting === "ALLOWED" && (
+                <div className="mt-4">
+                  <Calculator />
+                </div>
               )}
-              {!currentItem.isCorrect &&
-                currentItem.studentAnswer &&
-                loaded.feedback?.distractorExplanationsByChoiceId[currentItem.studentAnswer] && (
-                  <DistractorNote text={loaded.feedback.distractorExplanationsByChoiceId[currentItem.studentAnswer]} />
-                )}
-              {loaded.feedback && loaded.feedback.explanationSteps.length > 0 ? (
-                <ExplanationSteps steps={loaded.feedback.explanationSteps} mediaBasePath="/api/media" />
-              ) : (
-                loaded.feedback?.writtenExplanation && (
-                  <div className="rounded-md bg-muted p-3 text-sm">
-                    <LatexText text={loaded.feedback.writtenExplanation} />
+
+              <div className="mt-6 flex flex-col gap-3">
+                {loaded.content.questionType === "MULTIPLE_CHOICE" ? (
+                  loaded.content.answerChoices.map((choice, choiceIndex) => {
+                    const letter = String.fromCharCode(65 + choiceIndex);
+                    const isSelected = draft === choice.id;
+                    const showCorrect = currentItem.submitted && loaded.feedback?.correctChoiceId === choice.id;
+                    const showWrongSelection =
+                      currentItem.submitted && isSelected && loaded.feedback?.correctChoiceId !== choice.id;
+                    const isOut = eliminatedHere.has(choice.id) && !currentItem.submitted;
+                    return (
+                      <div key={choice.id} className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          disabled={currentItem.submitted || submitting}
+                          onClick={() => {
+                            if (isOut) return;
+                            updateDraft(choice.id);
+                            void handleSubmit(choice.id);
+                          }}
+                          aria-pressed={isSelected}
+                          className={[
+                            "flex flex-1 items-center gap-4 rounded-lg border-2 px-4 py-3 text-left text-base transition-colors",
+                            isSelected && !currentItem.submitted && "border-primary bg-primary/5",
+                            !isSelected && !showCorrect && !showWrongSelection && "border-border hover:border-foreground/40",
+                            showCorrect && "border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50",
+                            showWrongSelection && "border-destructive bg-destructive/5",
+                            isOut && "opacity-45",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                        >
+                          <span
+                            aria-hidden
+                            className={[
+                              "flex size-7 shrink-0 items-center justify-center rounded-full border text-sm font-semibold",
+                              isSelected && !currentItem.submitted
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-foreground/40 text-foreground",
+                            ].join(" ")}
+                          >
+                            {letter}
+                          </span>
+                          <span className={["min-w-0 flex-1", isOut && "line-through"].filter(Boolean).join(" ")}>
+                            <LatexText text={choice.text} />
+                            {choice.imageId && (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={`/api/media/${choice.imageId}`} alt="" className="mt-2 max-w-full rounded" />
+                            )}
+                          </span>
+                        </button>
+
+                        {/* Bluebook puts the cross-out control outside the
+                            choice, so ruling an answer out can never be
+                            mistaken for selecting it. */}
+                        {strikeMode && !currentItem.submitted && (
+                          <button
+                            type="button"
+                            onClick={() => toggleEliminated(choice.id)}
+                            aria-pressed={isOut}
+                            aria-label={isOut ? `Restore answer ${letter}` : `Cross out answer ${letter}`}
+                            className="flex size-7 shrink-0 items-center justify-center rounded-full border border-foreground/40 text-xs font-semibold line-through hover:bg-muted"
+                          >
+                            {letter}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div>
+                    <input
+                      type="text"
+                      value={draft}
+                      onChange={(e) => updateDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void handleSubmit();
+                      }}
+                      disabled={currentItem.submitted}
+                      aria-label="Your answer"
+                      className="w-44 rounded-lg border-2 border-foreground/40 px-3 py-2 text-lg disabled:bg-muted"
+                    />
+                    {/* Bluebook echoes what has been typed under the box, so a
+                        student can check a fraction or a decimal before moving on. */}
+                    <p className="mt-4 font-heading text-lg font-semibold">
+                      Answer Preview <span className="font-normal text-muted-foreground">{draft || "—"}</span>
+                    </p>
                   </div>
-                )
-              )}
-              {loaded.feedback?.explanationVideoId && (
-                <video controls className="w-full rounded" src={`/api/media/${loaded.feedback.explanationVideoId}`} />
+                )}
+              </div>
+
+              {!currentItem.submitted ? (
+                <div className="mt-6 flex flex-wrap gap-3">
+                  {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && (
+                    <Button size="cta" onClick={() => void handleSubmit()} disabled={!draft || submitting}>
+                      {submitting ? "Submitting…" : "Submit answer"}
+                    </Button>
+                  )}
+                  <Button size="cta" variant="ghost" onClick={handleSkip} disabled={submitting}>
+                    Skip for now
+                  </Button>
+                </div>
+              ) : (
+                <div className="mt-6 flex flex-col gap-3">
+                  <p
+                    className={`font-heading text-lg font-semibold ${currentItem.isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}
+                  >
+                    {currentItem.isCorrect ? "Correct!" : "Incorrect."}
+                  </p>
+                  {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && loaded.feedback && (
+                    <p className="text-sm text-muted-foreground">Accepted answer {loaded.feedback.acceptedAnswers[0]}</p>
+                  )}
+                  {!currentItem.isCorrect &&
+                    currentItem.studentAnswer &&
+                    loaded.feedback?.distractorExplanationsByChoiceId[currentItem.studentAnswer] && (
+                      <DistractorNote text={loaded.feedback.distractorExplanationsByChoiceId[currentItem.studentAnswer]} />
+                    )}
+                  {loaded.feedback && loaded.feedback.explanationSteps.length > 0 ? (
+                    <ExplanationSteps steps={loaded.feedback.explanationSteps} mediaBasePath="/api/media" />
+                  ) : (
+                    loaded.feedback?.writtenExplanation && (
+                      <div className="rounded-md bg-muted p-3 text-sm">
+                        <LatexText text={loaded.feedback.writtenExplanation} />
+                      </div>
+                    )
+                  )}
+                  {loaded.feedback?.explanationVideoId && (
+                    <video controls className="w-full rounded" src={`/api/media/${loaded.feedback.explanationVideoId}`} />
+                  )}
+                </div>
               )}
             </div>
-          )}
+          </>
+        )}
+      </main>
+
+      {/* The navigator lives behind the footer pill the way Bluebook's does,
+          rather than sitting above every question taking the top third of a
+          phone screen. */}
+      {navOpen && (
+        <div className="mx-auto w-full max-w-3xl px-4 pb-3 sm:px-8">
+          <div className="rounded-xl border border-border bg-card p-4 shadow-lg">
+            <SessionNavGrid
+              items={navItems}
+              onSelect={(p) => {
+                setNavOpen(false);
+                void goToPosition(p);
+              }}
+            />
+          </div>
         </div>
       )}
 
-      {/* Finish appears only once every question is answered — shown from
-          question 1 it read as an exit, and a set can't be finished with
-          blanks anyway (PRD-005 §21). On the last question with blanks
-          left, the button instead jumps to the first one. */}
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5">
-        <div className="flex gap-1">
-          <Button variant="ghost" disabled={position === 0} onClick={() => void goToPosition(position - 1)}>
-            Previous
-          </Button>
-          <Button variant="ghost" disabled={position === items.length - 1} onClick={() => void goToPosition(position + 1)}>
-            Next
-          </Button>
+      <footer className="border-t border-dashed border-foreground/40 px-4 py-3 sm:px-8">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3">
+          <span className="hidden min-w-0 flex-1 truncate font-heading font-semibold sm:block">
+            {props.studentName ?? ""}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => setNavOpen((v) => !v)}
+            aria-expanded={navOpen}
+            className="flex items-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background"
+          >
+            Question {position + 1} of {items.length}
+            <ChevronUp
+              className={navOpen ? "size-4 rotate-180 transition-transform" : "size-4 transition-transform"}
+              aria-hidden
+            />
+          </button>
+
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+            <Button
+              variant="outline"
+              className="rounded-full"
+              disabled={position === 0}
+              onClick={() => void goToPosition(position - 1)}
+            >
+              Back
+            </Button>
+            {unansweredCount === 0 ? (
+              <Button className="rounded-full" onClick={() => void handleFinish(false)} disabled={completing}>
+                {completing ? "Finishing…" : "Finish"}
+              </Button>
+            ) : position === items.length - 1 ? (
+              <Button className="rounded-full" onClick={() => void goToPosition(firstUnanswered!.position)}>
+                {unansweredCount} left
+              </Button>
+            ) : (
+              <Button className="rounded-full" onClick={() => void goToPosition(position + 1)}>
+                Next
+              </Button>
+            )}
+          </div>
         </div>
-        {unansweredCount === 0 ? (
-          <Button size="cta" onClick={() => void handleFinish(false)} disabled={completing}>
-            {completing ? "Finishing…" : `Finish ${props.title}`}
-          </Button>
-        ) : position === items.length - 1 ? (
-          <Button variant="outline" className="rounded-full" onClick={() => void goToPosition(firstUnanswered!.position)}>
-            {unansweredCount} left · go to question {firstUnanswered!.position + 1}
-          </Button>
-        ) : (
-          <span className="text-sm tabular-nums text-muted-foreground">{unansweredCount} left</span>
-        )}
-      </div>
+      </footer>
 
       {blankWarning !== null && (
         <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4" role="alertdialog" aria-modal="true">

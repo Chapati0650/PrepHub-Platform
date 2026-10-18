@@ -55,6 +55,7 @@ export default async function DiagnosticPage() {
 
   return (
     <DiagnosticRunner
+      studentName={session.user.name ?? undefined}
       items={items}
       initialPosition={currentPosition}
       initialQuestion={{ content, feedback }}

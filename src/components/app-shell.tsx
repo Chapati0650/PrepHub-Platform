@@ -12,6 +12,7 @@ import {
   UserRound,
   Activity,
   ClipboardList,
+  Crosshair,
   IdCard,
   Megaphone,
   ShieldCheck,
@@ -38,6 +39,7 @@ type NavItem = { href: string; label: string; icon: ComponentType<{ className?: 
 const STUDENT_ITEMS: NavItem[] = [
   { href: "/home", label: "Home", icon: LayoutDashboard },
   { href: "/practice", label: "Practice", icon: PencilLine },
+  { href: "/practice/focused", label: "Focused Practice", icon: Crosshair },
   { href: "/daily", label: "Daily Challenge", icon: Flame },
   { href: "/800-club", label: "800 Club", icon: Trophy },
   { href: "/rush", label: "1v1 Rush", icon: Swords },
@@ -75,6 +77,19 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+/**
+ * The single nav item that should read as current.
+ *
+ * Prefix matching alone lights up every ancestor, so /practice/focused lit
+ * both "Practice" and "Focused Practice". The longest matching href wins,
+ * which is the one the student is actually on.
+ */
+function activeHref(pathname: string, sections: NavItem[][]): string | null {
+  const matches = sections.flat().filter((item) => isActive(pathname, item.href));
+  if (matches.length === 0) return null;
+  return matches.reduce((best, item) => (item.href.length > best.href.length ? item : best)).href;
+}
+
 // Routes where an active question (or a short linear flow) should dominate
 // the screen instead of competing with a persistent sidebar + nav links —
 // the Diagnostic and Practice Session runners, plus the post-signup
@@ -88,7 +103,12 @@ const FOCUS_MODE_PATHS = new Set(["/diagnostic", "/practice/session", "/onboardi
 // 800 Club sessions (/800-club/session/<id>) and Rush runs and rooms
 // (/rush/play/<id>, /rush/live/<id>) carry a dynamic segment, so they are
 // matched by prefix rather than listed.
-const FOCUS_MODE_PREFIXES = ["/800-club/session/", "/rush/play/", "/rush/live/"];
+const FOCUS_MODE_PREFIXES = [
+  "/800-club/session/",
+  "/practice/focused/session/",
+  "/rush/play/",
+  "/rush/live/",
+];
 
 function isFocusMode(pathname: string): boolean {
   return FOCUS_MODE_PATHS.has(pathname) || FOCUS_MODE_PREFIXES.some((p) => pathname.startsWith(p));
@@ -100,6 +120,7 @@ function isFocusMode(pathname: string): boolean {
 const SECTION_LABELS = ["", "Administrator"];
 
 function NavList({ sections, pathname, onNavigate }: { sections: NavItem[][]; pathname: string; onNavigate?: () => void }) {
+  const current = activeHref(pathname, sections);
   return (
     <nav className="flex flex-col gap-6">
       {sections.map((items, i) => (
@@ -110,7 +131,7 @@ function NavList({ sections, pathname, onNavigate }: { sections: NavItem[][]; pa
             </p>
           )}
           {items.map((item) => {
-            const active = isActive(pathname, item.href);
+            const active = item.href === current;
             const Icon = item.icon;
             return (
               <Link

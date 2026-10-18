@@ -17,18 +17,21 @@ export function FocusedRunner({
   sessionId,
   title,
   items,
+  studentName,
   initialPosition,
   initialQuestion,
 }: {
   sessionId: string;
   title: string;
   items: SessionRunnerItem[];
+  studentName?: string;
   initialPosition: number;
   initialQuestion: LoadedQuestion;
 }) {
   return (
     <SessionRunner
       title={title}
+      studentName={studentName}
       initialItems={items}
       initialPosition={initialPosition}
       initialQuestion={initialQuestion}

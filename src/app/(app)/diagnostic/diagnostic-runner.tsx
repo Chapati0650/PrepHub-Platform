@@ -11,16 +11,19 @@ import {
 
 export function DiagnosticRunner({
   items,
+  studentName,
   initialPosition,
   initialQuestion,
 }: {
   items: SessionRunnerItem[];
+  studentName?: string;
   initialPosition: number;
   initialQuestion: LoadedQuestion;
 }) {
   return (
     <SessionRunner
       title="Diagnostic"
+      studentName={studentName}
       initialItems={items}
       initialPosition={initialPosition}
       initialQuestion={initialQuestion}

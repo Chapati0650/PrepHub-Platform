@@ -46,6 +46,7 @@ export default async function PracticeSessionPage() {
 
   return (
     <PracticeRunner
+      studentName={session.user.name ?? undefined}
       practiceSetId={set.id}
       setNumber={set.setNumber}
       items={items}

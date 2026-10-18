@@ -39,6 +39,7 @@ export default async function ClubSessionPage({ params }: { params: Promise<{ se
 
   return (
     <ClubRunner
+      studentName={session.user.name ?? undefined}
       sessionId={club.id}
       sectionLabel={CLUB_SECTIONS[club.section].label}
       items={items}

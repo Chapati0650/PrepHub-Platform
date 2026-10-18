@@ -48,6 +48,7 @@ export default async function FocusedSessionPage({
 
   return (
     <FocusedRunner
+      studentName={session.user.name ?? undefined}
       sessionId={focused.id}
       title={`${FOCUSED_CATEGORY_LABELS[focused.category]} · ${FOCUSED_DIFFICULTY_LABELS[focused.difficulty]}`}
       items={items}

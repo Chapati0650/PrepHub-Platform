@@ -13,18 +13,21 @@ export function ClubRunner({
   sessionId,
   sectionLabel,
   items,
+  studentName,
   initialPosition,
   initialQuestion,
 }: {
   sessionId: string;
   sectionLabel: string;
   items: SessionRunnerItem[];
+  studentName?: string;
   initialPosition: number;
   initialQuestion: LoadedQuestion;
 }) {
   return (
     <SessionRunner
       title={`800 Club · ${sectionLabel}`}
+      studentName={studentName}
       initialItems={items}
       initialPosition={initialPosition}
       initialQuestion={initialQuestion}
