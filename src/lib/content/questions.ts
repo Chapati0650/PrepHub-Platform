@@ -36,6 +36,8 @@ export type ExplanationStepInput = { text: string; imageId: string | null };
 
 export type QuestionContentPatch = Partial<{
   questionText: string;
+  passageText: string | null; // Reading & Writing only; null renders one column
+
   questionImageId: string | null;
   writtenExplanation: string | null;
   standaloneVideoId: string | null; // ignored for family questions — family owns the video
@@ -162,6 +164,7 @@ export async function ensureDraftRevision(tx: Client, question: QuestionWithCont
     data: {
       questionId: question.id,
       questionText: source.questionText,
+      passageText: source.passageText,
       questionImageId: source.questionImageId,
       calculatorSetting: source.calculatorSetting,
       suggestedTimeSeconds: source.suggestedTimeSeconds,
@@ -236,6 +239,7 @@ export async function updateDraftContent(
       suggestedTimeSeconds: getSuggestedTimeForDifficulty(effectiveDifficulty),
     };
     if (patch.questionText !== undefined) revisionData.questionText = patch.questionText;
+    if (patch.passageText !== undefined) revisionData.passageText = patch.passageText;
     if (patch.questionImageId !== undefined) {
       revisionData.questionImage = patch.questionImageId
         ? { connect: { id: patch.questionImageId } }
@@ -462,6 +466,7 @@ export async function duplicateQuestionContent(questionId: string): Promise<Ques
       data: {
         questionId: question.id,
         questionText: sourceRevision.questionText,
+        passageText: sourceRevision.passageText,
         questionImageId: sourceRevision.questionImageId,
         calculatorSetting: sourceRevision.calculatorSetting,
         suggestedTimeSeconds: sourceRevision.suggestedTimeSeconds,

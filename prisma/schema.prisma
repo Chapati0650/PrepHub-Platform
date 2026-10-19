@@ -591,6 +591,13 @@ model QuestionRevision {
 
   questionText String @db.Text
 
+  // Reading & Writing only. The digital SAT puts the passage in a left pane
+  // and the question with its answers in a right one; that is only possible
+  // if the two are stored apart. Null means "no passage", which is every
+  // maths question and any stem that stands alone, and renders as a single
+  // column exactly as before.
+  passageText String? @db.Text
+
   questionImageId String?
   questionImage   MediaAsset? @relation("QuestionRevisionImage", fields: [questionImageId], references: [id])
 

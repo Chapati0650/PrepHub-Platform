@@ -14,6 +14,7 @@ import type { StudentQuestionContent, StudentQuestionFeedback } from "@/lib/sess
 import { Calculator } from "./calculator";
 import { TimerBadge } from "./timer-badge";
 import { SessionNavGrid, type NavItemState } from "./session-nav-grid";
+import { SplitPane } from "./split-pane";
 
 export type SessionRunnerItem = {
   id: string;
@@ -253,6 +254,23 @@ export function SessionRunner(props: SessionRunnerProps) {
             </div>
 
             <div className="pt-5">
+              <SplitPane
+                // Truthiness, not `!== null`: a stale client or an older
+                // payload makes this undefined, and `undefined !== null` is
+                // true, which split the screen and left an empty pane beside
+                // every maths question. An all-whitespace passage saved from
+                // the editor would do the same.
+                hasPassage={(loaded.content.passageText ?? "").trim().length > 0}
+                left={
+                  <QuestionStatement
+                    text={loaded.content.passageText ?? ""}
+                    imageId={null}
+                    mediaBasePath="/api/media"
+                    className="bg-transparent p-0"
+                    textClassName="text-lg leading-relaxed"
+                  />
+                }
+              >
               {/* No tinted panel behind the stem. Bluebook sets the question
                   as plain text on the page, and the box made every question
                   look like a callout rather than the thing being asked. */}
@@ -403,6 +421,7 @@ export function SessionRunner(props: SessionRunnerProps) {
                   )}
                 </div>
               )}
+              </SplitPane>
             </div>
           </>
         )}

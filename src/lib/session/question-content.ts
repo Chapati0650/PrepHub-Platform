@@ -8,6 +8,8 @@ export type StudentQuestionContent = {
   questionRevisionId: string;
   questionType: QuestionType;
   questionText: string;
+  /** Reading & Writing only. Non-null means the runner shows two panes. */
+  passageText: string | null;
   questionImageId: string | null;
   calculatorSetting: CalculatorSetting;
   suggestedTimeSeconds: number;
@@ -24,6 +26,7 @@ export async function getStudentQuestionContent(questionRevisionId: string): Pro
     questionRevisionId: revision.id,
     questionType: revision.question.questionType,
     questionText: revision.questionText,
+    passageText: revision.passageText,
     questionImageId: revision.questionImageId,
     calculatorSetting: revision.calculatorSetting,
     suggestedTimeSeconds: revision.suggestedTimeSeconds,

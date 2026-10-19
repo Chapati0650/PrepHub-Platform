@@ -92,6 +92,7 @@ export function QuestionEditor({
   const isEditable = !isArchived;
 
   const [questionText, setQuestionText] = useState(revision.questionText);
+  const [passageText, setPassageText] = useState(revision.passageText ?? "");
   const [category, setCategory] = useState(question.category);
   const [difficulty, setDifficulty] = useState(question.difficulty);
   const calculatorSetting = getCalculatorSettingForCategory(category);
@@ -612,6 +613,26 @@ export function QuestionEditor({
                 </Select>
               )}
             </div>
+          </div>
+
+          {/* The digital SAT shows a Reading & Writing passage in its own pane
+              beside the question, which is only possible if the two are
+              stored apart. Leave this empty for maths and for any stem that
+              stands alone, and the student sees a single column. */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="passageText">Passage (optional)</Label>
+            <Textarea
+              id="passageText"
+              rows={6}
+              disabled={!isEditable}
+              value={passageText}
+              onChange={(e) => {
+                setPassageText(e.target.value);
+                queueSave({ passageText: e.target.value.trim() === "" ? null : e.target.value });
+              }}
+              placeholder="Reading & Writing only. Shown in the left pane, with the question on the right."
+            />
+            <LatexHint />
           </div>
 
           <div className="flex flex-col gap-2">
