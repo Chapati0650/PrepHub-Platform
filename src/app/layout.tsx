@@ -26,7 +26,7 @@ const fredoka = Fredoka({
 const SITE_URL = process.env.NEXTAUTH_URL ?? "https://prephubtp.com";
 const TITLE = "PrepHub — Adaptive Digital SAT prep from a perfect scorer";
 const DESCRIPTION =
-  "Take a free 21-question Diagnostic, get a predicted SAT score, and practice with sets built around the categories costing you the most. Your first set is free.";
+  "Take a free 15-minute Diagnostic, get a predicted SAT score, and practice with sets built around the categories costing you the most. Your first set is free.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

@@ -13,9 +13,16 @@ import { prisma } from "@/lib/prisma";
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findUnique: vi.fn() },
-    studentMembership: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), findMany: vi.fn() },
+    studentMembership: {
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      findMany: vi.fn(),
+      count: vi.fn(),
+    },
     membershipHistoryEvent: { create: vi.fn() },
     organization: { findUnique: vi.fn() },
+    $transaction: vi.fn(),
   },
 }));
 
@@ -24,10 +31,17 @@ const mocked = prisma as unknown as {
   studentMembership: Record<string, ReturnType<typeof vi.fn>>;
   membershipHistoryEvent: Record<string, ReturnType<typeof vi.fn>>;
   organization: Record<string, ReturnType<typeof vi.fn>>;
+  $transaction: ReturnType<typeof vi.fn>;
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocked.studentMembership.count.mockResolvedValue(0);
+  // Every membership transition writes its status change and its audit event
+  // in one transaction. Handing the callback the same mock means the
+  // assertions below still read as plain `update`/`create` calls while
+  // actually exercising the transactional path.
+  mocked.$transaction.mockImplementation((fn: (t: unknown) => unknown) => fn(prisma));
 });
 
 describe("manuallyActivateStudent", () => {

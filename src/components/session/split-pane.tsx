@@ -53,7 +53,10 @@ export function SplitPane({
   if (!hasPassage) return <>{children}</>;
 
   return (
-    <div ref={containerRef} className="flex flex-col md:h-[calc(100vh-13rem)] md:flex-row">
+    // 20rem is the chrome around the panes: the focus bar, the runner's
+    // header, the question strip, the footer and their padding. It was 13rem,
+    // which was about 100px short, so the panes pushed the footer off screen.
+    <div ref={containerRef} className="flex flex-col md:h-[calc(100dvh-20rem)] md:flex-row">
       <div className="min-w-0 overflow-y-auto md:pr-6" style={{ flexBasis: `${leftPercent}%` }}>
         {left}
       </div>

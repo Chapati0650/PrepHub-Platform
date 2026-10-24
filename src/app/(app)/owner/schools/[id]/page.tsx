@@ -3,6 +3,7 @@ import { ArrowLeft, Building2 } from "lucide-react";
 import { getOrganizationDetail, listAllSchools } from "@/lib/owner/organizations";
 import { listMemberships } from "@/lib/owner/memberships";
 import { listRoster } from "@/lib/owner/roster";
+import { getRosterInviteSummary } from "@/lib/owner/roster-invites";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -17,17 +18,25 @@ import { AddSchoolForm } from "./add-school-form";
 import { MembershipsPanel } from "./memberships-panel";
 import { RosterPanel } from "./roster-panel";
 import { LogoForm } from "./logo-form";
+import { RushLeaderboardForm } from "./leaderboard-form";
 
 export default async function OrganizationDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
+  // The roster search lives in the URL so a particular lookup is shareable and
+  // the back button behaves, same as the Student Directory's filters.
+  const rosterQuery = await searchParams;
+  const rosterSearch = Array.isArray(rosterQuery.roster) ? rosterQuery.roster[0] : rosterQuery.roster;
   const org = await getOrganizationDetail(id);
   const memberships = await listMemberships(id);
   const allSchools = await listAllSchools();
-  const roster = await listRoster(id);
+  const roster = await listRoster(id, { search: rosterSearch });
+  const invites = await getRosterInviteSummary({ organizationId: id });
 
   const eligibleSchools =
     org.organizationType === "DISTRICT"
@@ -144,6 +153,22 @@ export default async function OrganizationDetailPage({
 
       <Card>
         <CardHeader>
+          <CardTitle>1v1 Rush leaderboard</CardTitle>
+          <CardDescription>
+            A weekly board of each student&apos;s best rush, shown to students at the same school.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <RushLeaderboardForm
+            id={org.id}
+            enabled={org.rushLeaderboardEnabled}
+            isDistrict={org.organizationType === "DISTRICT"}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Administrators</CardTitle>
           <CardDescription>Each administrator uses a separate account.</CardDescription>
         </CardHeader>
@@ -190,9 +215,12 @@ export default async function OrganizationDetailPage({
             enrollmentMode={org.enrollmentMode}
             entries={roster.entries}
             total={roster.total}
+            matching={roster.matching}
+            search={rosterSearch ?? ""}
             joined={roster.joined}
             hasDomain={org.domains.some((d) => d.isActive)}
             multiCampus={eligibleSchools.length > 1}
+            invites={invites}
           />
         </CardContent>
       </Card>
@@ -204,7 +232,8 @@ export default async function OrganizationDetailPage({
         <CardContent>
           <MembershipsPanel
             organizationId={org.id}
-            memberships={memberships.map((m) => ({
+            total={memberships.total}
+            memberships={memberships.entries.map((m) => ({
               id: m.id,
               status: m.status,
               currentGrade: m.currentGrade,

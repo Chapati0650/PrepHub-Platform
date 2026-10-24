@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { CORE_QUESTION_COUNT, coreAttempts, diagnosticStage } from "@/lib/diagnostic/sequence";
 import { sendEmail } from "@/lib/email";
 import { dayKey } from "@/lib/daily/challenge";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
@@ -68,23 +69,56 @@ export async function sendFinishDiagnosticNudges(now = new Date()): Promise<numb
       OR: [{ diagnosticSession: null }, { diagnosticSession: { status: { not: "COMPLETED" } } }],
       emailSends: { none: { kind: "finish_diagnostic" } },
     },
-    select: { id: true, email: true, firstName: true, diagnosticSession: { select: { attempts: { where: { submittedAt: { not: null } }, select: { id: true } } } } },
+    select: {
+      id: true,
+      email: true,
+      firstName: true,
+      diagnosticSession: {
+        select: {
+          attempts: {
+            select: { id: true, category: true, difficulty: true, submittedAt: true, isCorrect: true, waivedAt: true },
+          },
+        },
+      },
+    },
     take: 200,
   });
   let sent = 0;
   for (const u of candidates) {
     if (!(await claim(u.id, "finish_diagnostic", "once"))) continue;
-    const answered = u.diagnosticSession?.attempts.length ?? 0;
+    // Counted against the staged Diagnostic's fourteen core questions, which
+    // is what the student sees when they come back: a session they began
+    // under the old 21-question order is converted on return (see
+    // src/lib/diagnostic/stages.ts), keeping every answer they gave.
+    const attempts = u.diagnosticSession?.attempts ?? [];
+    const coreAnswered = coreAttempts(attempts).filter((a) => a.submittedAt !== null).length;
+    const stage = attempts.length > 0 ? diagnosticStage(attempts) : "CORE";
+    const remaining = CORE_QUESTION_COUNT - coreAnswered;
+    const minutes = Math.max(3, Math.round((remaining / CORE_QUESTION_COUNT) * 15));
+
+    const subject =
+      stage === "BONUS"
+        ? "Your bonus round is waiting"
+        : stage === "DONE"
+          ? "Your predicted SAT score is ready"
+          : coreAnswered > 0
+            ? `You're ${coreAnswered} of ${CORE_QUESTION_COUNT} questions in`
+            : `Your predicted SAT score is ${CORE_QUESTION_COUNT} questions away`;
+    const lead =
+      stage === "BONUS"
+        ? `You finished all ${CORE_QUESTION_COUNT} Diagnostic questions and unlocked a bonus round. Answer those and your predicted SAT score is ready.`
+        : stage === "DONE"
+          ? "You've answered every Diagnostic question. Open it once more to see your predicted SAT score."
+          : coreAnswered > 0
+            ? `You answered ${coreAnswered} of the ${CORE_QUESTION_COUNT} Diagnostic questions — your progress is saved, and the remaining ${remaining} take about ${minutes} minutes.`
+            : `The Diagnostic is ${CORE_QUESTION_COUNT} questions, about 15 minutes, and it ends with your predicted SAT score and the categories costing you the most.`;
+
     await sendEmail({
       to: u.email,
-      subject: answered > 0 ? `You're ${answered} of 21 questions in` : "Your predicted SAT score is 21 questions away",
+      subject,
       text: `Hi ${u.firstName},
 
-${
-  answered > 0
-    ? `You answered ${answered} of the 21 Diagnostic questions — your progress is saved, and the remaining ${21 - answered} take about ${Math.max(5, Math.round(((21 - answered) / 21) * 20))} minutes.`
-    : "The Diagnostic is 21 questions, about 20 minutes, and it ends with your predicted SAT score and the categories costing you the most."
-}
+${lead}
 
 Pick it back up here:
 ${SITE}/diagnostic

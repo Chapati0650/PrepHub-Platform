@@ -3,7 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { isAnswerCorrect } from "@/lib/adaptive/grading";
 import { getStudentQuestionContent, type StudentQuestionContent } from "@/lib/session/question-content";
 import { LIVE_PRESENCE_MS, RUSH_DIFFICULTY, RUSH_SECTIONS, RUSH_TIME_LIMIT_MS } from "./config";
-import { compareRuns, isOverLimit, scoreRushAnswer, type RushOutcome } from "./scoring";
+import {
+  compareRuns,
+  isOverLimit,
+  maxRushScore,
+  scoreRushAnswerWithStreak,
+  streakBefore,
+  type RushOutcome,
+} from "./scoring";
 import { RushError } from "./errors";
 import { joinLiveRoom } from "./live";
 import { createChallenge, createSet } from "./create";
@@ -127,11 +134,14 @@ export async function getChallengePreview(studentId: string, code: string): Prom
 export async function joinChallenge(studentId: string, code: string): Promise<{ runId: string; challengeId: string; live: boolean }> {
   const c = await prisma.rushChallenge.findUnique({
     where: { code },
-    select: { id: true, mode: true, live: true, runs: { where: { studentId }, select: { id: true } } },
+    select: { id: true, mode: true, live: true, invitedStudentId: true, runs: { where: { studentId }, select: { id: true } } },
   });
   if (!c) throw new RushError("CHALLENGE_NOT_FOUND", "No challenge has that code. Check it and try again.");
   if (c.runs[0]) return { runId: c.runs[0].id, challengeId: c.id, live: c.live };
   if (c.mode !== "FRIEND") throw new RushError("NOT_JOINABLE", "That rush isn't open to join.");
+  if (c.invitedStudentId && c.invitedStudentId !== studentId) {
+    throw new RushError("NOT_JOINABLE", "That rematch is for someone else.");
+  }
   if (c.live) {
     const joined = await joinLiveRoom(studentId, c.id);
     return { runId: joined.runId, challengeId: c.id, live: true };
@@ -171,6 +181,10 @@ export type RunContext = {
   opponentName: string | null;
   // A live room's run is played at /rush/live/[challengeId], never here.
   live: boolean;
+  /** The points rules this run is scored by; streak UI shows only from 2. */
+  scoringVersion: number;
+  /** Correct answers in a row so far, so a resumed run shows the right flame. */
+  streak: number;
 };
 
 export async function getRunContext(studentId: string, runId: string): Promise<RunContext | null> {
@@ -183,6 +197,7 @@ export async function getRunContext(studentId: string, runId: string): Promise<R
           runs: { where: { studentId: { not: studentId }, status: "COMPLETED" }, orderBy: { completedAt: "asc" }, take: 1, select: { student: { select: { firstName: true } } } },
         },
       },
+      answers: { select: { position: true, points: true } },
     },
   });
   if (!run || run.studentId !== studentId) return null;
@@ -199,6 +214,8 @@ export async function getRunContext(studentId: string, runId: string): Promise<R
     limitMs: RUSH_TIME_LIMIT_MS[run.challenge.set.section],
     opponentName: run.challenge.runs[0]?.student.firstName ?? null,
     live: run.challenge.live,
+    scoringVersion: run.challenge.scoringVersion,
+    streak: streakBefore(run.answers, run.position),
   };
 }
 
@@ -262,6 +279,12 @@ export async function serveCurrentQuestion(studentId: string, runId: string): Pr
 export type RushAnswerResult = {
   isCorrect: boolean;
   points: number;
+  /** Where the points came from, for the runner's breakdown. */
+  base: number;
+  speed: number;
+  streakBonus: number;
+  /** Correct answers in a row after this one (0 if this one missed). */
+  streak: number;
   elapsedMs: number;
   // The clock ran out: the client auto-submitted blank (timedOut), or a
   // real answer arrived past the grace window (overLimit). Both score 0.
@@ -285,7 +308,9 @@ export async function submitRushAnswer(params: { studentId: string; runId: strin
       where: { id: runId },
       include: {
         challenge: { include: { set: { include: { slots: { where: { position }, include: { question: true, questionRevision: { include: { answerChoices: true } } } } } } } },
-        answers: { where: { position } },
+        // Every answer, not just this position's: the streak is read from
+        // the ones before it. Ten rows at most.
+        answers: true,
       },
     });
     if (!run || run.studentId !== studentId) throw new RushError("RUN_NOT_FOUND", "Rush not found.");
@@ -297,11 +322,18 @@ export async function submitRushAnswer(params: { studentId: string; runId: strin
     const correctChoiceId = revision.answerChoices.find((c) => c.isCorrect)?.id ?? null;
     const acceptedAnswer = revision.acceptedAnswers[0] ?? null;
 
-    const existing = run.answers[0];
+    const existing = run.answers.find((a) => a.position === position);
     if (existing?.answeredAt) {
+      // A retried submit: report what was recorded. The streak is recomputed
+      // from the stored rows, which is exactly what it was the first time.
+      const replayStreak = (existing.points ?? 0) > 0 ? streakBefore(run.answers, position) + 1 : 0;
       return {
         isCorrect: existing.isCorrect ?? false,
         points: existing.points ?? 0,
+        base: 0,
+        speed: 0,
+        streakBonus: 0,
+        streak: replayStreak,
         elapsedMs: existing.elapsedMs ?? 0,
         timedOut: existing.answer === null,
         overLimit: existing.elapsedMs !== null && isOverLimit(existing.elapsedMs, RUSH_TIME_LIMIT_MS[run.challenge.set.section]),
@@ -318,7 +350,14 @@ export async function submitRushAnswer(params: { studentId: string; runId: strin
     const now = new Date();
     const elapsedMs = Math.max(0, now.getTime() - existing.servedAt.getTime());
     const isCorrect = answer !== null && answer !== "" && isAnswerCorrect(slot.question.questionType, answer, revision);
-    const points = scoreRushAnswer({ isCorrect, elapsedMs, limitMs });
+    const scored = scoreRushAnswerWithStreak({
+      isCorrect,
+      elapsedMs,
+      limitMs,
+      previousStreak: streakBefore(run.answers, position),
+      version: run.challenge.scoringVersion,
+    });
+    const points = scored.points;
     // A timeout still counts the full limit toward total time — the tie-break
     // shouldn't reward leaving the tab and coming back.
     const countedMs = Math.min(elapsedMs, limitMs);
@@ -340,7 +379,21 @@ export async function submitRushAnswer(params: { studentId: string; runId: strin
       select: { score: true },
     });
 
-    return { isCorrect, points, elapsedMs, timedOut: answer === null, overLimit: isOverLimit(elapsedMs, limitMs), score: updated.score, correctChoiceId, acceptedAnswer, done };
+    return {
+      isCorrect,
+      points,
+      base: scored.base,
+      speed: scored.speed,
+      streakBonus: scored.streakBonus,
+      streak: scored.streak,
+      elapsedMs,
+      timedOut: answer === null,
+      overLimit: isOverLimit(elapsedMs, limitMs),
+      score: updated.score,
+      correctChoiceId,
+      acceptedAnswer,
+      done,
+    };
   });
 }
 
@@ -358,6 +411,10 @@ export type RushParticipant = {
   score: number;
   correctCount: number;
   totalMs: number;
+  /** The longest run of correct, in-time answers. */
+  bestStreak: number;
+  /** The quickest correct answer, or null if none was correct. */
+  fastestCorrectMs: number | null;
   answers: { position: number; isCorrect: boolean | null; points: number | null; elapsedMs: number | null; answered: boolean }[];
 };
 
@@ -378,6 +435,11 @@ export type RushResults = {
   // Against the best finished opponent; null while solo or still waiting.
   outcome: RushOutcome | null;
   questions: { position: number; category: string; difficulty: string }[];
+  /** The rules every run here was scored by, and the most a run could get. */
+  scoringVersion: number;
+  maxScore: number;
+  /** Set on a rematch: the student it was sent to. */
+  rematchFor: string | null;
 };
 
 export async function getRushResults(studentId: string, challengeId: string): Promise<RushResults | null> {
@@ -385,6 +447,7 @@ export async function getRushResults(studentId: string, challengeId: string): Pr
     where: { id: challengeId },
     include: {
       set: { include: { slots: { orderBy: { position: "asc" }, include: { question: { select: { category: true, difficulty: true } } } } } },
+      invitedStudent: { select: { firstName: true } },
       runs: {
         include: { student: { select: { firstName: true } }, answers: { orderBy: { position: "asc" } } },
         orderBy: [{ score: "desc" }, { totalMs: "asc" }],
@@ -403,6 +466,8 @@ export async function getRushResults(studentId: string, challengeId: string): Pr
     score: r.score,
     correctCount: r.correctCount,
     totalMs: r.totalMs,
+    bestStreak: longestStreak(r.answers),
+    fastestCorrectMs: fastestCorrect(r.answers),
     answers: c.set.slots.map((s) => {
       const a = r.answers.find((x) => x.position === s.position);
       return { position: s.position, isCorrect: a?.isCorrect ?? null, points: a?.points ?? null, elapsedMs: a?.elapsedMs ?? null, answered: Boolean(a?.answeredAt) };
@@ -427,7 +492,26 @@ export async function getRushResults(studentId: string, challengeId: string): Pr
     others,
     outcome: best ? compareRuns(mine, best) : null,
     questions: c.set.slots.map((s) => ({ position: s.position, category: s.question.category, difficulty: s.question.difficulty })),
+    scoringVersion: c.scoringVersion,
+    maxScore: maxRushScore(c.scoringVersion, c.set.slots.length),
+    rematchFor: c.invitedStudent?.firstName ?? null,
   };
+}
+
+/** Longest run of answers that scored, in position order. */
+function longestStreak(answers: { position: number; points: number | null }[]): number {
+  let best = 0;
+  let current = 0;
+  for (const a of [...answers].sort((x, y) => x.position - y.position)) {
+    current = (a.points ?? 0) > 0 ? current + 1 : 0;
+    best = Math.max(best, current);
+  }
+  return best;
+}
+
+function fastestCorrect(answers: { points: number | null; elapsedMs: number | null }[]): number | null {
+  const times = answers.filter((a) => (a.points ?? 0) > 0 && a.elapsedMs !== null).map((a) => a.elapsedMs!);
+  return times.length > 0 ? Math.min(...times) : null;
 }
 
 // The revision for one position in a challenge the student has finished —
@@ -465,6 +549,8 @@ export type RushHistoryRow = {
   awaitingFriend: boolean;
   // RANDOM run I finished with no opponent yet.
   awaitingMatch: boolean;
+  /** A rematch I sent: who it's for. Its code is never re-shown — it's already addressed. */
+  rematchFor: string | null;
 };
 
 export type RushOverview = {
@@ -490,6 +576,7 @@ export async function getRushOverview(studentId: string): Promise<RushOverview> 
         challenge: {
           include: {
             set: { select: { section: true, difficulty: true } },
+            invitedStudent: { select: { firstName: true } },
             runs: { where: { studentId: { not: studentId } }, include: { student: { select: { firstName: true } } }, orderBy: [{ score: "desc" }, { totalMs: "asc" }] },
           },
         },
@@ -530,8 +617,16 @@ export async function getRushOverview(studentId: string): Promise<RushOverview> 
       myScore: r.score,
       opponent: opp ? { name: opp.student.firstName, score: opp.score, finished: opp.status === "COMPLETED" } : null,
       outcome,
-      awaitingFriend: !r.challenge.live && r.challenge.mode === "FRIEND" && isCreator && r.challenge.runs.length === 0,
+      // A rematch waiting on its invitee isn't "waiting for a friend" in the
+      // share-the-code sense: it's already addressed to one person.
+      awaitingFriend:
+        !r.challenge.live &&
+        r.challenge.mode === "FRIEND" &&
+        isCreator &&
+        r.challenge.runs.length === 0 &&
+        !r.challenge.invitedStudentId,
       awaitingMatch: !r.challenge.live && r.challenge.mode === "RANDOM" && finished && r.challenge.runs.length === 0,
+      rematchFor: isCreator ? (r.challenge.invitedStudent?.firstName ?? null) : null,
     };
   });
 

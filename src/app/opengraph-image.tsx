@@ -40,7 +40,7 @@ export default function OpenGraphImage() {
             Your personalized study platform for the Digital SAT
           </div>
           <div style={{ fontSize: 30, color: "#b9e6e8", maxWidth: 980, lineHeight: 1.3 }}>
-            Free 21-question Diagnostic → predicted score → practice built around what&apos;s costing you points.
+            Free 15-minute Diagnostic → predicted score → practice built around what&apos;s costing you points.
           </div>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 26, color: "#b9e6e8" }}>

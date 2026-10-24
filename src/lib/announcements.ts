@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { sendEmail } from "@/lib/email";
+import { drainForRequest, queueRows } from "@/lib/email-queue";
 import { AdminError } from "@/lib/admin/errors";
 
 export type AnnouncementEntry = {
@@ -55,26 +55,24 @@ export type PublishAnnouncementInput = {
 };
 
 // PRD-011 §16-§17 — publishing is a single atomic action: create the row (so
-// it's immediately visible inside PrepHub), then email every currently ACTIVE
-// registered student at their school email. Delivery is best-effort per
-// recipient (`sendEmail` never throws — see CLAUDE.md's "optional side
-// effects must never block the core operation") so one bad address can't
-// stop the announcement from publishing or other students from being emailed.
+// it's immediately visible inside PrepHub) and queue the email to every
+// currently ACTIVE registered student at their school email, in one
+// transaction. Either both happen or neither does, so there is no state where
+// an announcement is live and nothing was ever going to be mailed for it.
+//
+// The mail goes through the outbound queue rather than straight out through
+// the provider. At a 40-student pilot campus the difference is invisible — the
+// request-time drain below sends it before this action returns. At district
+// scale it is the difference between working and not: two thousand addresses
+// is twenty-odd provider calls, which does not fit inside a serverless
+// request, and the previous version was killed partway through having sent an
+// unknowable subset with no record of which (see lib/email-queue).
 export async function publishAnnouncement(
   schoolId: string,
   createdByUserId: string,
   input: PublishAnnouncementInput,
 ): Promise<AnnouncementEntry> {
-  const [announcement, org, memberships] = await Promise.all([
-    prisma.announcement.create({
-      data: {
-        organizationId: schoolId,
-        title: input.title,
-        message: input.message,
-        expiresAt: input.expiresAt,
-        createdByUserId,
-      },
-    }),
+  const [org, memberships] = await Promise.all([
     prisma.organization.findUniqueOrThrow({ where: { id: schoolId } }),
     prisma.studentMembership.findMany({
       where: { schoolId, status: "ACTIVE" },
@@ -82,15 +80,34 @@ export async function publishAnnouncement(
     }),
   ]);
 
-  await Promise.all(
-    memberships.map((m) =>
-      sendEmail({
-        to: m.verifiedSchoolEmail,
+  const announcement = await prisma.$transaction(async (tx) => {
+    const created = await tx.announcement.create({
+      data: {
+        organizationId: schoolId,
+        title: input.title,
+        message: input.message,
+        expiresAt: input.expiresAt,
+        createdByUserId,
+      },
+    });
+
+    const rows = queueRows(
+      "announcement",
+      memberships.map((m) => m.verifiedSchoolEmail),
+      {
         subject: `${org.officialName}: ${input.title}`,
         text: `${input.message}\n\n— Distributed through PrepHub on behalf of ${org.officialName}.`,
-      }),
-    ),
-  );
+      },
+    );
+    if (rows.length > 0) await tx.queuedEmail.createMany({ data: rows });
+
+    return created;
+  });
+
+  // Best-effort, time-boxed, and deliberately outside the transaction: the
+  // announcement is already published and its mail already durable, so a
+  // provider outage here delays delivery rather than losing it.
+  await drainForRequest();
 
   return toEntry(announcement);
 }

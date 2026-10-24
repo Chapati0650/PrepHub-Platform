@@ -12,6 +12,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Marker } from "@/components/ui/marker";
 import { ShareChallenge } from "./share-challenge";
 import { joinRushAction, startRushAction } from "./actions";
+import { getWeeklyLeaderboard } from "@/lib/rush/leaderboard";
+import { listRematchInvites } from "@/lib/rush/rematch";
+import { LeaderboardPanel } from "./leaderboard-panel";
+import { RematchInvites } from "./rematch-invites";
 
 // 1v1 Rush — the reference's "Question Rush", made head-to-head. The hub:
 // start a rush (Premium), join one by code (free), and the record so far.
@@ -22,7 +26,13 @@ export default async function RushPage({ searchParams }: { searchParams: Promise
   if (!canUseStudentExperience(session.user.role)) redirect("/home");
   const studentId = session.user.id;
 
-  const [{ pool, stats, history }, paidAccess, { error }] = await Promise.all([getRushOverview(studentId), hasPaidAccess(studentId), searchParams]);
+  const [{ pool, stats, history }, paidAccess, { error }, board, invites] = await Promise.all([
+    getRushOverview(studentId),
+    hasPaidAccess(studentId),
+    searchParams,
+    getWeeklyLeaderboard(studentId),
+    listRematchInvites(studentId),
+  ]);
   const origin = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
   const anyPool = RUSH_SECTION_ORDER.some((s) => pool[s] > 0);
 
@@ -49,6 +59,10 @@ export default async function RushPage({ searchParams }: { searchParams: Promise
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
+
+      {/* Time-sensitive, so above everything else: a live one means a
+          friend is sitting in a room right now. */}
+      <RematchInvites invites={invites} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_minmax(0,18rem)]">
         {/* Start a rush. One form, three groups of pill radios, one CTA —
@@ -148,6 +162,9 @@ export default async function RushPage({ searchParams }: { searchParams: Promise
         </section>
       </div>
 
+      {/* Only for a student at a school with the board on; see leaderboard.ts. */}
+      {board && <LeaderboardPanel board={board} />}
+
       <section className="flex flex-col gap-3">
         <h2 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">Your record</h2>
         <div className="grid grid-cols-2 divide-border overflow-hidden rounded-2xl border border-border [&>*:nth-child(n+3)]:border-t sm:grid-cols-4 sm:divide-x sm:[&>*:nth-child(n+3)]:border-t-0">
@@ -214,7 +231,9 @@ function Stat({ label, value }: { label: string; value: string }) {
 function HistoryItem({ row, joinUrl }: { row: RushHistoryRow; joinUrl: string }) {
   const href = row.myStatus === "ACTIVE" ? (row.live ? `/rush/live/${row.challengeId}` : `/rush/play/${row.myRunId}`) : `/rush/results/${row.challengeId}`;
   const status =
-    row.live && row.liveStatus === "WAITING"
+    row.rematchFor && row.live && row.liveStatus === "WAITING"
+      ? `Rematch — waiting for ${row.rematchFor}`
+      : row.live && row.liveStatus === "WAITING"
       ? "Waiting in the room"
       : row.myStatus === "ACTIVE"
         ? row.live
@@ -228,6 +247,8 @@ function HistoryItem({ row, joinUrl }: { row: RushHistoryRow; joinUrl: string })
             ? "Tie"
             : row.awaitingFriend
               ? "Waiting for a friend"
+              : row.rematchFor && !row.opponent
+                ? `Rematch sent to ${row.rematchFor}`
               : row.awaitingMatch
                 ? "Waiting for a match"
                 : row.mode === "SOLO"

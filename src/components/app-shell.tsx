@@ -214,7 +214,11 @@ export function AppShell({
             </Button>
           </form>
         </header>
-        <main className="flex-1">{children}</main>
+        {/* A flex column so a focus page can fill exactly the height left
+            under this bar with `flex-1`. Before, the session runner could only
+            ask for `min-h-screen`, which put it a full bar's height past the
+            bottom of the viewport on every question. */}
+        <main className="flex flex-1 flex-col">{children}</main>
       </div>
     );
   }

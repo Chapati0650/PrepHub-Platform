@@ -8,7 +8,11 @@ import { LIVE_LOBBY_POLL_MS, LIVE_POLL_MS, LIVE_RANDOM_FALLBACK_MS } from "@/lib
 import type { LiveAnswerResult, LiveRoundAnswer, LiveServedQuestion, LiveState } from "@/lib/rush/live";
 import { ShareChallenge } from "../../share-challenge";
 import { RushQuestion, TimeBar, formatSeconds } from "../../rush-question";
+import { PointsPop, SoundToggle, StreakFlame, useRushSound } from "../../game-fx";
 import { fallbackToRecordedAction, leaveLiveRoomAction } from "../../actions";
+
+// The last few seconds of a question tick audibly, once a second.
+const TICK_FROM_MS = 5_000;
 
 // The live room, start to finish: lobby → countdown → ten shared questions
 // → results. The server owns every clock (see lib/rush/live.ts); this
@@ -29,6 +33,7 @@ export function LiveRush({
   submit: (challengeId: string, position: number, answer: string | null) => Promise<LiveAnswerResult | { over: true }>;
 }) {
   const router = useRouter();
+  const sound = useRushSound();
   const id = initial.challengeId;
   const [state, setState] = useState<LiveState>(initial);
   const [question, setQuestion] = useState<LiveServedQuestion | null>(null);
@@ -139,6 +144,8 @@ export function LiveRush({
       const r = await submit(id, question.position, answer);
       if ("over" in r) return; // the room moved on; the poll will redraw
       setResult(r);
+      if (r.points > 0) sound.play(state.scoringVersion >= 2 && r.streak >= 3 ? "streak" : "correct");
+      else sound.play("wrong");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -152,14 +159,44 @@ export function LiveRush({
   const questionLive = state.status === "PLAYING" && state.questionOpen && question?.position === state.position;
   const remainingMs = questionLive ? Math.max(0, deadline - now) : 0;
   const answered = result !== null || state.me.answered !== null;
+  // Whatever is selected when the buzzer goes is the answer — choosing no
+  // longer submits on its own, and losing a picked answer to the clock for
+  // want of pressing Submit would feel like a bug. The draft is read through
+  // a ref so this effect fires on the clock, not on every keystroke.
+  const draftRef = useRef(draft);
+  const playRef = useRef(sound.play);
+  useEffect(() => {
+    draftRef.current = draft;
+    playRef.current = sound.play;
+  });
   useEffect(() => {
     if (!questionLive || answered || remainingMs > 0) return;
-    void submitRef.current(null);
+    void submitRef.current(draftRef.current || null);
   }, [questionLive, answered, remainingMs]);
+
+  // One tick a second through the last five, while this student still has
+  // an answer to give.
+  const tickSecond = questionLive && !answered && remainingMs > 0 && remainingMs <= TICK_FROM_MS ? Math.ceil(remainingMs / 1000) : null;
+  useEffect(() => {
+    if (tickSecond !== null) playRef.current("tick");
+  }, [tickSecond]);
+
+  // The shared countdown gets a beat per second and a GO as play opens.
+  const countdownSecond = state.status === "COUNTDOWN" ? Math.max(0, Math.ceil((startsAt - now) / 1000)) : null;
+  useEffect(() => {
+    if (countdownSecond !== null && countdownSecond > 0) playRef.current("count");
+  }, [countdownSecond]);
+  const playing = state.status === "PLAYING";
+  useEffect(() => {
+    if (playing) playRef.current("go");
+  }, [playing]);
 
   // ---- Screens ---------------------------------------------------------
   const eyebrow = `1v1 Rush · Live · ${state.sectionLabel}`;
   const opp = state.opponent;
+  const soundToggle = <SoundToggle muted={sound.muted} onToggle={sound.toggle} />;
+  const streaks = state.scoringVersion >= 2;
+  const myStreak = result?.streak ?? state.me.streak;
 
   if (error) {
     return (
@@ -181,6 +218,9 @@ export function LiveRush({
   if (state.status === "WAITING") {
     const friend = state.mode === "FRIEND";
     const offerFallback = !friend && state.waitedMs >= LIVE_RANDOM_FALLBACK_MS;
+    // A rematch is addressed to one student: no code to share, and it says
+    // who it's waiting for rather than asking to be sent somewhere.
+    const rematchFor = state.rematchFor;
     return (
       <Shell eyebrow={eyebrow}>
         <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
@@ -188,15 +228,19 @@ export function LiveRush({
             <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60" />
             <span className="relative inline-flex size-2.5 rounded-full bg-primary" />
           </span>
-          {friend ? "Room open" : "Looking for an opponent"}
+          {rematchFor ? "Rematch sent" : friend ? "Room open" : "Looking for an opponent"}
         </p>
-        <h1 className="mt-3 text-display-sm sm:text-display">{friend ? "Your room is open." : "Finding you someone…"}</h1>
+        <h1 className="mt-3 text-display-sm sm:text-display">
+          {rematchFor ? `Waiting for ${rematchFor}…` : friend ? "Your room is open." : "Finding you someone…"}
+        </h1>
         <p className="mt-4 max-w-prose text-muted-foreground">
-          {friend
-            ? "Send this to a friend. The five-second countdown starts the moment they join, and you'll play the same ten questions on the same clock."
-            : `You'll be matched with the next student who starts a live ${state.sectionLabel} rush. Keep this page open — the countdown starts the moment they arrive.`}
+          {rematchFor
+            ? `${rematchFor} can accept from their results page or their 1v1 Rush page. Keep this page open — the five-second countdown starts the moment they do, on a fresh set of questions.`
+            : friend
+              ? "Send this to a friend. The five-second countdown starts the moment they join, and you'll play the same ten questions on the same clock."
+              : `You'll be matched with the next student who starts a live ${state.sectionLabel} rush. Keep this page open — the countdown starts the moment they arrive.`}
         </p>
-        {friend && (
+        {friend && !rematchFor && (
           <div className="mt-6 rounded-2xl border border-border bg-background p-5">
             <ShareChallenge code={state.code} joinUrl={joinUrl} />
           </div>
@@ -245,8 +289,10 @@ export function LiveRush({
           {secs}
         </p>
         <p className="mt-2 max-w-prose text-muted-foreground">
-          {state.total} questions, {Math.round(state.limitMs / 1000)} seconds each, the same clock for both of you. Choosing an answer locks it in.
+          {state.total} questions, {Math.round(state.limitMs / 1000)} seconds each, the same clock for both of you. Pick an
+          answer and Submit — or press A–D and Enter.{streaks ? " Correct answers in a row earn a streak bonus." : ""}
         </p>
+        <div className="mt-4">{soundToggle}</div>
       </Shell>
     );
   }
@@ -256,13 +302,20 @@ export function LiveRush({
   const gapSecs = Math.max(0, Math.ceil((startsAt - now) / 1000));
   const mine: LiveRoundAnswer | null = result ?? state.me.answered;
 
+  // A passage question splits into two columns, so it gets the width for it.
+  const wide = (question?.content.passageText ?? "").trim().length > 0;
+
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-5 p-4 pb-16 sm:p-8">
-      <div className="flex items-baseline justify-between gap-4">
+    <div className={`mx-auto flex w-full ${wide ? "max-w-6xl" : "max-w-3xl"} flex-col gap-5 p-4 pb-16 sm:p-8`}>
+      <div className="flex items-center justify-between gap-4">
         <h1 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">{eyebrow}</h1>
-        <span className="text-sm tabular-nums text-muted-foreground">
-          Question {Math.min(state.position + 1, state.total)} of {state.total}
-        </span>
+        <div className="flex items-center gap-3 text-sm tabular-nums text-muted-foreground">
+          {streaks && <StreakFlame streak={myStreak} />}
+          <span>
+            Question {Math.min(state.position + 1, state.total)} of {state.total}
+          </span>
+          {soundToggle}
+        </div>
       </div>
 
       {/* Scoreboard — the whole reason this mode exists is the other number. */}
@@ -297,14 +350,18 @@ export function LiveRush({
               )
             }
           />
-          <RushQuestion
-            content={question.content}
-            draft={draft}
-            answered={answered}
-            correctChoiceId={result?.correctChoiceId ?? null}
-            onDraftChange={setDraft}
-            onAnswer={(a) => void submitAnswer(a)}
-          />
+          <div className="relative">
+            {result && <PointsPop key={question.position} result={result} />}
+            <RushQuestion
+              content={question.content}
+              draft={draft}
+              answered={answered}
+              correctChoiceId={result?.correctChoiceId ?? null}
+              onDraftChange={setDraft}
+              onAnswer={(a) => void submitAnswer(a)}
+              feedback={mine ? (mine.points > 0 ? "correct" : "wrong") : null}
+            />
+          </div>
           {mine && (
             <div role="status" className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <p className={`font-heading text-lg font-semibold ${mine.points > 0 ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
@@ -312,6 +369,7 @@ export function LiveRush({
               </p>
               <p className="text-sm tabular-nums text-muted-foreground">
                 {mine.points > 0 ? `+${mine.points} pts` : "0 pts"} · {formatSeconds(mine.elapsedMs)}s
+                {streaks && myStreak >= 2 && ` · ${myStreak} in a row`}
               </p>
               {!opp.answered && <p className="w-full text-sm text-muted-foreground">Waiting for {opp.name}…</p>}
             </div>
@@ -341,7 +399,9 @@ function Score({ name, score, mark, present = true, right = false }: { name: str
           {name}
           {!present && <span className="ml-1.5 text-xs">(away)</span>}
         </p>
-        <p className="font-heading text-3xl font-semibold tracking-tight tabular-nums">{score}</p>
+        <p key={score} className="font-heading text-3xl font-semibold tracking-tight tabular-nums motion-safe:animate-rush-bump">
+          {score}
+        </p>
       </div>
       <span
         aria-label={mark ? (mark.isCorrect ? "Answered correctly" : "Answered incorrectly") : "Not answered yet"}

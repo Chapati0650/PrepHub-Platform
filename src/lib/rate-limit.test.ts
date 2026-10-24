@@ -55,10 +55,30 @@ describe("checkRateLimit", () => {
   });
 
   it("defines a centralized config entry for every endpoint required by the Global Engineering Requirements", () => {
-    expect(RATE_LIMITS.LOGIN.limit).toBeGreaterThan(0);
-    expect(RATE_LIMITS.ACCOUNT_CREATION.limit).toBeGreaterThan(0);
-    expect(RATE_LIMITS.PASSWORD_RESET_REQUEST.limit).toBeGreaterThan(0);
+    expect(RATE_LIMITS.LOGIN_PER_EMAIL.limit).toBeGreaterThan(0);
+    expect(RATE_LIMITS.LOGIN_PER_IP.limit).toBeGreaterThan(0);
+    expect(RATE_LIMITS.ACCOUNT_CREATION_PER_IP.limit).toBeGreaterThan(0);
+    expect(RATE_LIMITS.PASSWORD_RESET_PER_EMAIL.limit).toBeGreaterThan(0);
+    expect(RATE_LIMITS.PASSWORD_RESET_PER_IP.limit).toBeGreaterThan(0);
     expect(RATE_LIMITS.SCHOOL_EMAIL_VERIFICATION_REQUEST.limit).toBeGreaterThan(0);
+  });
+
+  // The regression this guards: every student on a campus network shares one
+  // public NAT address, so a per-IP limit sized for one household locks out a
+  // whole homeroom. These floors are a deliberate statement that the per-IP
+  // buckets must fit a classroom, not a person.
+  it("sizes the per-IP buckets for a whole campus sharing one NAT address", () => {
+    expect(RATE_LIMITS.ACCOUNT_CREATION_PER_IP.limit).toBeGreaterThanOrEqual(100);
+    expect(RATE_LIMITS.LOGIN_PER_IP.limit).toBeGreaterThanOrEqual(100);
+    expect(RATE_LIMITS.PASSWORD_RESET_PER_IP.limit).toBeGreaterThanOrEqual(50);
+  });
+
+  // ...while the per-identity buckets stay tight, because that is where the
+  // actual protection lives once the IP side has been opened up.
+  it("keeps the per-identity buckets tight", () => {
+    expect(RATE_LIMITS.LOGIN_PER_EMAIL.limit).toBeLessThanOrEqual(20);
+    expect(RATE_LIMITS.PASSWORD_RESET_PER_EMAIL.limit).toBeLessThanOrEqual(10);
+    expect(RATE_LIMITS.LOGIN_PER_EMAIL.limit).toBeLessThan(RATE_LIMITS.LOGIN_PER_IP.limit);
   });
 });
 

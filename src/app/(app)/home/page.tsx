@@ -186,7 +186,7 @@ export default async function HomePage() {
             <Marker>starting point</Marker>.
           </h1>
           <p className="mt-4 max-w-prose text-lg text-muted-foreground">
-            21 questions across every SAT category, about 20 minutes. It generates your first
+            14 questions across every SAT category, about 15 minutes. It generates your first
             Predicted SAT Score range and the practice plan everything after this is built from.
             Your answers save as you go, so you can stop part way and come back.
           </p>

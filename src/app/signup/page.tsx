@@ -42,7 +42,7 @@ export default function SignUpPage() {
             One Diagnostic. A real <Marker>starting point</Marker>.
           </h2>
           <p className="max-w-sm text-surface-deep-foreground/70">
-            21 questions across every SAT category give you an initial Predicted SAT Score range — no guessing where
+            14 questions across every SAT category give you an initial Predicted SAT Score range — no guessing where
             to begin.
           </p>
           <div className="max-w-sm">

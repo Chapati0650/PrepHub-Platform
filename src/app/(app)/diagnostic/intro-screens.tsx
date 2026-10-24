@@ -6,7 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Marker } from "@/components/ui/marker";
 
 const WELCOME_ITEMS = [
-  { title: "21 questions, about 20 minutes", body: "Three per category, easy to hard. You see the answer and an explanation after each one." },
+  {
+    title: "14 questions, about 15 minutes",
+    body: "Two per category, easy first. Get the harder one right and you unlock a bonus question there. You see the answer and an explanation after each.",
+  },
   { title: "Your predicted SAT score", body: "A score range the moment you finish, plus the categories costing you the most." },
   { title: "Your first practice set — free", body: "Built from your answers, not a generic test. Ready as soon as you're done." },
 ] as const;
@@ -42,7 +45,7 @@ export function IntroScreens({ onBegin }: { onBegin: () => Promise<void> }) {
             Let&apos;s find your <Marker>starting point</Marker>.
           </h1>
           <p className="mt-4 max-w-prose text-lg text-muted-foreground">
-            Answer 21 questions and PrepHub will tell you where you stand on the Digital SAT — and exactly what to work
+            Answer 14 questions and PrepHub will tell you where you stand on the Digital SAT — and exactly what to work
             on first.
           </p>
         </div>

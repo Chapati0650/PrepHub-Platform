@@ -181,7 +181,7 @@ const STEPS = [
   {
     n: "01",
     title: "Take the Diagnostic",
-    body: "21 questions, one per difficulty across all 7 tested categories. It ends with a Predicted SAT Score range and a per-category read on where you stand.",
+    body: "14 questions across all 7 tested categories, easy first, with a bonus question in each category you're already strong in. It ends with a Predicted SAT Score range and a per-category read on where you stand.",
     visual: <StepDiagnostic />,
   },
   {
@@ -249,7 +249,7 @@ function StepDiagnostic() {
         </div>
       ))}
       <p className="mt-2 text-caption font-medium tracking-wide text-muted-foreground uppercase">
-        21 questions · 7 categories
+        14 questions · 7 categories
       </p>
     </div>
   );

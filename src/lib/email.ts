@@ -113,3 +113,93 @@ export async function sendEmail({ to, subject, text }: SendEmailInput): Promise<
 
   return { ok: true };
 }
+
+/**
+ * Resend's own batch endpoint takes 100 messages per call, and its rate limit
+ * is per-request rather than per-recipient, so batching is both the supported
+ * way to do this and the only way that finishes inside a serverless function's
+ * execution budget.
+ */
+const BATCH_SIZE = 100;
+
+/** Pause between batches, to stay under the provider's request rate limit. */
+const BATCH_PAUSE_MS = 600;
+
+export type BulkEmailResult = { sent: number; failed: number };
+
+/**
+ * Sends the same message to many recipients.
+ *
+ * Replaces `Promise.all(recipients.map(sendEmail))`, which opened one HTTP
+ * request per recipient simultaneously. At a pilot campus that is fifty
+ * requests and it works; at two thousand students it exhausts the rate limit,
+ * and the function times out somewhere in the middle having sent an unknowable
+ * subset. Batched and paced, two thousand recipients is twenty requests.
+ *
+ * Never throws. A failed batch is logged and counted, because the caller is
+ * always something like "publish this announcement" that must not be undone by
+ * a mail provider having a bad minute.
+ */
+export async function sendBulkEmail(
+  recipients: string[],
+  { subject, text }: { subject: string; text: string },
+): Promise<BulkEmailResult> {
+  const unique = [...new Set(recipients.filter((r) => r && r.includes("@")))];
+  if (unique.length === 0) return { sent: 0, failed: 0 };
+
+  if (!resendClient) {
+    if (process.env.NODE_ENV === "production") {
+      logEmailDeliveryFailure("RESEND_API_KEY is not configured - bulk email was not sent", {
+        subject,
+        recipients: unique.length,
+        errorType: "MissingApiKey",
+      });
+      return { sent: 0, failed: unique.length };
+    }
+    for (const to of unique) await sendEmail({ to, subject, text });
+    return { sent: unique.length, failed: 0 };
+  }
+
+  const from = emailFromAddress();
+  const replyTo = emailReplyTo();
+  let sent = 0;
+  let failed = 0;
+
+  for (let i = 0; i < unique.length; i += BATCH_SIZE) {
+    const batch = unique.slice(i, i + BATCH_SIZE);
+    try {
+      const { error } = await resendClient.batch.send(
+        batch.map((to) => ({
+          from,
+          ...(replyTo ? { replyTo } : {}),
+          to,
+          subject,
+          text,
+        })),
+      );
+      if (error) {
+        failed += batch.length;
+        logEmailDeliveryFailure("Bulk email batch rejected by Resend", {
+          subject,
+          recipients: batch.length,
+          errorType: error.name,
+        });
+      } else {
+        sent += batch.length;
+      }
+    } catch (err) {
+      failed += batch.length;
+      logEmailDeliveryFailure("Bulk email batch threw", {
+        subject,
+        recipients: batch.length,
+        errorType: err instanceof Error ? err.name : "Unknown",
+      });
+    }
+
+    if (i + BATCH_SIZE < unique.length) {
+      await new Promise((resolve) => setTimeout(resolve, BATCH_PAUSE_MS));
+    }
+  }
+
+  return { sent, failed };
+}

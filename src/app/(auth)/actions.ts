@@ -41,7 +41,7 @@ export async function signUpAction(_prev: ActionState, formData: FormData): Prom
   // abuse here is volumetric fake-account creation, not one specific email,
   // so unlike login/password-reset there's no per-account key to add.
   const ip = await getClientIp();
-  const rateLimit = checkRateLimitEnforced(`signup:${ip}`, RATE_LIMITS.ACCOUNT_CREATION);
+  const rateLimit = checkRateLimitEnforced(`signup:${ip}`, RATE_LIMITS.ACCOUNT_CREATION_PER_IP);
   if (!rateLimit.allowed) {
     logRateLimitExceeded("Account creation rate limit exceeded", { ip });
     return { error: TOO_MANY_REQUESTS_MESSAGE };
@@ -117,10 +117,13 @@ export async function loginAction(_prev: ActionState, formData: FormData): Promi
   // GER §3: keyed by both IP and the targeted email so a single attacker
   // hammering one account and an attacker spraying many accounts from one
   // IP are both slowed down, without either check alone blocking a student
-  // who's simply retyping their own password a few times.
+  // who's simply retyping their own password a few times. The two limits are
+  // deliberately very different sizes — see RATE_LIMITS: a whole campus shares
+  // one public IP, so the IP bucket has to fit a computer lab, while the email
+  // bucket is the one doing the security work.
   const ip = await getClientIp();
-  const ipLimit = checkRateLimitEnforced(`login:ip:${ip}`, RATE_LIMITS.LOGIN);
-  const emailLimit = checkRateLimitEnforced(`login:email:${parsed.data.email}`, RATE_LIMITS.LOGIN);
+  const ipLimit = checkRateLimitEnforced(`login:ip:${ip}`, RATE_LIMITS.LOGIN_PER_IP);
+  const emailLimit = checkRateLimitEnforced(`login:email:${parsed.data.email}`, RATE_LIMITS.LOGIN_PER_EMAIL);
   if (!ipLimit.allowed || !emailLimit.allowed) {
     logRateLimitExceeded("Login rate limit exceeded", { ip, email: parsed.data.email });
     return { error: TOO_MANY_REQUESTS_MESSAGE };
@@ -157,8 +160,11 @@ export async function requestPasswordResetAction(
   // account — it can't be used to distinguish registered from unregistered
   // addresses, preserving PRD-001's "identical response either way" rule.
   const ip = await getClientIp();
-  const ipLimit = checkRateLimitEnforced(`password-reset:ip:${ip}`, RATE_LIMITS.PASSWORD_RESET_REQUEST);
-  const emailLimit = checkRateLimitEnforced(`password-reset:email:${parsed.data.email}`, RATE_LIMITS.PASSWORD_RESET_REQUEST);
+  const ipLimit = checkRateLimitEnforced(`password-reset:ip:${ip}`, RATE_LIMITS.PASSWORD_RESET_PER_IP);
+  const emailLimit = checkRateLimitEnforced(
+    `password-reset:email:${parsed.data.email}`,
+    RATE_LIMITS.PASSWORD_RESET_PER_EMAIL,
+  );
   if (!ipLimit.allowed || !emailLimit.allowed) {
     logRateLimitExceeded("Password reset request rate limit exceeded", { ip, email: parsed.data.email });
     return { error: TOO_MANY_REQUESTS_MESSAGE };

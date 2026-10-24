@@ -6,6 +6,8 @@ import { generatePracticeSet } from "@/lib/adaptive/generate-practice-set";
 import { generateDiagnosticPrediction } from "@/lib/score/generate-diagnostic-prediction";
 import { logGenerationFailure } from "@/lib/logger";
 import { DiagnosticError } from "./errors";
+import { diagnosticStage, unansweredAttempts } from "./sequence";
+import { settleBonusRound } from "./stages";
 import { FUNNEL_EVENTS, track } from "@/lib/analytics/track";
 import { sendDiagnosticResultsEmail } from "@/lib/lifecycle/emails";
 
@@ -21,9 +23,23 @@ export async function completeDiagnostic(studentId: string) {
   if (!session) throw new DiagnosticError("SESSION_NOT_FOUND", "Diagnostic session not found.");
   if (session.status === "COMPLETED") return session;
 
-  const unanswered = session.attempts.filter((a) => a.submittedAt === null);
-  if (unanswered.length > 0) {
-    throw new DiagnosticError("QUESTIONS_REMAIN", `${unanswered.length} question(s) remain unanswered.`);
+  // A staged session is complete when the core is answered and every Hard
+  // question it earned is answered; the ones it didn't earn are waived here
+  // first, so the record shows they were never served rather than leaving
+  // them looking abandoned. A FULL_21 session keeps the original rule — every
+  // one of the 21 answered — though any still in progress is converted to
+  // STAGED as soon as its student opens it again.
+  if (session.format === "STAGED") {
+    if (diagnosticStage(session.attempts) !== "DONE") {
+      const open = unansweredAttempts(session.attempts).length;
+      throw new DiagnosticError("QUESTIONS_REMAIN", `${open} question(s) remain unanswered.`);
+    }
+    await settleBonusRound(session.id);
+  } else {
+    const unanswered = session.attempts.filter((a) => a.submittedAt === null);
+    if (unanswered.length > 0) {
+      throw new DiagnosticError("QUESTIONS_REMAIN", `${unanswered.length} question(s) remain unanswered.`);
+    }
   }
 
   const byCategory = new Map<QuestionCategory, typeof session.attempts>();

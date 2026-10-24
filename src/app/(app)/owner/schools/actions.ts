@@ -43,8 +43,21 @@ import {
   removeRosterEntry,
   setEnrollmentMode,
 } from "@/lib/owner/roster";
+import { sendRosterInvitations } from "@/lib/owner/roster-invites";
 
 export type ActionState = { error?: string; success?: boolean };
+
+/**
+ * Reports the counts back, because "sent" with no number is the one thing
+ * that would make the Owner click again to be sure — which is exactly the
+ * double-send the resumable design exists to avoid.
+ */
+export type RosterInviteState = {
+  error?: string;
+  success?: boolean;
+  queued?: number;
+  remaining?: number;
+};
 
 async function requireOwner() {
   const session = await auth();
@@ -482,6 +495,50 @@ export async function setEnrollmentModeAction(_prev: ActionState, formData: Form
     throw err;
   }
   revalidatePath(`/owner/schools/${id}`);
+  return { success: true };
+}
+
+/**
+ * Emails the roster students who haven't claimed their access yet.
+ *
+ * `reminder` distinguishes the first invitation from chasing the people who
+ * ignored it; both are capped per click and resumable, so a district of
+ * thousands is several clicks rather than one request that times out.
+ */
+export async function sendRosterInvitesAction(
+  _prev: RosterInviteState,
+  formData: FormData,
+): Promise<RosterInviteState> {
+  await requireOwner();
+  const id = String(formData.get("id") ?? "");
+  try {
+    const result = await sendRosterInvitations(
+      { organizationId: id },
+      { reminder: formData.get("reminder") === "1" },
+    );
+    revalidatePath(`/owner/schools/${id}`);
+    return { success: true, queued: result.queued, remaining: result.remaining };
+  } catch (err) {
+    if (err instanceof RosterError) return { error: err.message };
+    throw err;
+  }
+}
+
+/**
+ * Turns the weekly 1v1 Rush leaderboard on or off for a school or a district.
+ * Owner-only, like every action in this file.
+ */
+export async function setRushLeaderboardAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  await requireOwner();
+  const id = String(formData.get("id") ?? "");
+  const exists = await prisma.organization.findUnique({ where: { id }, select: { id: true } });
+  if (!exists) return { error: "That organization no longer exists." };
+  await prisma.organization.update({
+    where: { id },
+    data: { rushLeaderboardEnabled: formData.get("enabled") === "on" },
+  });
+  revalidatePath(`/owner/schools/${id}`);
+  revalidatePath("/rush");
   return { success: true };
 }
 

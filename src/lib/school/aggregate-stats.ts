@@ -1,5 +1,12 @@
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { computeStudyStreak } from "@/lib/dashboard/study-streak";
+import {
+  answerDays,
+  countActiveStudents,
+  countAnswers,
+  getSessionTotals,
+} from "@/lib/school/student-activity";
 
 export type SchoolAggregateStats = {
   totalQuestionsAnswered: number;
@@ -20,9 +27,14 @@ export type SchoolAggregateResult = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function hoursBetween(start: Date, end: Date): number {
-  return Math.max(0, (end.getTime() - start.getTime()) / (60 * 60 * 1000));
-}
+/**
+ * How far back the school-wide study streak is allowed to look.
+ *
+ * A streak only depends on the unbroken run of days ending today, so there is
+ * no reason to scan a district's entire history to find it. Mirrors
+ * STREAK_HORIZON_MS on the per-student dashboard streak.
+ */
+const STREAK_HORIZON_DAYS = 400;
 
 const EMPTY_RESULT: SchoolAggregateResult = {
   stats: {
@@ -46,6 +58,22 @@ const EMPTY_RESULT: SchoolAggregateResult = {
 // structurally excluded (PRD-011 §7) simply because they have an
 // `AdministratorAssignment`, never a `StudentMembership`, so their own
 // diagnostic/practice activity is never pulled into `studentIds` at all.
+//
+// Everything is counted in the database. An earlier version pulled every
+// FinalizedAttempt row for every student into memory and called `.length` on
+// the array; that is fine for a school of 50 and fatal for a district, where
+// 2,000 students who have each answered a few hundred questions is most of a
+// million rows crossing the wire to produce one integer, on a serverless
+// function with a hard execution limit.
+//
+// "Questions answered", "study hours", "active students" and the streak all
+// come from `lib/school/student-activity`, which knows about all six tables a
+// student's answers can land in. Before that they counted adaptive practice
+// and the diagnostic only, so a campus that had taken to the 800 Club, 1v1
+// Rush, Focused Practice or the Daily Challenge was reported as having done
+// less work than it had. `totalAdaptiveSessionsCompleted` is the one figure
+// still restricted to `PracticeSet`, and deliberately so — it is labelled
+// "Adaptive Sessions" on both pages, and a Rush run is not one.
 export async function getSchoolAggregateStats(schoolId: string): Promise<SchoolAggregateResult> {
   const memberships = await prisma.studentMembership.findMany({
     where: { schoolId, status: "ACTIVE" },
@@ -59,95 +87,94 @@ export async function getSchoolAggregateStats(schoolId: string): Promise<SchoolA
   const startOfToday = new Date(now);
   startOfToday.setHours(0, 0, 0, 0);
   const weekAgo = new Date(now.getTime() - 7 * DAY_MS);
+  const streakHorizon = new Date(now.getTime() - STREAK_HORIZON_DAYS * DAY_MS);
 
-  const [finalizedAttempts, diagnosticAttempts, completedSets, completedDiagnostics, predictions] = await Promise.all([
-    prisma.finalizedAttempt.findMany({
-      where: { studentId: { in: studentIds } },
-      select: { studentId: true, finalizedAt: true },
-    }),
-    prisma.diagnosticAttempt.findMany({
-      where: { diagnosticSession: { studentId: { in: studentIds } }, submittedAt: { not: null } },
-      select: { submittedAt: true, diagnosticSession: { select: { studentId: true } } },
-    }),
-    prisma.practiceSet.findMany({
-      where: { studentId: { in: studentIds }, status: "COMPLETED" },
-      select: { studentId: true, createdAt: true, completedAt: true },
-    }),
-    prisma.diagnosticSession.findMany({
-      where: { studentId: { in: studentIds }, status: "COMPLETED" },
-      select: { studentId: true, startedAt: true, completedAt: true },
-    }),
-    prisma.predictionHistoryEntry.findMany({
-      where: { studentId: { in: studentIds } },
-      orderBy: { createdAt: "asc" },
-      select: { studentId: true, representativeMidpoint: true, createdAt: true },
-    }),
+  const [
+    totalQuestionsAnswered,
+    questionsAnsweredToday,
+    activeStudentsThisWeek,
+    studentsActiveToday,
+    totalAdaptiveSessionsCompleted,
+    sessions,
+    improvement,
+    activityDays,
+  ] = await Promise.all([
+    countAnswers(studentIds),
+    countAnswers(studentIds, startOfToday),
+    countActiveStudents(studentIds, weekAgo),
+    countActiveStudents(studentIds, startOfToday),
+
+    // The one deliberately narrow figure: "Adaptive Sessions" means a
+    // Personalized Practice set, not any completed session.
+    prisma.practiceSet.count({ where: { studentId: { in: studentIds }, status: "COMPLETED" } }),
+
+    getSessionTotals(studentIds, weekAgo),
+    scoreImprovement(studentIds, weekAgo),
+    answerDays(studentIds, streakHorizon),
   ]);
-
-  const totalQuestionsAnswered = finalizedAttempts.length + diagnosticAttempts.length;
-  const totalAdaptiveSessionsCompleted = completedSets.length;
-
-  const totalStudyHours = Math.round(
-    completedSets.reduce((sum, s) => sum + hoursBetween(s.createdAt, s.completedAt!), 0) +
-      completedDiagnostics.reduce((sum, d) => sum + hoursBetween(d.startedAt, d.completedAt!), 0),
-  );
-
-  const activeStudentIds = new Set<string>();
-  for (const a of finalizedAttempts) if (a.finalizedAt >= weekAgo) activeStudentIds.add(a.studentId);
-  for (const d of diagnosticAttempts) if (d.submittedAt! >= weekAgo) activeStudentIds.add(d.diagnosticSession.studentId);
-  const activeStudentsThisWeek = activeStudentIds.size;
-
-  // Per-student improvement: (latest - first) prediction midpoint, floored at
-  // 0 so a student who regressed doesn't cancel out another's progress —
-  // both pages celebrate collective accomplishment, not a net score.
-  const predictionsByStudent = new Map<string, typeof predictions>();
-  for (const p of predictions) {
-    const list = predictionsByStudent.get(p.studentId) ?? [];
-    list.push(p);
-    predictionsByStudent.set(p.studentId, list);
-  }
-  let totalEstimatedSatPointsImproved = 0;
-  let weeklyEstimatedSatPointsImproved = 0;
-  for (const list of predictionsByStudent.values()) {
-    if (list.length < 2) continue;
-    const first = list[0];
-    const latest = list[list.length - 1];
-    totalEstimatedSatPointsImproved += Math.max(0, latest.representativeMidpoint - first.representativeMidpoint);
-
-    for (let i = 1; i < list.length; i++) {
-      if (list[i].createdAt >= weekAgo) {
-        weeklyEstimatedSatPointsImproved += Math.max(0, list[i].representativeMidpoint - list[i - 1].representativeMidpoint);
-      }
-    }
-  }
-
-  const studyStreak = computeStudyStreak(
-    [...finalizedAttempts.map((a) => a.finalizedAt), ...diagnosticAttempts.map((d) => d.submittedAt!)],
-    now,
-  );
-
-  const questionsAnsweredToday =
-    finalizedAttempts.filter((a) => a.finalizedAt >= startOfToday).length +
-    diagnosticAttempts.filter((d) => d.submittedAt! >= startOfToday).length;
-  const studentsActiveToday = new Set(completedSets.filter((s) => s.completedAt! >= startOfToday).map((s) => s.studentId)).size;
-  const weeklyStudyHours = Math.round(
-    completedSets
-      .filter((s) => s.completedAt! >= weekAgo)
-      .reduce((sum, s) => sum + hoursBetween(s.createdAt, s.completedAt!), 0),
-  );
 
   return {
     stats: {
       totalQuestionsAnswered,
-      totalStudyHours,
+      totalStudyHours: Math.round(sessions.studyHours),
       totalAdaptiveSessionsCompleted,
-      totalEstimatedSatPointsImproved,
+      totalEstimatedSatPointsImproved: improvement.total,
       activeStudentsThisWeek,
-      studyStreak,
+      studyStreak: computeStudyStreak(activityDays, now),
     },
     questionsAnsweredToday,
     studentsActiveToday,
-    weeklyEstimatedSatPointsImproved,
-    weeklyStudyHours,
+    weeklyEstimatedSatPointsImproved: improvement.weekly,
+    weeklyStudyHours: Math.round(sessions.studyHoursSince),
   };
+}
+
+/**
+ * School-wide estimated SAT points improved, all-time and in the last week.
+ *
+ * Per-student improvement is `latest - first` prediction midpoint, floored at
+ * 0 so a student who regressed doesn't cancel out another's progress — both
+ * pages celebrate collective accomplishment, not a net score. The weekly
+ * figure is the same floor applied to each consecutive step that landed inside
+ * the window, so a student who improved twice this week contributes both.
+ *
+ * Raw SQL with window functions because `PredictionHistoryEntry` is the
+ * fastest-growing table per student (one row per completed set) and this needs
+ * two integers from it. `FIRST_VALUE`/`LAST_VALUE` give the ends and `LAG`
+ * gives each step, all in one pass, so nothing per-student crosses the wire.
+ * `id` is the tiebreaker on the ordering so two entries written in the same
+ * transaction still have a stable order.
+ */
+async function scoreImprovement(
+  studentIds: string[],
+  since: Date,
+): Promise<{ total: number; weekly: number }> {
+  const rows = await prisma.$queryRaw<{ total: number; weekly: number }[]>`
+    WITH seq AS (
+      SELECT p."studentId",
+             p."representativeMidpoint" AS mid,
+             p."createdAt",
+             LAG(p."representativeMidpoint") OVER w AS prev_mid,
+             FIRST_VALUE(p."representativeMidpoint") OVER w AS first_mid,
+             LAST_VALUE(p."representativeMidpoint") OVER (
+               PARTITION BY p."studentId"
+               ORDER BY p."createdAt", p."id"
+               ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+             ) AS last_mid
+        FROM "prediction_history_entries" p
+       WHERE p."studentId" IN (${Prisma.join(studentIds)})
+      WINDOW w AS (PARTITION BY p."studentId" ORDER BY p."createdAt", p."id")
+    )
+    SELECT (
+             SELECT COALESCE(SUM(GREATEST(last_mid - first_mid, 0)), 0)::int
+               FROM (SELECT DISTINCT "studentId", first_mid, last_mid FROM seq) ends
+           ) AS total,
+           (
+             SELECT COALESCE(SUM(GREATEST(mid - prev_mid, 0)), 0)::int
+               FROM seq
+              WHERE prev_mid IS NOT NULL
+                AND "createdAt" >= ${since}
+           ) AS weekly
+  `;
+  return { total: Number(rows[0]?.total ?? 0), weekly: Number(rows[0]?.weekly ?? 0) };
 }

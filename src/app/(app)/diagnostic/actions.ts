@@ -7,6 +7,8 @@ import { finalizeDiagnosticAttempt } from "@/lib/diagnostic/finalize-attempt";
 import { saveDiagnosticDraft, saveDiagnosticPosition } from "@/lib/diagnostic/save-draft";
 import { finalizeDiagnosticCompletion } from "@/lib/diagnostic/complete-diagnostic";
 import { DiagnosticError } from "@/lib/diagnostic/errors";
+import { advanceDiagnostic } from "@/lib/diagnostic/stages";
+import { unansweredAttempts } from "@/lib/diagnostic/sequence";
 import { getStudentQuestionContent, getStudentQuestionFeedback } from "@/lib/session/question-content";
 import { prisma } from "@/lib/prisma";
 import { FUNNEL_EVENTS, track } from "@/lib/analytics/track";
@@ -89,10 +91,22 @@ export async function loadDiagnosticQuestionDetailAction(attemptId: string) {
   return { content, feedback, studentAnswer: attempt.answer };
 }
 
+/**
+ * "Continue" at the end of the core, or "See my results" at the end of the
+ * bonus round. The server decides which way it goes; see advanceDiagnostic.
+ *
+ * The bonus round is reached through `/diagnostic?round=unlocked` rather than
+ * plain `/diagnostic` so the navigation is to a URL the student isn't already
+ * on, which guarantees the page renders afresh with the new stage.
+ */
 export async function completeDiagnosticAction(): Promise<
   { ok: true; redirectTo: string } | { ok: false; unansweredCount: number }
 > {
   const studentId = await requireStudentId();
+  const step = await advanceDiagnostic(studentId);
+  if (step.kind === "CORE_INCOMPLETE") return { ok: false, unansweredCount: step.unanswered };
+  if (step.kind === "BONUS") return { ok: true, redirectTo: "/diagnostic?round=unlocked" };
+
   try {
     await finalizeDiagnosticCompletion(studentId);
     return { ok: true, redirectTo: "/diagnostic/results" };
@@ -102,7 +116,7 @@ export async function completeDiagnosticAction(): Promise<
         where: { studentId },
         include: { attempts: true },
       });
-      const unansweredCount = session?.attempts.filter((a) => a.submittedAt === null).length ?? 0;
+      const unansweredCount = session ? unansweredAttempts(session.attempts).length : 0;
       return { ok: false, unansweredCount };
     }
     throw err;

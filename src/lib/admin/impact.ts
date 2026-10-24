@@ -21,10 +21,18 @@ import {
  * guarantee `getSchoolCommunityData` relies on rather than a filtering step
  * someone could later remove.
  *
- * Scope: ACTIVE `StudentMembership` at this school. An administrator has an
- * `AdministratorAssignment` and never a `StudentMembership`, so their own
+ * Scope: ACTIVE `StudentMembership` at this school, applied as a join inside
+ * each query rather than as a list of ids fetched first. An administrator has
+ * an `AdministratorAssignment` and never a `StudentMembership`, so their own
  * practice is excluded for free — the same way every other school aggregate
- * excludes it.
+ * excludes it. `StudentMembership.studentId` is `@unique`, so the join can
+ * never duplicate a student's rows.
+ *
+ * Both queries are written so the number of rows crossing the wire depends on
+ * the number of *students*, not on how much they have practiced. The first
+ * version loaded every prediction row and every completed session row for
+ * every student in order to compute six numbers; for a 2,000-student district
+ * that is six figures of rows for a page that renders a dozen integers.
  */
 export type CampusImpact = {
   /** Students with at least two predictions, i.e. a measurable before/after. */
@@ -56,54 +64,34 @@ export type CampusImpact = {
   };
 };
 
-const MS_PER_HOUR = 1000 * 60 * 60;
+/**
+ * A session left open overnight would otherwise report as a 14-hour sitting.
+ * Capped rather than discarded, so a long-but-real session still counts for
+ * something. Applied in SQL now, so the cap and the sum happen in one pass.
+ */
+const SESSION_HOUR_CAP = 3;
+
+/** One row per student with a measurable before/after, both ends in one row. */
+type PredictionEnds = {
+  firstMidpoint: number;
+  lastMidpoint: number;
+  firstRw: number | null;
+  firstMath: number | null;
+  lastRw: number | null;
+  lastMath: number | null;
+};
+
+type StudyTimeSummary = {
+  activeStudents: number;
+  averageHours: number | null;
+  topHours: number | null;
+};
 
 export async function getCampusImpact(schoolId: string): Promise<CampusImpact> {
-  const memberships = await prisma.studentMembership.findMany({
-    where: { schoolId, status: "ACTIVE" },
-    select: { studentId: true },
-  });
-  const studentIds = memberships.map((m) => m.studentId);
-
-  if (studentIds.length === 0) return emptyImpact();
-
-  const [predictions, practiceSets, diagnostics] = await Promise.all([
-    // Ordered so the first and last entry per student are the ends of their
-    // journey. Only entries carrying both section abilities can be scored
-    // against TSI, but all of them count toward the total-score gain.
-    prisma.predictionHistoryEntry.findMany({
-      where: { studentId: { in: studentIds } },
-      orderBy: { createdAt: "asc" },
-      select: {
-        studentId: true,
-        representativeMidpoint: true,
-        readingWritingAbility: true,
-        mathAbility: true,
-      },
-    }),
-    // Study time uses the same session-level derivation the dashboard and
-    // School Community already use (CLAUDE.md's "known simplification":
-    // createdAt -> completedAt, since per-question timing is deliberately
-    // not modelled). Keeping the same derivation means this page cannot
-    // disagree with the ones beside it.
-    prisma.practiceSet.findMany({
-      where: { studentId: { in: studentIds }, completedAt: { not: null } },
-      select: { studentId: true, createdAt: true, completedAt: true },
-    }),
-    // DiagnosticSession records its start as `startedAt`, not `createdAt`.
-    prisma.diagnosticSession.findMany({
-      where: { studentId: { in: studentIds }, completedAt: { not: null } },
-      select: { studentId: true, startedAt: true, completedAt: true },
-    }),
+  const [ends, studyTime] = await Promise.all([
+    predictionEndsForSchool(schoolId),
+    studyTimeForSchool(schoolId),
   ]);
-
-  // --- score movement -------------------------------------------------
-  const byStudent = new Map<string, typeof predictions>();
-  for (const p of predictions) {
-    const list = byStudent.get(p.studentId);
-    if (list) list.push(p);
-    else byStudent.set(p.studentId, [p]);
-  }
 
   const gains: number[] = [];
   const benchmark = {
@@ -117,26 +105,23 @@ export async function getCampusImpact(schoolId: string): Promise<CampusImpact> {
     >,
   };
 
-  for (const entries of byStudent.values()) {
-    if (entries.length < 2) continue;
-    const first = entries[0];
-    const latest = entries[entries.length - 1];
-    gains.push(latest.representativeMidpoint - first.representativeMidpoint);
+  for (const student of ends) {
+    gains.push(student.lastMidpoint - student.firstMidpoint);
 
     // A prediction written before section abilities were recorded cannot be
     // scored against TSI; such a student is simply not counted in the
     // benchmark breakdown rather than guessed at.
     if (
-      first.readingWritingAbility === null ||
-      first.mathAbility === null ||
-      latest.readingWritingAbility === null ||
-      latest.mathAbility === null
+      student.firstRw === null ||
+      student.firstMath === null ||
+      student.lastRw === null ||
+      student.lastMath === null
     ) {
       continue;
     }
 
-    const firstStatus = tsiStatusFromAbilities(first.readingWritingAbility, first.mathAbility);
-    const latestStatus = tsiStatusFromAbilities(latest.readingWritingAbility, latest.mathAbility);
+    const firstStatus = tsiStatusFromAbilities(student.firstRw, student.firstMath);
+    const latestStatus = tsiStatusFromAbilities(student.lastRw, student.lastMath);
 
     switch (classifyBenchmarkMovement(firstStatus, latestStatus)) {
       case "CROSSED":
@@ -157,37 +142,120 @@ export async function getCampusImpact(schoolId: string): Promise<CampusImpact> {
     if (shape) benchmark.shortfall[shape]++;
   }
 
-  // --- study time -----------------------------------------------------
-  const hoursByStudent = new Map<string, number>();
-  const timedSessions = [
-    ...practiceSets.map((p) => ({ studentId: p.studentId, startedAt: p.createdAt, completedAt: p.completedAt })),
-    ...diagnostics,
-  ];
-  for (const session of timedSessions) {
-    if (!session.completedAt) continue;
-    const hours = (session.completedAt.getTime() - session.startedAt.getTime()) / MS_PER_HOUR;
-    // A session left open overnight would otherwise report as a 14-hour
-    // sitting. Capped rather than discarded, so a long-but-real session
-    // still counts for something.
-    const capped = Math.min(Math.max(hours, 0), 3);
-    hoursByStudent.set(session.studentId, (hoursByStudent.get(session.studentId) ?? 0) + capped);
-  }
-
-  const studyHours = [...hoursByStudent.values()];
-
   return {
     measurableStudents: gains.length,
     averageScoreGain: gains.length > 0 ? Math.round(average(gains)) : null,
     biggestScoreGain: gains.length > 0 ? Math.max(...gains) : null,
     studentsImproved: gains.filter((g) => g > 0).length,
-    averageStudyHours: studyHours.length > 0 ? round1(average(studyHours)) : null,
-    topStudentStudyHours: studyHours.length > 0 ? round1(Math.max(...studyHours)) : null,
-    activeStudents: studyHours.length,
+    averageStudyHours: studyTime.averageHours === null ? null : round1(studyTime.averageHours),
+    topStudentStudyHours: studyTime.topHours === null ? null : round1(studyTime.topHours),
+    activeStudents: studyTime.activeStudents,
     benchmark: {
       ...benchmark,
       readingWritingBenchmark: TSI_READING_WRITING_BENCHMARK,
       mathBenchmark: TSI_MATH_BENCHMARK,
     },
+  };
+}
+
+/**
+ * The first and last prediction of every student at this school who has at
+ * least two, as one row each.
+ *
+ * Raw SQL because the whole point is to not transfer a student's prediction
+ * history in order to find its two ends. `ROW_NUMBER()` numbers each student's
+ * entries from both directions in one pass and the outer query keeps only the
+ * ends; `COUNT(*) OVER` is what lets a single-prediction student be dropped in
+ * the database rather than by a `length < 2` check here. `id` is the tiebreaker
+ * on both orderings so two predictions written in the same transaction still
+ * have a stable first and last.
+ */
+async function predictionEndsForSchool(schoolId: string): Promise<PredictionEnds[]> {
+  return prisma.$queryRaw<PredictionEnds[]>`
+    WITH scoped AS (
+      SELECT p."studentId",
+             p."representativeMidpoint",
+             p."readingWritingAbility",
+             p."mathAbility",
+             ROW_NUMBER() OVER (PARTITION BY p."studentId" ORDER BY p."createdAt" ASC, p."id" ASC) AS rn_first,
+             ROW_NUMBER() OVER (PARTITION BY p."studentId" ORDER BY p."createdAt" DESC, p."id" DESC) AS rn_last,
+             COUNT(*) OVER (PARTITION BY p."studentId") AS entry_count
+        FROM "prediction_history_entries" p
+        JOIN "student_memberships" m ON m."studentId" = p."studentId"
+       WHERE m."schoolId" = ${schoolId}
+         AND m."status" = 'ACTIVE'
+    )
+    SELECT f."representativeMidpoint"  AS "firstMidpoint",
+           f."readingWritingAbility"  AS "firstRw",
+           f."mathAbility"            AS "firstMath",
+           l."representativeMidpoint" AS "lastMidpoint",
+           l."readingWritingAbility"  AS "lastRw",
+           l."mathAbility"            AS "lastMath"
+      FROM scoped f
+      JOIN scoped l ON l."studentId" = f."studentId" AND l.rn_last = 1
+     WHERE f.rn_first = 1
+       AND f.entry_count > 1
+  `;
+}
+
+/**
+ * Average and maximum per-student study hours, plus how many students have any.
+ *
+ * Study time uses the same session-level derivation the dashboard and School
+ * Community already use (CLAUDE.md's "known simplification": start to finish,
+ * since per-question timing is deliberately not modeled). Keeping the same
+ * derivation means this page cannot disagree with the ones beside it.
+ * `PracticeSet` records its start as `createdAt` and `DiagnosticSession` as
+ * `startedAt`, which is why the two halves of the union are not symmetrical.
+ *
+ * Aggregated all the way down to one row: the average and the maximum are
+ * taken over per-student sums, so nothing per-student is returned at all.
+ * The casts are explicit because the node-postgres adapter hands `numeric`
+ * back as a string, and `EXTRACT`/`AVG`/`SUM` all produce `numeric`.
+ */
+async function studyTimeForSchool(schoolId: string): Promise<StudyTimeSummary> {
+  const rows = await prisma.$queryRaw<
+    { activeStudents: number; averageHours: number | null; topHours: number | null }[]
+  >`
+    WITH per_student AS (
+      SELECT s."studentId", SUM(s.hours) AS hours
+        FROM (
+          SELECT p."studentId",
+                 LEAST(
+                   GREATEST(EXTRACT(EPOCH FROM (p."completedAt" - p."createdAt")) / 3600.0, 0),
+                   ${SESSION_HOUR_CAP}
+                 ) AS hours
+            FROM "practice_sets" p
+            JOIN "student_memberships" m ON m."studentId" = p."studentId"
+           WHERE m."schoolId" = ${schoolId}
+             AND m."status" = 'ACTIVE'
+             AND p."completedAt" IS NOT NULL
+          UNION ALL
+          SELECT d."studentId",
+                 LEAST(
+                   GREATEST(EXTRACT(EPOCH FROM (d."completedAt" - d."startedAt")) / 3600.0, 0),
+                   ${SESSION_HOUR_CAP}
+                 ) AS hours
+            FROM "diagnostic_sessions" d
+            JOIN "student_memberships" m ON m."studentId" = d."studentId"
+           WHERE m."schoolId" = ${schoolId}
+             AND m."status" = 'ACTIVE'
+             AND d."completedAt" IS NOT NULL
+        ) s
+       GROUP BY s."studentId"
+    )
+    SELECT COUNT(*)::int                AS "activeStudents",
+           AVG(hours)::double precision AS "averageHours",
+           MAX(hours)::double precision AS "topHours"
+      FROM per_student
+  `;
+
+  const row = rows[0];
+  if (!row) return { activeStudents: 0, averageHours: null, topHours: null };
+  return {
+    activeStudents: Number(row.activeStudents ?? 0),
+    averageHours: row.averageHours === null ? null : Number(row.averageHours),
+    topHours: row.topHours === null ? null : Number(row.topHours),
   };
 }
 
@@ -197,25 +265,4 @@ function average(values: number[]): number {
 
 function round1(value: number): number {
   return Math.round(value * 10) / 10;
-}
-
-function emptyImpact(): CampusImpact {
-  return {
-    measurableStudents: 0,
-    averageScoreGain: null,
-    biggestScoreGain: null,
-    studentsImproved: 0,
-    averageStudyHours: null,
-    topStudentStudyHours: null,
-    activeStudents: 0,
-    benchmark: {
-      crossed: 0,
-      held: 0,
-      slipped: 0,
-      below: 0,
-      shortfall: { MISSES_MATH_ONLY: 0, MISSES_READING_ONLY: 0, MISSES_BOTH: 0 },
-      readingWritingBenchmark: TSI_READING_WRITING_BENCHMARK,
-      mathBenchmark: TSI_MATH_BENCHMARK,
-    },
-  };
 }

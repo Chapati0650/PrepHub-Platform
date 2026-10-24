@@ -236,8 +236,9 @@ sized in `rem`, this one change proportionally tightens type/spacing/radius
 app-wide without per-component overrides, which is most of how Linear/Stripe
 read as denser. The deliberate exception is question/answer text in the
 session runner (`session-runner.tsx`), sized up a step
-(`text-lg`/`p-4 text-base`) so it stays "large, comfortable" (the Brilliant
-reference) rather than shrinking along with everything else.
+(`text-lg`/`p-4 text-base`, and a further step to `lg:text-xl`/`lg:text-lg`
+on large screens since 2026-10-24) so it stays "large, comfortable" (the
+Brilliant reference) rather than shrinking along with everything else.
 
 **Dashboard** (`src/app/(app)/home/page.tsx`): built from bordered
 `rounded-2xl` modules (`Panel`) on the oneprep.xyz dashboard reference —
@@ -494,6 +495,8 @@ The PRDs form these dependency layers — build top to bottom:
    this is correct, not a bug). Diagnostic (012) —
    `src/lib/diagnostic/` + `src/app/(app)/diagnostic/`: product intro (6
    informational screens + effort-message/CTA screen), 21-question runner
+   — since 2026-10-24 served as fourteen core questions plus a bonus round,
+   see "The staged Diagnostic" below; the selection rule is unchanged
    (exactly one Easy/Medium/Hard per category, no difficulty fallback —
    missing content is a hard `GENERATION_FAILED`, unlike adaptive sets),
    completion wiring (`complete-diagnostic.ts`'s `finalizeDiagnosticCompletion`
@@ -780,14 +783,17 @@ answer says nothing about ability.
   for an answer sent at the buzzer; blank at 0 is a `timedOut` submit.
 - **Scoring is one pure function** (`scoring.ts`, tested): 100 for a
   correct answer plus up to 100 scaled by clock remaining; wrong, blank, or
-  past grace is 0 — never negative. Ties break on total time. Selection
+  past grace is 0 — never negative. Ties break on total time. Since
+  2026-10-24 a challenge also carries a `scoringVersion`; version 2 adds an
+  answer-streak bonus (see "1v1 Rush, game feel" below). Selection
   reuses the 800 Club's unseen-first/never-pad selector, and a MIXED set is
   dealt round-robin across the three difficulties.
 - **The page never serves the first question.** `/rush/play/[runId]` renders
   a Ready screen; the runner's Start button is what calls
   `serveRushQuestionAction`, so page load and hydration don't eat into the
   clock. `RushRunner` (recorded) and `LiveRush` (rooms) are deliberately not
-  `SessionRunner` (no skip, no revisit, no drafts — a choice click submits);
+  `SessionRunner` (no skip, no revisit; since 2026-10-24 a choice is a draft
+  until Submit, Enter, or the buzzer);
   both render the question through the shared `rush-question.tsx`
   (`RushQuestion`, `TimeBar`) so the two modes can't drift apart.
 - **A friend's link is the one URL a person without an account opens.**
@@ -1001,3 +1007,399 @@ does not assume any particular answer-choice text when answering questions
 regardless of content) — the published question pool is shared with every
 other e2e spec's own test-created content in the same dev DB, so seeded and
 ad-hoc content end up mixed in the same category/difficulty pools.
+
+## District readiness (2026-10-21)
+
+A pass over everything that works at a 40-student pilot campus and breaks at a
+2,000-student district, done before signing a paid partnership. The theme of
+almost every finding was the same: a query whose cost grows with how much
+students have *done* rather than with how many *rows the page shows*.
+
+- **One definition of "answered a question"** —
+  `src/lib/school/student-activity.ts`. Answering is recorded in six tables,
+  because every study mode added after the adaptive core deliberately kept its
+  own rows (800 Club, 1v1 Rush, Focused Practice, Daily Challenge — the
+  isolation is what keeps a hard-only or speed-only sample out of PRD-014's
+  engine). The cost of that isolation is that anything counting "questions
+  answered" has to know all six places, and every school aggregate knew two:
+  a campus that had taken to the Daily Challenge was reported as having
+  answered nothing. `answerActivity`/`sessionActivity` are composed
+  `Prisma.sql` fragments, so a seventh mode is added in exactly one place.
+  `totalAdaptiveSessionsCompleted` is the one figure still restricted to
+  `PracticeSet`, deliberately — it is labelled "Adaptive Sessions" on both
+  pages and a Rush run is not one.
+- **Every school-wide figure is counted in the database.**
+  `getSchoolAggregateStats` used to load every `FinalizedAttempt` row for
+  every student and call `.length`; `getCampusImpact` loaded every prediction
+  and every completed session to produce six integers. Both now return
+  row counts that depend on the number of *students*, not their history —
+  `getCampusImpact`'s prediction query uses `ROW_NUMBER()`/`COUNT(*) OVER` to
+  return one row per student with both ends of their journey in it, and its
+  study-time query aggregates all the way down to a single row.
+  `getSchoolAggregateStats`'s score-improvement figures come from one
+  `LAG`/`FIRST_VALUE`/`LAST_VALUE` pass. Tests for all of this go through
+  `src/lib/school/test-fixtures.ts`, which derives from one readable fixture
+  what each raw query would have returned, routing on which table the SQL
+  names — a test still reads as a list of answers and sessions.
+- **Indexes.** Postgres does not index a foreign key automatically and nothing
+  had done it by hand, so `FinalizedAttempt` — the fastest-growing table in
+  the product — was scanned end to end for every dashboard, Progress page,
+  Student Directory and campus aggregate, and `PredictionHistoryEntry` had no
+  index at all beyond its primary key. Migration
+  `20261022031507_add_hot_path_indexes` adds the ten that are on a hot path;
+  `(studentId, finalizedAt)` and `(studentId, createdAt)` are composites
+  because every caller filters by student and then by a time range.
+  `StudentMembership` gained `(schoolId, status)` and
+  `(organizationId, status)`, which is the shape of every school-scoped query
+  in the admin area.
+- **Pagination.** The Student Directory pages at 50
+  (`STUDENT_DIRECTORY_PAGE_SIZE`, URL-based so a page is bookmarkable), and
+  the Owner's membership list at 50 (`MEMBERSHIP_PAGE_SIZE`) with the total
+  stated beside it. The roster list stayed at 500 but gained a debounced
+  search over email and first name, because the student an Owner is asked
+  about on a support call is almost never in the first page.
+- **Roster upload.** `commitRosterUpload` was one `upsert` per row — 2,000
+  database round trips for a district, a few seconds on a local socket and
+  well over a minute against a database in another region, so the upload timed
+  out at exactly the size where it matters. Now one `createMany` (keeping
+  Prisma's own cuid generation) plus one bulk `UPDATE ... FROM (VALUES ...)`
+  per chunk of 500. Measured: 2,000 rows in 2.6s, and the same again on
+  re-upload. The UPDATE has to be raw SQL because `updateMany` can only set
+  one value across every matching row and every student has a different name.
+
+### The outbound email queue
+
+`src/lib/email-queue.ts` + migration
+`20261022025547_add_email_queue_and_roster_invites`. Resend's batch endpoint
+takes 100 addresses per call, so a 2,000-student announcement is twenty-odd
+sequential calls — more than a serverless request gets. Sending straight from
+the request that triggered it meant the function was killed partway through,
+having delivered an unknowable subset, with no record of which addresses got
+it and no way to retry.
+
+- **Write the rows, then drain.** `queueRows` returns data rather than writing
+  it, so a caller can insert inside its own transaction —
+  `publishAnnouncement` now creates the announcement and queues its mail
+  together, so there is no state where an announcement is live and nothing was
+  ever going to be mailed for it.
+- **The triggering request drains for `REQUEST_DRAIN_BUDGET_MS` (4s)**, which
+  is why a 40-student campus still sees instant delivery; the rest is finished
+  by `netlify/functions/email-queue-cron.mts` hitting
+  `POST /api/cron/email-queue` every five minutes.
+- **Claiming is one `UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP
+  LOCKED)`**, which is the one shape that makes the scheduled run and a
+  request-time drain safe to overlap: each walks away with a disjoint set
+  rather than both sending the same mail. `SKIP LOCKED` is why it is raw SQL.
+  Verified with two concurrent drains over 12 rows: each sent exactly once.
+- A failed batch releases its claim rather than marking sent, so the next run
+  retries; `attempts` is incremented by the claim and `MAX_ATTEMPTS` (5)
+  retires a permanently bad address. A partial provider failure retries the
+  whole batch — a duplicate email is a far smaller problem than an
+  announcement a student never receives.
+- **The Owner status page shows queue depth and the age of the oldest waiting
+  row.** "Pending" climbing and never falling is the one symptom that means
+  the scheduled drain has stopped, which is otherwise completely silent:
+  students simply never hear from their school.
+
+### Roster invitations (closes a flyer promise)
+
+`src/lib/owner/roster-invites.ts`. Roster upload and domain enrollment were
+built, so a student who signs up is matched to their campus automatically —
+but nothing ever told the student to sign up. A district handing over 2,000
+addresses and hearing nothing back is the most expensive failure this product
+has, and it is entirely an outreach problem.
+
+- **No account is created and no password is ever generated.** The invitation
+  asks the student to create their own account with their school email; the
+  roster match does the rest. That is a deliberate choice over mailing
+  generated credentials, which would put PrepHub in custody of passwords for
+  minors, send a live password through a mailbox a parent may read, and leave
+  every unclaimed account sitting there with a known password forever. **The
+  general flyer's "we email students with private login credentials, an email
+  and a password" was corrected to match** — see the materials folder's
+  `PROMISED-NOT-BUILT.md`.
+- Capped at `ROSTER_INVITE_SEND_LIMIT` (500) per click and resumable:
+  `invitedAt`/`inviteCount` on `SchoolRosterEntry` mean the next click picks up
+  exactly where the last stopped, and the UI reports what is left. The mail and
+  the marking happen in one transaction — recording without sending means the
+  student is never told, sending without recording means the whole district
+  gets a second copy.
+- `reminder: true` is the separate, explicit "chase the people who ignored the
+  first one" action, not a silent re-send.
+- Refuses an organization that isn't `ACTIVE`: inviting students to a school
+  whose contract hasn't started would send them to a paywall with their own
+  school's name on it.
+- A School Administrator can send for their own campus
+  (`/admin/students`' `CampusInvitePanel`). `inviteScopeForSchool` is the one
+  place that maps a campus to the organization owning its roster
+  (`parentDistrictId ?? schoolId`), so an administrator can never reach a
+  sibling campus's students.
+
+### Per-student engagement in the admin area (closes the other flyer promise)
+
+The Student Directory now shows questions answered, sessions finished and study
+time per student, alongside last-active. **Engagement, never performance**: an
+Administrator sees *how much work* a student has done and never *how well*. No
+correctness, ability, mastery or predicted-score field is selected out of the
+database anywhere in `src/lib/admin/student-directory.ts`, which is a stronger
+guarantee than filtering one out later (PRD-011 §21). PRD-011 §7 originally
+excluded engagement too; it was added after an administrator asked for it
+directly on 2026-10-21, because "has this student even started?" is the
+question an intervention actually turns on. The page says the boundary out
+loud in its description, because a student deserves to be able to read the same
+sentence. **Per-student scores remain a separate decision and are not implied
+by this one.**
+
+### Rate limits had to fit a campus, not a household
+
+`RATE_LIMITS` used one config for both the per-IP and per-identity dimension,
+which made it unusable for a school: every student on a campus network shares
+one public NAT address, so a homeroom of thirty signing up together was thirty
+signups from one IP against a limit of five an hour. The sixth student — in the
+room, with us standing there — would have been told to come back later, and a
+computer lab logging in at the start of a period hit the same wall at ten.
+
+The two dimensions are now separate entries with very different numbers.
+`LOGIN_PER_EMAIL` (10/5min) and `PASSWORD_RESET_PER_EMAIL` (5/15min) stay tight
+because that is where the actual protection lives; `LOGIN_PER_IP` (300/5min),
+`ACCOUNT_CREATION_PER_IP` (200/hr) and `PASSWORD_RESET_PER_IP` (100/15min) are
+flood guards sized so a whole campus fits underneath. Account creation has no
+per-identity dimension to key on — an address can only hold one account, which
+the unique constraint already enforces — so per-IP is the only tool there.
+A unit test asserts the per-IP floors and the per-identity ceilings, so the
+regression can't come back quietly. The module also now states plainly that
+on serverless each warm instance keeps its own `Map`, so the effective limit is
+per-instance and resets on a cold start; a shared store is the upgrade path and
+`checkRateLimit`'s signature is the seam for it.
+
+### The annual rollover finally exists
+
+PRD-017 §10 describes "the automatic July 1 cutoff" and `markGraduated` was
+written as the manual override that runs "ahead of" it — but the automatic half
+was never built, so the only way a cohort left was the Owner clicking through
+them one at a time. At a district where 500 seniors leave on the same day that
+does not happen, and every one of them keeps district-funded access into a year
+the district isn't paying for. `src/lib/owner/graduation.ts`'s
+`runGraduationSweep` runs from the daily cron, is idempotent (the update is
+guarded on `status: "ACTIVE"`), writes one `MembershipHistoryEvent` per
+graduation in the same transaction, and chunks at 500. `graduationCutoffYear`
+is pure and tested at the four boundaries that matter, because an off-by-one
+here either cuts a senior off mid-year or lets a graduate keep access for
+another.
+
+**All five membership transitions are now atomic.** `manuallyActivateStudent`,
+`removeMembership`, `restoreMembership`, `markGraduated` and
+`resolveSchoolTransfer` each did their status change and their
+`MembershipHistoryEvent` as two separate writes, so a failure between them left
+a membership whose status change had no audit record — which is the entire
+purpose of that table (PRD-017 §16) and exactly what CLAUDE.md's "membership
+activation/removal/graduation are atomic" invariant is about.
+
+### Owner funnel
+
+`getFunnelReport` loaded every signup, every completed Diagnostic and every
+subscription in the window to bucket them by day in JavaScript, and counted
+paywall/checkout steps with `groupBy({ by: ["userId"] }).then(r => r.length)` —
+one row per distinct user pulled back purely to take its length. Both now
+happen in the database (`DATE_TRUNC` + one `UNION`, and `COUNT(DISTINCT)`).
+This also fixed a real latent crash: the signup loop used
+`series.get(...)!.signups++` where its two siblings guarded with `if (s)`, so
+one row landing in a bucket outside the window — which the UTC day boundary
+makes entirely possible — took the whole page down with a `TypeError`.
+
+### Deploying this
+
+**Two migrations must be applied to Neon before the code is pushed**, in
+order: `20261022025547_add_email_queue_and_roster_invites` then
+`20261022031507_add_hot_path_indexes`. The build is just `next build`, so
+migrations do not run on deploy. Netlify also needs nothing new — the
+email-queue schedule is a file in `netlify/functions`, and it reuses the
+existing `CRON_SECRET`.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
+
+## The staged Diagnostic (2026-10-24, from production data)
+
+Production on 2026-10-24: 144 students had started the Diagnostic and 73
+quit — 48 of them within the first three questions. After question four
+almost nobody left: eighteen more questions, six of them Hard, lost 25
+students between them. The opening was the problem, and the opening was an
+accident.
+
+- **A discarded shuffle, since the initial commit.** `shuffle` in
+  `src/lib/adaptive/random.ts` returns a new array; it does not shuffle in
+  place. `start-diagnostic.ts` called `shuffle(resolved, random)` and threw
+  the result away, so every student got the category-then-difficulty loop:
+  Reading Comprehension Easy, Medium, then Hard — the three longest
+  questions, the third answered correctly 45% of the time — as questions one
+  to three. **`generate-practice-set.ts` had the identical bug**, so every
+  Practice Set was served grouped by category. Both are fixed;
+  `generate-practice-set.test.ts` asserts the interleaving and was confirmed
+  to fail against the old line. Anyone calling `shuffle` must use its return
+  value.
+- **`src/lib/diagnostic/sequence.ts` is the served order and the rule**, both
+  pure and tested. Fourteen core questions — one Easy and one Medium per
+  category — chosen from production accuracy and length: the first four are
+  the likeliest wins (Advanced Math Easy, the shortest question in the test,
+  first), Reading passages are never adjacent, each Easy precedes its Medium.
+  Then a **bonus round**: a category's Hard question is served only if its
+  Medium was answered right; otherwise it is waived (`waivedAt`) and scores
+  as a wrong answer — which every scorer already does, because they all read
+  `!!isCorrect`, so neither scoring table changed. Replaying all 71 real
+  completed Diagnostics through this rule: students predicted below 1100 see
+  about 17 questions and 3 Hard ones instead of 21 and 7; starting scores land
+  in the same displayed range two-thirds of the time and average ~29 points
+  lower (part of that is the full test crediting lucky guesses). Dropping the
+  Hard tier outright was rejected — it scored everyone ~112 points low, which
+  district gain reporting would have counted as improvement that never
+  happened.
+- **"These can only raise your predicted score"** on the bonus-round screen
+  is a checked claim, not copy: with the Medium right, a right Hard raises the
+  category in both tables (ability 65→90 or 45→80; score value 1300→1600 or
+  800→1000), and a waived Hard is scored as a miss. Re-check it if either
+  table changes.
+- **`DiagnosticSession.format`** (`FULL_21` / `STAGED`) records which test a
+  student took, because the two give slightly different starting scores and
+  district gain reporting must never mix them unknowingly. The DB default is
+  `FULL_21` so a session created by old code during a deploy is labelled
+  truthfully; new code writes `STAGED`. An in-progress `FULL_21` session is
+  converted the next time its student opens it (`convertLegacySession` —
+  idempotent, keeps every answer, rewrites positions in two passes because
+  `(diagnosticSessionId, position)` is unique), so the 73 who quit come back
+  to the new opening.
+- **The server decides the stage, never the client** (`advanceDiagnostic`,
+  `currentStage` in `stages.ts`). The core runner's button says "Continue"
+  and goes either to the bonus-round screen or straight to results; a student
+  who earned no Hard questions finishes at fourteen and is never told they
+  "unlocked zero". The runner indexes items by array position, so each stage
+  is given its own list renumbered from zero. **Until a bonus question has
+  been answered, the page ignores `currentPosition`** — a student who answered
+  the fourteenth question and closed the tab never clicked Continue, so the
+  stored position was still a core index, and the bonus round opened on its
+  last question. Found by driving exactly that path in a browser.
+- A waived question can't be answered even with its id: `finalizeDiagnosticAttempt`
+  refuses it, and its update is conditioned on `waivedAt: null` too.
+- Copy everywhere now says 14 questions / about 15 minutes; the "Finish your
+  Diagnostic" email counts against the fourteen and says "Your bonus round is
+  waiting" when that's where the student stopped.
+- Deploying needs migration `20261024180224_staged_diagnostic` on Neon first.
+
+## Session runner layout (2026-10-24)
+
+The runner's column used to be `max-w-3xl` for every question — on a wide
+monitor a passage and its question shared a third of the screen at ~350px
+each. **Width now follows the content, like Bluebook's two module types**:
+a passage question uses `max-w-screen-2xl` split in half; a single-column
+question stays `max-w-4xl`, because one line stretched across a monitor is
+harder to read. The footer (question pill, Back/Next) was **below the fold
+on every laptop**: the runner was `min-h-screen` under the focus bar, and the
+split pane was sized `100vh − 13rem` against ~19.5rem of real chrome. Now the
+focus shell's `<main>` is a flex column, the runner is `flex-1`, the pane is
+`100dvh − 20rem`, and the footer is `sticky bottom-0` — measured zero overflow
+at 1920×1080, 1440×900 and 1366×768. Answer-choice buttons carry
+`data-answer-choice` as the e2e hook (their accessible name is the choice
+text, and `aria-pressed` also matches Mark for Review and the cross-outs).
+
+**`devIndicators: false`** in `next.config.ts`: every corner of the screen
+now holds a real control (sidebar Log out, the runner's pinned Next, the
+focus bar's Exit and Log out), and the badge intercepted e2e clicks in two of
+them. Next still raises its error overlay with the badge off.
+
+## 1v1 Rush, game feel (2026-10-24)
+
+- **Rush rendered `questionText` only**, never `passageText`, so every
+  Reading & Writing question in a rush showed its stem with no text to answer
+  from. `RushQuestion` now shows the passage beside the question (stacked on a
+  phone).
+- **Choosing no longer submits.** A choice is a draft until Submit; A–D (or
+  1–4) and Enter do it in two keystrokes. When the clock runs out, the runners
+  submit whatever is selected. No double-click-to-submit, deliberately — a
+  habitual double-clicker would lock answers in by accident, which is the
+  exact problem being removed.
+- **Answer streaks score**: from the second correct, in-time answer in a row,
+  +20 per step up to +100 (`streakBonus`, `scoreRushAnswerWithStreak`). A
+  friend challenge is two runs played days apart, so **the rules are stored
+  per challenge** (`RushChallenge.scoringVersion`, DB default 1 for the same
+  deploy-window reason as the Diagnostic's format) and both players are always
+  scored by the same ones. `maxRushScore(version, size)` replaces the fixed
+  `RUSH_MAX_SCORE` on the results page (2700 under version 2).
+- **`src/app/(app)/rush/game-fx.tsx`**: synthesized Web Audio effects (no
+  files) with a per-device mute toggle on every Rush screen, read through
+  `useSyncExternalStore` so a stored "off" can't cause a hydration mismatch;
+  the gold streak flame (`achievement` is the token reserved for this);
+  the floating points breakdown; a 3-2-1-GO before a recorded run's first
+  question; ticks in the last five seconds; confetti and a fanfare for a win.
+  All motion is behind `motion-safe:` and the confetti doesn't run under
+  reduced motion. Results now say Victory / Defeat / Dead heat, with each
+  player's best streak and fastest correct answer.
+- Deploying needs migration `20261024190204_rush_scoring_version` on Neon
+  first.
+
+
+## 1v1 Rush: weekly school leaderboard and rematch (2026-10-24)
+
+**Leaderboard** (`src/lib/rush/leaderboard.ts`, hub panel
+`rush/leaderboard-panel.tsx`):
+
+- **It ranks each student's best single rush this week, never their total.**
+  A total rewards volume, and Rush volume can be bought by guessing: clicking
+  A–D at random as fast as possible earns ~490 points in half a minute (a
+  quarter right, each with nearly the full speed bonus), which outpaces
+  honest work. Ten guessed questions almost never beat a real run, so a best
+  score can't be farmed — and it still brings students back to beat their
+  own mark. Don't switch this to a sum without solving that first.
+- The week is Monday 00:00 → Monday 00:00 **Central** (`LEADERBOARD_TIME_ZONE`);
+  a UTC week would reset on Sunday at 7pm in Texas. `weekBounds` is pure and
+  tested on Sunday night, Monday 12:01am, and a week the clocks change in
+  (which is an hour longer).
+- Scope is ACTIVE `StudentMembership` at the school, like every school figure;
+  an administrator can view their school's board and never appears on it.
+  Solo runs count.
+- **Privacy**: first name and class year only. `User.rushLeaderboardHidden`
+  (Settings → Leaderboard) hides a student from everyone else while they
+  still see where they'd stand. Ranks are computed among visible students
+  only, so a hidden student never leaves a gap that reveals them.
+  `Organization.rushLeaderboardEnabled` (Owner → school detail) turns it off
+  for a school, or for a whole district — a school shows a board only if it
+  and its district both allow it. It exists for the district whose data
+  agreement doesn't permit students seeing each other's names and scores.
+- The results page tells a student their place this week after every run.
+
+**Rematch** (`src/lib/rush/rematch.ts`, results `rematch-panel.tsx`, hub
+`rematch-invites.tsx`):
+
+- A rematch is a new FRIEND challenge between the same two students, same
+  section and same style (live or recorded), on fresh questions, with
+  `rematchOfId` (the match it rematches) and `invitedStudentId` (the one
+  student who may join — enforced in `joinLiveRoom` and `joinChallenge` too,
+  since a typed code reaches both).
+- **`rematchOfId` is unique, and that is the race handling.** Two players
+  pressing Rematch at once: the second insert fails on the constraint and
+  that player joins the first's room. The violation is caught *outside* the
+  transaction — Postgres aborts a transaction on any unique violation, which
+  is also why `createChallenge`'s retry-on-code-collision can't actually
+  recover inside one (harmless at one-in-a-billion odds; not worth a
+  savepoint).
+- No push notifications exist, so the invitation shows on the results page
+  (it polls every 3s and pings when one arrives) and on the hub. A live
+  invitation only shows while its sender is still in the room; a stale room
+  is cleared when the other player asks for their own rematch.
+- Asking is Premium; accepting is free, matching the rest of Rush.
+  `requestRematchAction` skips the paid check when the student is in fact
+  accepting the opponent's request.
+- Verified in two real browsers end to end: a live match, Rematch, the
+  invitation arriving on the other player's results page by polling and on
+  their hub, Accept, both in the same countdown.
+- Deploying needs migration `20261024202658_rush_leaderboard_and_rematch` on
+  Neon first. It was generated with `prisma migrate diff` and applied with
+  `migrate deploy`, because `migrate dev` refuses to run non-interactively
+  when it wants to confirm a new unique constraint (here on an all-null
+  column, so the warning was moot).

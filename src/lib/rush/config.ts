@@ -36,6 +36,20 @@ export const RUSH_BASE_POINTS = 100;
 export const RUSH_SPEED_POINTS = 100;
 export const RUSH_MAX_SCORE = RUSH_RUN_SIZE * (RUSH_BASE_POINTS + RUSH_SPEED_POINTS);
 
+/**
+ * The scoring version new challenges are created under. Bump it, and add the
+ * new rule to scoreRushAnswerWithStreak behind `version >=`, whenever points
+ * change — a challenge keeps the version it was created with (see
+ * RushChallenge.scoringVersion), so a change never rescores a result someone
+ * has already seen. 2 = the answer-streak bonus.
+ */
+export const RUSH_SCORING_VERSION = 2;
+
+/** Each correct answer in a row after the first adds this much... */
+export const RUSH_STREAK_STEP_POINTS = 20;
+/** ...up to this, reached on the sixth in a row. */
+export const RUSH_STREAK_MAX_BONUS = 100;
+
 export const RUSH_SECTIONS = CLUB_SECTIONS;
 export const RUSH_SECTION_ORDER: readonly ClubSection[] = ["READING_WRITING", "MATH"];
 

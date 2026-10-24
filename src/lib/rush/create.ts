@@ -1,3 +1,4 @@
+import { RUSH_SCORING_VERSION } from "./config";
 import type { ClubSection, Prisma, RushDifficulty, RushMode } from "@/generated/prisma/client";
 import { createRandom, generateSeed } from "@/lib/adaptive/random";
 import { RUSH_DIFFICULTIES, RUSH_RUN_SIZE, RUSH_SECTIONS } from "./config";
@@ -54,20 +55,37 @@ export async function createSet(studentId: string, section: ClubSection, difficu
 // collision and we simply draw again.
 export async function createChallenge(
   tx: Prisma.TransactionClient,
-  data: { setId: string; mode: RushMode; creatorId: string; live?: boolean; liveStatus?: "WAITING" },
+  data: {
+    setId: string;
+    mode: RushMode;
+    creatorId: string;
+    live?: boolean;
+    liveStatus?: "WAITING";
+    rematchOfId?: string;
+    invitedStudentId?: string;
+  },
 ): Promise<{ id: string; code: string }> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = generateRushCode();
     try {
-      return await tx.rushChallenge.create({ data: { ...data, code }, select: { id: true, code: true } });
+      return await tx.rushChallenge.create({
+        // Written explicitly: the column defaults to 1 so challenges created
+        // by older code during a deploy are labelled by the rules they used.
+        data: { ...data, code, scoringVersion: RUSH_SCORING_VERSION },
+        select: { id: true, code: true },
+      });
     } catch (err) {
-      if (attempt === 4 || !isUniqueViolation(err)) throw err;
+      // A rematch's unique `rematchOfId` is the one collision that must
+      // reach the caller rather than be retried with a fresh code: it means
+      // the other player's Rematch landed first, and the caller joins theirs
+      // (see lib/rush/rematch.ts).
+      if (attempt === 4 || !isUniqueViolation(err) || data.rematchOfId) throw err;
     }
   }
   throw new Error("unreachable");
 }
 
-function isUniqueViolation(err: unknown): boolean {
+export function isUniqueViolation(err: unknown): boolean {
   return typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "P2002";
 }
 

@@ -3,20 +3,10 @@ import { getCampusImpact } from "@/lib/admin/impact";
 import { prisma } from "@/lib/prisma";
 
 vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    studentMembership: { findMany: vi.fn() },
-    predictionHistoryEntry: { findMany: vi.fn() },
-    practiceSet: { findMany: vi.fn() },
-    diagnosticSession: { findMany: vi.fn() },
-  },
+  prisma: { $queryRaw: vi.fn() },
 }));
 
-const mocked = prisma as unknown as {
-  studentMembership: Record<string, ReturnType<typeof vi.fn>>;
-  predictionHistoryEntry: Record<string, ReturnType<typeof vi.fn>>;
-  practiceSet: Record<string, ReturnType<typeof vi.fn>>;
-  diagnosticSession: Record<string, ReturnType<typeof vi.fn>>;
-};
+const mocked = prisma as unknown as { $queryRaw: ReturnType<typeof vi.fn> };
 
 // Abilities chosen against the section thresholds in lib/score/ccmr:
 // ability 10 -> 262 per section (below both), ability 50 -> 582 (above both),
@@ -44,16 +34,10 @@ const SESSION_START = new Date("2026-02-01T10:00:00Z");
 
 // PracticeSet records its start as `createdAt`; DiagnosticSession as
 // `startedAt`. The two helpers keep that difference explicit rather than
-// letting one shape silently stand in for the other.
+// letting one shape silently stand in for the other — even though both reach
+// the same SQL union now, the production query reads a different column for
+// each.
 function practiceSetSession(studentId: string, minutes: number) {
-  return {
-    studentId,
-    createdAt: SESSION_START,
-    completedAt: new Date(SESSION_START.getTime() + minutes * 60_000),
-  };
-}
-
-function diagnosticSession(studentId: string, minutes: number) {
   return {
     studentId,
     startedAt: SESSION_START,
@@ -61,16 +45,92 @@ function diagnosticSession(studentId: string, minutes: number) {
   };
 }
 
+const diagnosticSession = practiceSetSession;
+
+type Prediction = ReturnType<typeof prediction>;
+type Session = ReturnType<typeof practiceSetSession>;
+
+// Both campus-impact queries are raw SQL, because the point of them is that
+// neither a student's prediction history nor their session rows cross the wire
+// (see the comments in impact.ts). These tests still want to describe the
+// fixtures as rows, so the mock derives from a readable fixture exactly what
+// Postgres would have returned — the first/last-per-student pair and the
+// per-student study-hour aggregate — and routes on which table the SQL names.
+let predictions: Prediction[] = [];
+let sessions: Session[] = [];
+
+const SESSION_HOUR_CAP = 3;
+
+function groupByStudent<T extends { studentId: string }>(rows: T[]): Map<string, T[]> {
+  const byStudent = new Map<string, T[]>();
+  for (const row of rows) {
+    const list = byStudent.get(row.studentId);
+    if (list) list.push(row);
+    else byStudent.set(row.studentId, [row]);
+  }
+  return byStudent;
+}
+
+/** What the ROW_NUMBER()/COUNT(*) OVER query returns for `predictions`. */
+function predictionEndRows() {
+  const rows: Record<string, number | null>[] = [];
+  for (const entries of groupByStudent(predictions).values()) {
+    if (entries.length < 2) continue; // `entry_count > 1` in SQL
+    const ordered = [...entries].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const first = ordered[0];
+    const last = ordered[ordered.length - 1];
+    rows.push({
+      firstMidpoint: first.representativeMidpoint,
+      firstRw: first.readingWritingAbility,
+      firstMath: first.mathAbility,
+      lastMidpoint: last.representativeMidpoint,
+      lastRw: last.readingWritingAbility,
+      lastMath: last.mathAbility,
+    });
+  }
+  return rows;
+}
+
+/** What the per-student SUM / AVG / MAX query returns for `sessions`. */
+function studyTimeRows() {
+  const hoursByStudent = new Map<string, number>();
+  for (const session of sessions) {
+    const hours = (session.completedAt.getTime() - session.startedAt.getTime()) / 3_600_000;
+    const capped = Math.min(Math.max(hours, 0), SESSION_HOUR_CAP);
+    hoursByStudent.set(session.studentId, (hoursByStudent.get(session.studentId) ?? 0) + capped);
+  }
+  const hours = [...hoursByStudent.values()];
+  return [
+    {
+      activeStudents: hours.length,
+      averageHours: hours.length > 0 ? hours.reduce((a, b) => a + b, 0) / hours.length : null,
+      topHours: hours.length > 0 ? Math.max(...hours) : null,
+    },
+  ];
+}
+
+function sqlTextOf(call: unknown[]): string {
+  return Array.from(call[0] as ArrayLike<string>).join(" ");
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.studentMembership.findMany.mockResolvedValue([]);
-  mocked.predictionHistoryEntry.findMany.mockResolvedValue([]);
-  mocked.practiceSet.findMany.mockResolvedValue([]);
-  mocked.diagnosticSession.findMany.mockResolvedValue([]);
+  predictions = [];
+  sessions = [];
+  mocked.$queryRaw.mockImplementation((...call: unknown[]) => {
+    const sql = sqlTextOf(call);
+    if (sql.includes("prediction_history_entries")) return Promise.resolve(predictionEndRows());
+    if (sql.includes("practice_sets")) return Promise.resolve(studyTimeRows());
+    throw new Error(`unexpected query: ${sql}`);
+  });
 });
 
-function withStudents(ids: string[]) {
-  mocked.studentMembership.findMany.mockResolvedValue(ids.map((studentId) => ({ studentId })));
+function givenPredictions(rows: Prediction[]) {
+  predictions = rows;
+}
+
+function givenSessions(rows: Session[]) {
+  sessions = rows;
 }
 
 describe("getCampusImpact", () => {
@@ -79,31 +139,33 @@ describe("getCampusImpact", () => {
     expect(impact.measurableStudents).toBe(0);
     expect(impact.averageScoreGain).toBeNull();
     expect(impact.biggestScoreGain).toBeNull();
+    expect(impact.activeStudents).toBe(0);
+    expect(impact.averageStudyHours).toBeNull();
     expect(impact.benchmark.crossed).toBe(0);
   });
 
-  it("scopes to ACTIVE memberships at the requested school", async () => {
-    withStudents(["s1"]);
+  it("scopes every query to ACTIVE memberships at the requested school", async () => {
     await getCampusImpact("school-1");
-    expect(mocked.studentMembership.findMany).toHaveBeenCalledWith({
-      where: { schoolId: "school-1", status: "ACTIVE" },
-      select: { studentId: true },
-    });
+
+    expect(mocked.$queryRaw).toHaveBeenCalledTimes(2);
+    for (const call of mocked.$queryRaw.mock.calls) {
+      const sql = sqlTextOf(call);
+      // The school filter is a bound parameter, never interpolated text.
+      expect(sql).toContain('m."schoolId" =');
+      expect(sql).toContain(`m."status" = 'ACTIVE'`);
+      expect(call).toContain("school-1");
+    }
   });
 
   it("ignores a student with only one prediction - there is no before/after", async () => {
-    withStudents(["s1"]);
-    mocked.predictionHistoryEntry.findMany.mockResolvedValue([
-      prediction("s1", 1000, LOW, LOW),
-    ]);
+    givenPredictions([prediction("s1", 1000, LOW, LOW)]);
     const impact = await getCampusImpact("school-1");
     expect(impact.measurableStudents).toBe(0);
     expect(impact.averageScoreGain).toBeNull();
   });
 
   it("averages gains across students and reports the largest", async () => {
-    withStudents(["s1", "s2"]);
-    mocked.predictionHistoryEntry.findMany.mockResolvedValue([
+    givenPredictions([
       prediction("s1", 1000, LOW, LOW),
       prediction("s1", 1100, LOW, LOW), // +100
       prediction("s2", 1200, LOW, LOW),
@@ -117,35 +179,23 @@ describe("getCampusImpact", () => {
   });
 
   it("counts a decline without letting it masquerade as improvement", async () => {
-    withStudents(["s1"]);
-    mocked.predictionHistoryEntry.findMany.mockResolvedValue([
-      prediction("s1", 1200, LOW, LOW),
-      prediction("s1", 1100, LOW, LOW),
-    ]);
+    givenPredictions([prediction("s1", 1200, LOW, LOW), prediction("s1", 1100, LOW, LOW)]);
     const impact = await getCampusImpact("school-1");
     expect(impact.averageScoreGain).toBe(-100);
     expect(impact.studentsImproved).toBe(0);
   });
 
   it("counts a student who started below both criteria and now meets both as CROSSED", async () => {
-    withStudents(["s1"]);
-    mocked.predictionHistoryEntry.findMany.mockResolvedValue([
-      prediction("s1", 900, LOW, LOW),
-      prediction("s1", 1200, HIGH, HIGH),
-    ]);
+    givenPredictions([prediction("s1", 900, LOW, LOW), prediction("s1", 1200, HIGH, HIGH)]);
     const impact = await getCampusImpact("school-1");
     expect(impact.benchmark.crossed).toBe(1);
     expect(impact.benchmark.held).toBe(0);
   });
 
   it("does not count a student who improved but still misses a criterion", async () => {
-    withStudents(["s1"]);
     // Reading clears, math does not — the common shape, and worth nothing
     // to the district until the math criterion is also met.
-    mocked.predictionHistoryEntry.findMany.mockResolvedValue([
-      prediction("s1", 900, LOW, LOW),
-      prediction("s1", 1100, HIGH, LOW),
-    ]);
+    givenPredictions([prediction("s1", 900, LOW, LOW), prediction("s1", 1100, HIGH, LOW)]);
     const impact = await getCampusImpact("school-1");
     expect(impact.benchmark.crossed).toBe(0);
     expect(impact.benchmark.below).toBe(1);
@@ -153,8 +203,7 @@ describe("getCampusImpact", () => {
   });
 
   it("separates held, slipped and below", async () => {
-    withStudents(["held", "slipped", "below"]);
-    mocked.predictionHistoryEntry.findMany.mockResolvedValue([
+    givenPredictions([
       prediction("held", 1300, HIGH, HIGH),
       prediction("held", 1350, HIGH, HIGH),
       prediction("slipped", 1300, HIGH, HIGH),
@@ -169,11 +218,7 @@ describe("getCampusImpact", () => {
   });
 
   it("skips benchmark classification when section abilities were never recorded", async () => {
-    withStudents(["s1"]);
-    mocked.predictionHistoryEntry.findMany.mockResolvedValue([
-      prediction("s1", 900, null, null),
-      prediction("s1", 1200, null, null),
-    ]);
+    givenPredictions([prediction("s1", 900, null, null), prediction("s1", 1200, null, null)]);
     const impact = await getCampusImpact("school-1");
     // The gain is still measurable even though TSI status is not.
     expect(impact.averageScoreGain).toBe(300);
@@ -181,9 +226,11 @@ describe("getCampusImpact", () => {
   });
 
   it("sums study time per student and reports the average and the top", async () => {
-    withStudents(["s1", "s2"]);
-    mocked.practiceSet.findMany.mockResolvedValue([practiceSetSession("s1", 30), practiceSetSession("s1", 30)]);
-    mocked.diagnosticSession.findMany.mockResolvedValue([diagnosticSession("s2", 60)]);
+    givenSessions([
+      practiceSetSession("s1", 30),
+      practiceSetSession("s1", 30),
+      diagnosticSession("s2", 60),
+    ]);
     const impact = await getCampusImpact("school-1");
     expect(impact.activeStudents).toBe(2);
     expect(impact.topStudentStudyHours).toBe(1);
@@ -191,18 +238,14 @@ describe("getCampusImpact", () => {
   });
 
   it("caps an abandoned session rather than reporting it as a day of study", async () => {
-    withStudents(["s1"]);
-    mocked.practiceSet.findMany.mockResolvedValue([practiceSetSession("s1", 14 * 60)]);
+    givenSessions([practiceSetSession("s1", 14 * 60)]);
     const impact = await getCampusImpact("school-1");
     expect(impact.topStudentStudyHours).toBe(3);
   });
 
   it("exposes no field that could identify an individual student", async () => {
-    withStudents(["s1"]);
-    mocked.predictionHistoryEntry.findMany.mockResolvedValue([
-      prediction("s1", 900, LOW, LOW),
-      prediction("s1", 1200, HIGH, HIGH),
-    ]);
+    givenPredictions([prediction("s1", 900, LOW, LOW), prediction("s1", 1200, HIGH, HIGH)]);
+    givenSessions([practiceSetSession("s1", 30)]);
     const impact = await getCampusImpact("school-1");
     const serialized = JSON.stringify(impact);
     expect(serialized).not.toContain("s1");

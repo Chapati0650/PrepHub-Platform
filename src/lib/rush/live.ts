@@ -13,7 +13,7 @@ import {
   RUSH_TIME_LIMIT_MS,
 } from "./config";
 import { createChallenge, createSet } from "./create";
-import { scoreRushAnswer } from "./scoring";
+import { scoreRushAnswerWithStreak, streakBefore } from "./scoring";
 import { RushError } from "./errors";
 
 // Live head-to-head rooms. Two players, one server-side clock, no
@@ -49,7 +49,11 @@ export type LiveState = {
   questionOpen: boolean; // PLAYING and the shared clock has started
   remainingMs: number; // PLAYING: time left on the open question
   nextStartsInMs: number | null; // PLAYING, between questions
-  me: { name: string; score: number; correctCount: number; answered: LiveRoundAnswer | null };
+  me: { name: string; score: number; correctCount: number; answered: LiveRoundAnswer | null; streak: number };
+  /** For a rematch lobby: who it's waiting for. A rematch has no code to share — it's already addressed. */
+  rematchFor: string | null;
+  /** The points rules this room is scored by; streak UI shows only from 2. */
+  scoringVersion: number;
   opponent: { name: string; score: number; correctCount: number; present: boolean; answered: LiveRoundAnswer | null } | null;
   // The round that just closed, for the pause between questions.
   lastRound: { position: number; me: LiveRoundAnswer | null; opponent: LiveRoundAnswer | null } | null;
@@ -75,9 +79,14 @@ export async function joinLiveRoom(studentId: string, challengeId: string): Prom
 
   const c = await prisma.rushChallenge.findUnique({
     where: { id: challengeId },
-    select: { live: true, liveStatus: true, runs: { select: { lastSeenAt: true } } },
+    select: { live: true, liveStatus: true, invitedStudentId: true, runs: { select: { lastSeenAt: true } } },
   });
   if (!c || !c.live) throw new RushError("CHALLENGE_NOT_FOUND", "That room doesn't exist.");
+  // A rematch room is for one student. Checked here as well as wherever the
+  // room is offered, because a code typed by hand reaches this function too.
+  if (c.invitedStudentId && c.invitedStudentId !== studentId) {
+    throw new RushError("NOT_JOINABLE", "That rematch is for someone else.");
+  }
   if (c.liveStatus !== "WAITING") throw new RushError("NOT_JOINABLE", "That rush has already started.");
   const creatorPresent = c.runs.some((r) => Date.now() - r.lastSeenAt.getTime() < LIVE_PRESENCE_MS);
   if (!creatorPresent) throw new RushError("NOT_JOINABLE", "Nobody's in that room right now. Ask them to open it again, then try the link.");
@@ -137,6 +146,7 @@ async function loadRoom(challengeId: string) {
   return prisma.rushChallenge.findUnique({
     where: { id: challengeId },
     include: {
+      invitedStudent: { select: { firstName: true } },
       set: { select: { section: true, _count: { select: { slots: true } } } },
       runs: { include: { student: { select: { firstName: true } }, answers: true } },
     },
@@ -236,13 +246,26 @@ export async function getLiveState(studentId: string, challengeId: string): Prom
     limitMs,
     status: c.liveStatus,
     isCreator: c.creatorId === studentId,
+    rematchFor: c.invitedStudent?.firstName ?? null,
     waitedMs: now - c.createdAt.getTime(),
     startsInMs: c.liveStatus === "COUNTDOWN" && c.liveStartsAt ? Math.max(0, c.liveStartsAt.getTime() - now) : null,
     position: pos,
     questionOpen,
     remainingMs: questionOpen ? Math.max(0, startedAt! + limitMs - now) : 0,
     nextStartsInMs: playing && !questionOpen ? Math.max(0, startedAt! - now) : null,
-    me: { name: me.student.firstName, score: me.score, correctCount: me.correctCount, answered: playing ? roundOf(c, me.id, pos) : null },
+    me: {
+      name: me.student.firstName,
+      score: me.score,
+      correctCount: me.correctCount,
+      answered: playing ? roundOf(c, me.id, pos) : null,
+      // Correct answers in a row up to and including the current question, so
+      // a reloaded room shows the same flame the student had a second ago.
+      streak: streakBefore(
+        me.answers.map((a) => ({ position: a.position, points: a.points })),
+        me.answers.some((a) => a.position === pos && a.answeredAt) ? pos + 1 : pos,
+      ),
+    },
+    scoringVersion: c.scoringVersion,
     opponent: opp
       ? {
           name: opp.student.firstName,
@@ -287,7 +310,17 @@ export async function serveLiveQuestion(studentId: string, challengeId: string):
   return { position: c.livePosition, remainingMs: Math.max(0, startedAt + RUSH_TIME_LIMIT_MS[c.set.section] - Date.now()), content };
 }
 
-export type LiveAnswerResult = LiveRoundAnswer & { score: number; correctChoiceId: string | null; acceptedAnswer: string | null };
+export type LiveAnswerResult = LiveRoundAnswer & {
+  score: number;
+  correctChoiceId: string | null;
+  acceptedAnswer: string | null;
+  /** Where the points came from, for the room's breakdown. */
+  base: number;
+  speed: number;
+  streakBonus: number;
+  /** Correct answers in a row after this one (0 if this one missed). */
+  streak: number;
+};
 
 export async function submitLiveAnswer(params: { studentId: string; challengeId: string; position: number; answer: string | null }): Promise<LiveAnswerResult> {
   const { studentId, challengeId, position, answer } = params;
@@ -301,7 +334,9 @@ export async function submitLiveAnswer(params: { studentId: string; challengeId:
             slots: { where: { position }, include: { question: true, questionRevision: { include: { answerChoices: true } } } },
           },
         },
-        runs: { where: { studentId }, include: { answers: { where: { position } } } },
+        // Every answer, not just this position's: the streak is read from
+        // the ones before it. Ten rows at most.
+        runs: { where: { studentId }, include: { answers: true } },
       },
     });
     const run = c?.runs[0];
@@ -318,9 +353,13 @@ export async function submitLiveAnswer(params: { studentId: string; challengeId:
       score: run.score,
       correctChoiceId,
       acceptedAnswer,
+      base: 0,
+      speed: 0,
+      streakBonus: 0,
+      streak: (row.points ?? 0) > 0 ? streakBefore(run.answers, position) + 1 : 0,
     });
 
-    const existing = run.answers[0];
+    const existing = run.answers.find((a) => a.position === position);
     if (existing?.answeredAt) return stored(existing);
     if (c.liveStatus !== "PLAYING" || c.livePosition !== position || !c.livePositionStartedAt) {
       throw new RushError("RUN_COMPLETED", "That question is over.");
@@ -332,7 +371,14 @@ export async function submitLiveAnswer(params: { studentId: string; challengeId:
     const limitMs = RUSH_TIME_LIMIT_MS[c.set.section];
     const elapsedMs = Math.max(0, now.getTime() - startedAt.getTime());
     const isCorrect = answer !== null && answer !== "" && isAnswerCorrect(slot.question.questionType, answer, revision);
-    const points = scoreRushAnswer({ isCorrect, elapsedMs, limitMs });
+    const scored = scoreRushAnswerWithStreak({
+      isCorrect,
+      elapsedMs,
+      limitMs,
+      previousStreak: streakBefore(run.answers, position),
+      version: c.scoringVersion,
+    });
+    const points = scored.points;
     const data = { answeredAt: now, answer, isCorrect, elapsedMs, points };
 
     if (existing) {
@@ -353,7 +399,19 @@ export async function submitLiveAnswer(params: { studentId: string; challengeId:
       },
       select: { score: true },
     });
-    return { isCorrect, points, elapsedMs, timedOut: answer === null, score: updated.score, correctChoiceId, acceptedAnswer };
+    return {
+      isCorrect,
+      points,
+      base: scored.base,
+      speed: scored.speed,
+      streakBonus: scored.streakBonus,
+      streak: scored.streak,
+      elapsedMs,
+      timedOut: answer === null,
+      score: updated.score,
+      correctChoiceId,
+      acceptedAnswer,
+    };
   });
   // Both answered? Then this call is what moves the room on.
   await tickLive(challengeId);

@@ -1,15 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getStudentDirectory, updateStudentInfo } from "@/lib/admin/student-directory";
 import { AdminError } from "@/lib/admin/errors";
+import { installActivityQueryMock, type ActivityFixture } from "@/lib/school/test-fixtures";
 import { prisma } from "@/lib/prisma";
 
 vi.mock("@/lib/prisma", () => {
   const mockPrisma: Record<string, unknown> = {
-    studentMembership: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
-    finalizedAttempt: { groupBy: vi.fn() },
-    practiceSet: { groupBy: vi.fn() },
-    diagnosticSession: { findMany: vi.fn() },
+    studentMembership: { findMany: vi.fn(), count: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     user: { update: vi.fn() },
+    $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   };
   return { prisma: mockPrisma };
@@ -17,19 +16,20 @@ vi.mock("@/lib/prisma", () => {
 
 const mocked = prisma as unknown as {
   studentMembership: Record<string, ReturnType<typeof vi.fn>>;
-  finalizedAttempt: Record<string, ReturnType<typeof vi.fn>>;
-  practiceSet: Record<string, ReturnType<typeof vi.fn>>;
-  diagnosticSession: Record<string, ReturnType<typeof vi.fn>>;
   user: Record<string, ReturnType<typeof vi.fn>>;
+  $queryRaw: ReturnType<typeof vi.fn>;
   $transaction: ReturnType<typeof vi.fn>;
 };
 
+let fixture: ActivityFixture;
+
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.finalizedAttempt.groupBy.mockResolvedValue([]);
-  mocked.practiceSet.groupBy.mockResolvedValue([]);
-  mocked.diagnosticSession.findMany.mockResolvedValue([]);
+  // The directory counts before it pages. A default larger than any fixture
+  // keeps page one returning whatever findMany is mocked to give.
+  mocked.studentMembership.count.mockResolvedValue(100);
   mocked.$transaction.mockResolvedValue(undefined);
+  fixture = installActivityQueryMock(mocked.$queryRaw, { answers: [], sessions: [], predictions: [] });
 });
 
 describe("getStudentDirectory", () => {
@@ -38,11 +38,11 @@ describe("getStudentDirectory", () => {
 
     const result = await getStudentDirectory("school1");
 
-    expect(result).toEqual([]);
-    expect(mocked.finalizedAttempt.groupBy).not.toHaveBeenCalled();
+    expect(result.entries).toEqual([]);
+    expect(mocked.$queryRaw).not.toHaveBeenCalled();
   });
 
-  it("only exposes account/administrative fields — never academic data — for a listed student", async () => {
+  it("exposes account, administrative and engagement fields — never academic data — for a listed student", async () => {
     mocked.studentMembership.findMany.mockResolvedValue([
       {
         id: "m1",
@@ -57,7 +57,7 @@ describe("getStudentDirectory", () => {
 
     const result = await getStudentDirectory("school1");
 
-    expect(result).toEqual([
+    expect(result.entries).toEqual([
       {
         membershipId: "m1",
         firstName: "Ada",
@@ -66,13 +66,18 @@ describe("getStudentDirectory", () => {
         status: "ACTIVE",
         registeredAt: new Date("2026-01-01"),
         lastActiveAt: null,
+        activity: { questionsAnswered: 0, sessionsCompleted: 0, studyHours: 0, lastActiveAt: null },
       },
     ]);
-    expect(Object.keys(result[0])).not.toContain("ability");
-    expect(Object.keys(result[0])).not.toContain("predictedScore");
+    // Engagement is how much work, never how well it went. No correctness,
+    // ability, mastery or predicted-score field is selected anywhere here.
+    const serialized = JSON.stringify(result.entries[0]);
+    for (const forbidden of ["ability", "predictedScore", "isCorrect", "mastery", "accuracy"]) {
+      expect(serialized).not.toContain(forbidden);
+    }
   });
 
-  it("derives Last Active Date as the most recent of finalized attempts, practice sets, and diagnostic completion", async () => {
+  it("reports a student's engagement and derives Last Active Date as the most recent of any activity", async () => {
     mocked.studentMembership.findMany.mockResolvedValue([
       {
         id: "m1",
@@ -84,13 +89,27 @@ describe("getStudentDirectory", () => {
         student: { firstName: "Ada" },
       },
     ]);
-    mocked.finalizedAttempt.groupBy.mockResolvedValue([{ studentId: "s1", _max: { finalizedAt: new Date("2026-03-01") } }]);
-    mocked.practiceSet.groupBy.mockResolvedValue([{ studentId: "s1", _max: { completedAt: new Date("2026-05-01") } }]);
-    mocked.diagnosticSession.findMany.mockResolvedValue([{ studentId: "s1", completedAt: new Date("2026-02-01") }]);
+    fixture.answers = [
+      { studentId: "s1", answeredAt: new Date("2026-02-01") },
+      { studentId: "s1", answeredAt: new Date("2026-03-01") },
+    ];
+    fixture.sessions = [
+      {
+        studentId: "s1",
+        startedAt: new Date("2026-05-01T10:00:00Z"),
+        completedAt: new Date("2026-05-01T10:30:00Z"),
+      },
+    ];
 
     const result = await getStudentDirectory("school1");
 
-    expect(result[0].lastActiveAt).toEqual(new Date("2026-05-01"));
+    expect(result.entries[0].activity).toEqual({
+      questionsAnswered: 2,
+      sessionsCompleted: 1,
+      studyHours: 0.5,
+      lastActiveAt: new Date("2026-05-01T10:30:00Z"),
+    });
+    expect(result.entries[0].lastActiveAt).toEqual(new Date("2026-05-01T10:30:00Z"));
   });
 
   it("passes graduation year and status filters through to the query", async () => {

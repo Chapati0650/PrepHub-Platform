@@ -38,6 +38,10 @@ export type LoadedQuestion = {
 
 export type SessionRunnerProps = {
   title: string;
+  /** What the footer pill calls each item: "Question 3 of 14", "Bonus question 1 of 4". */
+  itemLabel?: string;
+  /** The final button. "Finish" unless the next step isn't actually the end. */
+  finishLabel?: string;
   /** Shown bottom-left, where Bluebook prints the test taker's name. */
   studentName?: string;
   initialItems: SessionRunnerItem[];
@@ -174,6 +178,22 @@ export function SessionRunner(props: SessionRunnerProps) {
   const marked = currentItem.skipped;
   const eliminatedHere = eliminated.get(currentItem.id) ?? new Set<string>();
 
+  // Truthiness, not `!== null`: a stale client or an older payload makes this
+  // undefined, and `undefined !== null` is true, which split the screen and
+  // left an empty pane beside every maths question. An all-whitespace passage
+  // saved from the editor would do the same.
+  const hasPassage = (loaded?.content.passageText ?? "").trim().length > 0;
+
+  // Width follows the content, the way Bluebook's two module types do. A
+  // passage question splits the whole window in half — passage left, question
+  // right — so each side gets a real reading column. A single-column question
+  // (maths, or a stem with no passage) stays a centred column, because one
+  // line of text stretched across a wide monitor is harder to read, not
+  // easier. The column used to be max-w-3xl for both, which on a wide monitor
+  // left a passage and its question sharing a third of the screen at roughly
+  // 350px each, with the rest empty.
+  const columnWidth = hasPassage ? "max-w-screen-2xl" : "max-w-4xl";
+
   return (
     // Laid out like Bluebook: a band at the top carrying the section label,
     // the clock and the tools, the question in the middle, and a band at the
@@ -184,9 +204,9 @@ export function SessionRunner(props: SessionRunnerProps) {
     // Brand colour is kept for the controls rather than Bluebook's blue. The
     // shape is what creates the familiarity; repainting the product another
     // organisation's blue is a separate decision and not one this makes.
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex flex-1 flex-col bg-background">
       <header className="border-b border-dashed border-foreground/40 px-4 py-3 sm:px-8">
-        <div className="mx-auto grid w-full max-w-5xl grid-cols-[1fr_auto_1fr] items-center gap-4">
+        <div className="mx-auto grid w-full max-w-screen-2xl grid-cols-[1fr_auto_1fr] items-center gap-4">
           <div className="min-w-0">
             <p className="truncate font-heading text-sm font-semibold tracking-tight sm:text-base">{props.title}</p>
             <p className="truncate text-xs text-muted-foreground">
@@ -223,7 +243,7 @@ export function SessionRunner(props: SessionRunnerProps) {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 sm:px-8">
+      <main className={`mx-auto w-full ${columnWidth} flex-1 px-4 py-6 sm:px-8`}>
         {completeError && (
           <Alert variant="destructive" className="mb-4">
             <AlertDescription>{completeError}</AlertDescription>
@@ -255,19 +275,14 @@ export function SessionRunner(props: SessionRunnerProps) {
 
             <div className="pt-5">
               <SplitPane
-                // Truthiness, not `!== null`: a stale client or an older
-                // payload makes this undefined, and `undefined !== null` is
-                // true, which split the screen and left an empty pane beside
-                // every maths question. An all-whitespace passage saved from
-                // the editor would do the same.
-                hasPassage={(loaded.content.passageText ?? "").trim().length > 0}
+                hasPassage={hasPassage}
                 left={
                   <QuestionStatement
                     text={loaded.content.passageText ?? ""}
                     imageId={null}
                     mediaBasePath="/api/media"
                     className="bg-transparent p-0"
-                    textClassName="text-lg leading-relaxed"
+                    textClassName="text-lg leading-relaxed lg:text-xl lg:leading-relaxed"
                   />
                 }
               >
@@ -279,7 +294,7 @@ export function SessionRunner(props: SessionRunnerProps) {
                 imageId={loaded.content.questionImageId}
                 mediaBasePath="/api/media"
                 className="bg-transparent p-0"
-                textClassName="text-lg leading-relaxed"
+                textClassName="text-lg leading-relaxed lg:text-xl lg:leading-relaxed"
               />
 
               {calculatorOpen && loaded.content.calculatorSetting === "ALLOWED" && (
@@ -307,8 +322,13 @@ export function SessionRunner(props: SessionRunnerProps) {
                             updateDraft(choice.id);
                           }}
                           aria-pressed={isSelected}
+                          // A content-agnostic hook for the e2e suite. The
+                          // accessible name is the choice's own text (the
+                          // letter is aria-hidden), and `aria-pressed` alone
+                          // also matches Mark for Review and the cross-outs.
+                          data-answer-choice={letter}
                           className={[
-                            "flex flex-1 items-center gap-4 rounded-lg border-2 px-4 py-3 text-left text-base transition-colors",
+                            "flex flex-1 items-center gap-4 rounded-lg border-2 px-4 py-3 text-left text-base transition-colors lg:px-5 lg:py-4 lg:text-lg",
                             isSelected && !currentItem.submitted && "border-primary bg-primary/10",
                             !isSelected && !showCorrect && !showWrongSelection && "border-border hover:border-foreground/40",
                             showCorrect && "border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50",
@@ -321,7 +341,7 @@ export function SessionRunner(props: SessionRunnerProps) {
                           <span
                             aria-hidden
                             className={[
-                              "flex size-7 shrink-0 items-center justify-center rounded-full border text-sm font-semibold",
+                              "flex size-7 shrink-0 items-center justify-center rounded-full border text-sm font-semibold lg:size-8 lg:text-base",
                               isSelected && !currentItem.submitted
                                 ? "border-primary bg-primary text-primary-foreground"
                                 : "border-foreground/40 text-foreground",
@@ -347,7 +367,7 @@ export function SessionRunner(props: SessionRunnerProps) {
                             onClick={() => toggleEliminated(choice.id)}
                             aria-pressed={isOut}
                             aria-label={isOut ? `Restore answer ${letter}` : `Cross out answer ${letter}`}
-                            className="flex size-7 shrink-0 items-center justify-center rounded-full border border-foreground/40 text-xs font-semibold line-through hover:bg-muted"
+                            className="flex size-7 shrink-0 items-center justify-center rounded-full border border-foreground/40 text-xs font-semibold line-through hover:bg-muted lg:size-8 lg:text-sm"
                           >
                             {letter}
                           </button>
@@ -431,7 +451,7 @@ export function SessionRunner(props: SessionRunnerProps) {
           rather than sitting above every question taking the top third of a
           phone screen. */}
       {navOpen && (
-        <div className="mx-auto w-full max-w-3xl px-4 pb-3 sm:px-8">
+        <div className={`mx-auto w-full ${columnWidth} px-4 pb-3 sm:px-8`}>
           <div className="rounded-xl border border-border bg-card p-4 shadow-lg">
             <SessionNavGrid
               items={navItems}
@@ -444,8 +464,12 @@ export function SessionRunner(props: SessionRunnerProps) {
         </div>
       )}
 
-      <footer className="border-t border-dashed border-foreground/40 px-4 py-3 sm:px-8">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3">
+      {/* Pinned, like Bluebook's: the question pill and Back/Next are how a
+          student moves through the test, and they used to sit below the fold
+          on a laptop — the runner was min-h-screen beneath the focus bar, so it
+          always overflowed by at least that bar's height. */}
+      <footer className="sticky bottom-0 z-10 border-t border-dashed border-foreground/40 bg-background px-4 py-3 sm:px-8">
+        <div className="mx-auto flex w-full max-w-screen-2xl items-center justify-between gap-3">
           <span className="hidden min-w-0 flex-1 truncate font-heading font-semibold sm:block">
             {props.studentName ?? ""}
           </span>
@@ -456,7 +480,7 @@ export function SessionRunner(props: SessionRunnerProps) {
             aria-expanded={navOpen}
             className="flex items-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background"
           >
-            Question {position + 1} of {items.length}
+            {props.itemLabel ?? "Question"} {position + 1} of {items.length}
             <ChevronUp
               className={navOpen ? "size-4 rotate-180 transition-transform" : "size-4 transition-transform"}
               aria-hidden
@@ -474,7 +498,7 @@ export function SessionRunner(props: SessionRunnerProps) {
             </Button>
             {unansweredCount === 0 ? (
               <Button className="rounded-full" onClick={() => void handleFinish(false)} disabled={completing}>
-                {completing ? "Finishing…" : "Finish"}
+                {completing ? "One moment…" : (props.finishLabel ?? "Finish")}
               </Button>
             ) : position === items.length - 1 ? (
               <Button className="rounded-full" onClick={() => void goToPosition(firstUnanswered!.position)}>

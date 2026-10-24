@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { PageHeader } from "@/components/page-header";
 import { emailFromAddress, isEmailConfigured } from "@/lib/email";
+import { getQueueHealth } from "@/lib/email-queue";
 import { TestEmailButton } from "./test-email-button";
 
 /**
@@ -46,6 +47,14 @@ export default async function OwnerStatusPage() {
   const functionRegion = process.env.AWS_REGION ?? "unknown";
   const regionsMatch =
     dbRegion !== "unknown" && functionRegion !== "unknown" && dbRegion === functionRegion;
+
+  // The outbound queue. "Pending" climbing and never falling is the one
+  // symptom that means the scheduled drain has stopped running, which is
+  // otherwise completely silent: students simply never hear from their school.
+  const queue = await getQueueHealth();
+  // Five minutes between scheduled runs, so anything over fifteen means the
+  // schedule is not firing rather than merely being mid-send.
+  const queueStalled = queue.oldestPendingMinutes > 15;
 
   const emailConfigured = isEmailConfigured();
   const from = emailFromAddress();
@@ -142,6 +151,38 @@ export default async function OwnerStatusPage() {
           </p>
         </div>
         <TestEmailButton />
+
+        <div className="rounded-xl border border-border p-4 text-sm">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-muted-foreground">Outbound queue</span>
+            <span
+              className={
+                queueStalled
+                  ? "font-medium text-destructive"
+                  : "font-medium text-green-700 dark:text-green-400"
+              }
+            >
+              {queue.pending === 0 ? "Empty" : `${queue.pending.toLocaleString()} waiting`}
+            </span>
+          </div>
+          {queue.oldestPendingAt && (
+            <div className="mt-1 flex items-center justify-between gap-4">
+              <span className="text-muted-foreground">Oldest waiting</span>
+              <span className="font-medium tabular-nums">{queue.oldestPendingMinutes} min</span>
+            </div>
+          )}
+          {queue.deadLettered > 0 && (
+            <div className="mt-1 flex items-center justify-between gap-4">
+              <span className="text-muted-foreground">Gave up after 5 tries</span>
+              <span className="font-medium text-destructive tabular-nums">{queue.deadLettered}</span>
+            </div>
+          )}
+          <p className="mt-3 text-xs text-muted-foreground">
+            {queueStalled
+              ? "Mail has been waiting longer than the five-minute schedule should allow. Check that the email-queue-cron scheduled function is enabled and that CRON_SECRET matches."
+              : "Announcements and roster invitations are queued, drained for a few seconds by the request that sent them, and finished by a scheduled run every five minutes."}
+          </p>
+        </div>
       </section>
 
       <section className="flex flex-col gap-4">

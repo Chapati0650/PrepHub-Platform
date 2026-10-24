@@ -26,12 +26,30 @@ function formatDate(date: Date | null): string {
   return new Date(date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
 
+/**
+ * Study time derived from session start/finish, so it is approximate by
+ * construction (PrepHub deliberately never times individual questions — see
+ * CLAUDE.md). Shown in minutes below an hour so a student who has done one
+ * session doesn't read as a flat "0h".
+ */
+function formatStudyTime(hours: number): string {
+  if (hours <= 0) return "—";
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`;
+  return `${hours >= 10 ? Math.round(hours) : Math.round(hours * 10) / 10}h`;
+}
+
 export function StudentDirectoryTable({
   students,
+  total,
+  page,
+  pageCount,
   filters,
   currentYear,
 }: {
   students: StudentDirectoryEntry[];
+  total: number;
+  page: number;
+  pageCount: number;
   filters: StudentDirectoryFilters;
   currentYear: number;
 }) {
@@ -47,6 +65,7 @@ export function StudentDirectoryTable({
       if (value) params.set(key, value);
       else params.delete(key);
     }
+    if (!("page" in patch)) params.delete("page");
     startTransition(() => router.push(`${pathname}?${params.toString()}`));
   }
 
@@ -145,6 +164,9 @@ export function StudentDirectoryTable({
                 <TableHead>School Email</TableHead>
                 <TableHead>Grad. Year</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="text-right">Questions</TableHead>
+                <TableHead className="text-right">Sessions</TableHead>
+                <TableHead className="text-right">Study Time</TableHead>
                 <TableHead>Registered</TableHead>
                 <TableHead>Last Active</TableHead>
                 <TableHead>Actions</TableHead>
@@ -156,6 +178,35 @@ export function StudentDirectoryTable({
               ))}
             </TableBody>
           </Table>
+        </div>
+      )}
+
+      {/* Paging lives in the URL, so a particular page of the directory is a
+          real address an administrator can bookmark or share with a
+          colleague, and the back button behaves. */}
+      {pageCount > 1 && (
+        <div className="flex items-center justify-between gap-4 border-t border-border pt-4">
+          <p className="text-sm text-muted-foreground tabular-nums">
+            Page {page} of {pageCount} &middot; {total.toLocaleString()} students
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => updateParams({ page: String(page - 1) })}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= pageCount}
+              onClick={() => updateParams({ page: String(page + 1) })}
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
     </div>
@@ -173,7 +224,7 @@ function StudentRow({ student }: { student: StudentDirectoryEntry }) {
   if (editing) {
     return (
       <TableRow>
-        <TableCell colSpan={7}>
+        <TableCell colSpan={10}>
           <form action={formAction} className="flex flex-wrap items-end gap-2">
             <input type="hidden" name="membershipId" value={student.membershipId} />
             {state.error && (
@@ -219,6 +270,13 @@ function StudentRow({ student }: { student: StudentDirectoryEntry }) {
       <TableCell>{student.graduationYear}</TableCell>
       <TableCell>
         <Badge variant={student.status === "ACTIVE" ? "default" : "secondary"}>{STATUS_LABELS[student.status]}</Badge>
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        {student.activity.questionsAnswered.toLocaleString()}
+      </TableCell>
+      <TableCell className="text-right tabular-nums">{student.activity.sessionsCompleted}</TableCell>
+      <TableCell className="text-right tabular-nums text-muted-foreground">
+        {formatStudyTime(student.activity.studyHours)}
       </TableCell>
       <TableCell className="text-muted-foreground">{formatDate(student.registeredAt)}</TableCell>
       <TableCell className="text-muted-foreground">{formatDate(student.lastActiveAt)}</TableCell>

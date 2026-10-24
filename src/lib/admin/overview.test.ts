@@ -1,16 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getAdminOverviewData } from "@/lib/admin/overview";
+import { installActivityQueryMock, type ActivityFixture } from "@/lib/school/test-fixtures";
 import { prisma } from "@/lib/prisma";
 
 vi.mock("@/lib/prisma", () => {
   const mockPrisma: Record<string, unknown> = {
     organization: { findUniqueOrThrow: vi.fn() },
     studentMembership: { findMany: vi.fn(), count: vi.fn() },
-    finalizedAttempt: { findMany: vi.fn() },
-    diagnosticAttempt: { findMany: vi.fn() },
-    practiceSet: { findMany: vi.fn() },
-    diagnosticSession: { findMany: vi.fn() },
-    predictionHistoryEntry: { findMany: vi.fn() },
+    practiceSet: { count: vi.fn() },
+    $queryRaw: vi.fn(),
   };
   return { prisma: mockPrisma };
 });
@@ -18,12 +16,11 @@ vi.mock("@/lib/prisma", () => {
 const mocked = prisma as unknown as {
   organization: Record<string, ReturnType<typeof vi.fn>>;
   studentMembership: Record<string, ReturnType<typeof vi.fn>>;
-  finalizedAttempt: Record<string, ReturnType<typeof vi.fn>>;
-  diagnosticAttempt: Record<string, ReturnType<typeof vi.fn>>;
   practiceSet: Record<string, ReturnType<typeof vi.fn>>;
-  diagnosticSession: Record<string, ReturnType<typeof vi.fn>>;
-  predictionHistoryEntry: Record<string, ReturnType<typeof vi.fn>>;
+  $queryRaw: ReturnType<typeof vi.fn>;
 };
+
+let fixture: ActivityFixture;
 
 function org(overrides: Partial<{ totalEnrollment: number | null; status: string }> = {}) {
   return {
@@ -41,11 +38,8 @@ beforeEach(() => {
   mocked.organization.findUniqueOrThrow.mockResolvedValue(org());
   mocked.studentMembership.findMany.mockResolvedValue([]);
   mocked.studentMembership.count.mockResolvedValue(0);
-  mocked.finalizedAttempt.findMany.mockResolvedValue([]);
-  mocked.diagnosticAttempt.findMany.mockResolvedValue([]);
-  mocked.practiceSet.findMany.mockResolvedValue([]);
-  mocked.diagnosticSession.findMany.mockResolvedValue([]);
-  mocked.predictionHistoryEntry.findMany.mockResolvedValue([]);
+  mocked.practiceSet.count.mockResolvedValue(0);
+  fixture = installActivityQueryMock(mocked.$queryRaw, { answers: [], sessions: [], predictions: [] });
 });
 
 describe("getAdminOverviewData", () => {
@@ -79,7 +73,8 @@ describe("getAdminOverviewData", () => {
 
   it("reuses the shared school aggregate stats rather than re-deriving them", async () => {
     mocked.studentMembership.findMany.mockResolvedValue([{ studentId: "s1" }]);
-    mocked.finalizedAttempt.findMany.mockResolvedValue([{ studentId: "s1", finalizedAt: new Date() }]);
+    // Totals come from a database count now, not from loading every answer row.
+    fixture.answers = [{ studentId: "s1", answeredAt: new Date() }];
 
     const result = await getAdminOverviewData("school1");
 
@@ -96,10 +91,10 @@ describe("getAdminOverviewData", () => {
 
   it("never leaks a per-student breakdown in the returned shape", async () => {
     mocked.studentMembership.findMany.mockResolvedValue([{ studentId: "s1" }, { studentId: "s2" }]);
-    mocked.finalizedAttempt.findMany.mockResolvedValue([
-      { studentId: "s1", finalizedAt: new Date() },
-      { studentId: "s2", finalizedAt: new Date() },
-    ]);
+    fixture.answers = [
+      { studentId: "s1", answeredAt: new Date() },
+      { studentId: "s2", answeredAt: new Date() },
+    ];
 
     const result = await getAdminOverviewData("school1");
 

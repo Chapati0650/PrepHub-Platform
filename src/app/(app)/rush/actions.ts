@@ -20,6 +20,13 @@ import {
   type ServedQuestion,
 } from "@/lib/rush/runs";
 import {
+  acceptRematch,
+  getRematchState,
+  requestRematch,
+  type RematchDestination,
+  type RematchState,
+} from "@/lib/rush/rematch";
+import {
   cancelLiveRoom,
   createLiveRoom,
   getLiveState,
@@ -181,4 +188,49 @@ export async function loadRushQuestionDetailAction(challengeId: string, position
   if (!slot) throw new Error("Question not found.");
   const [content, feedback] = await Promise.all([getStudentQuestionContent(slot.questionRevisionId), getStudentQuestionFeedback(slot.questionRevisionId)]);
   return { content, feedback, studentAnswer: slot.answer };
+}
+
+// ---- Rematch ----------------------------------------------------------------
+
+function rematchHref(where: RematchDestination): string {
+  return where.live ? `/rush/live/${where.challengeId}` : `/rush/play/${where.runId}`;
+}
+
+// "Rematch" on a results page. Starting one is Premium, the same as starting
+// any rush — but if the opponent already asked, this accepts theirs, which is
+// free; requestRematch decides which, so the paid check only blocks a student
+// who would actually be opening a new one.
+export async function requestRematchAction(formData: FormData): Promise<void> {
+  const studentId = await requireStudentId();
+  const challengeId = str(formData, "challengeId");
+  const state = await getRematchState(studentId, challengeId);
+  if (state.kind !== "RECEIVED" && !(await hasPaidAccess(studentId))) redirect("/pricing");
+
+  let href: string;
+  try {
+    href = rematchHref(await requestRematch(studentId, challengeId));
+  } catch (err) {
+    toHubError(err);
+  }
+  redirect(href);
+}
+
+// Accepting an invitation, from the hub or a results page. Free, like
+// accepting any friend challenge.
+export async function acceptRematchAction(formData: FormData): Promise<void> {
+  const studentId = await requireStudentId();
+  let href: string;
+  try {
+    href = rematchHref(await acceptRematch(studentId, str(formData, "rematchId")));
+  } catch (err) {
+    toHubError(err);
+  }
+  redirect(href);
+}
+
+// Polled by the results page, so an invitation from the other player shows up
+// while both of them are still looking at the result.
+export async function rematchStateAction(challengeId: string): Promise<RematchState> {
+  const studentId = await requireStudentId();
+  return getRematchState(studentId, challengeId);
 }

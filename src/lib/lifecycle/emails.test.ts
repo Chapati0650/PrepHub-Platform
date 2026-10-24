@@ -25,18 +25,76 @@ beforeEach(() => {
 
 describe("sendFinishDiagnosticNudges", () => {
   it("emails each candidate once, with their progress in the subject", async () => {
+    // Three core questions answered, out of the staged Diagnostic's fourteen.
+    const answered = (category: string, difficulty: string) => ({
+      id: `${category}-${difficulty}`,
+      category,
+      difficulty,
+      submittedAt: new Date(),
+      isCorrect: true,
+      waivedAt: null,
+    });
+    const open = (category: string, difficulty: string) => ({
+      ...answered(category, difficulty),
+      submittedAt: null,
+      isCorrect: null,
+    });
     users.mockResolvedValue([
-      { id: "u1", email: "a@x.com", firstName: "Ada", diagnosticSession: { attempts: [{ id: "1" }, { id: "2" }, { id: "3" }] } },
+      {
+        id: "u1",
+        email: "a@x.com",
+        firstName: "Ada",
+        diagnosticSession: {
+          attempts: [
+            answered("ADVANCED_MATH", "EASY"),
+            answered("VOCABULARY", "EASY"),
+            answered("ALGEBRA", "EASY"),
+            open("GRAMMAR", "EASY"),
+            open("ALGEBRA", "MEDIUM"),
+          ],
+        },
+      },
       { id: "u2", email: "b@x.com", firstName: "Ben", diagnosticSession: null },
     ]);
     const sent = await sendFinishDiagnosticNudges(new Date("2026-09-21T22:00:00Z"));
     expect(sent).toBe(2);
     expect(send).toHaveBeenCalledTimes(2);
-    expect(send.mock.calls[0][0].subject).toBe("You're 3 of 21 questions in");
-    expect(send.mock.calls[0][0].text).toContain("remaining 18");
-    expect(send.mock.calls[1][0].subject).toBe("Your predicted SAT score is 21 questions away");
+    expect(send.mock.calls[0][0].subject).toBe("You're 3 of 14 questions in");
+    expect(send.mock.calls[0][0].text).toContain("remaining 11");
+    expect(send.mock.calls[1][0].subject).toBe("Your predicted SAT score is 14 questions away");
     // the claim is written before the send, once per user, for "once"
     expect(claim).toHaveBeenCalledWith({ data: { userId: "u1", kind: "finish_diagnostic", day: "once" } });
+  });
+
+  it("tells a student who finished the core that a bonus round is waiting", async () => {
+    // Every Easy and Medium answered, Algebra's Medium right: Algebra's Hard
+    // question was earned and is still to answer.
+    const categories = [
+      "READING_COMPREHENSION",
+      "GRAMMAR",
+      "VOCABULARY",
+      "ALGEBRA",
+      "GEOMETRY_TRIGONOMETRY",
+      "ADVANCED_MATH",
+      "PROBLEM_SOLVING_DATA_ANALYSIS",
+    ];
+    const attempts = categories.flatMap((category) => [
+      { id: `${category}-E`, category, difficulty: "EASY", submittedAt: new Date(), isCorrect: true, waivedAt: null },
+      {
+        id: `${category}-M`,
+        category,
+        difficulty: "MEDIUM",
+        submittedAt: new Date(),
+        isCorrect: category === "ALGEBRA",
+        waivedAt: null,
+      },
+      { id: `${category}-H`, category, difficulty: "HARD", submittedAt: null, isCorrect: null, waivedAt: null },
+    ]);
+    users.mockResolvedValue([{ id: "u1", email: "a@x.com", firstName: "Ada", diagnosticSession: { attempts } }]);
+
+    await sendFinishDiagnosticNudges(new Date("2026-09-21T22:00:00Z"));
+
+    expect(send.mock.calls[0][0].subject).toBe("Your bonus round is waiting");
   });
 
   it("skips anyone whose claim row already exists (a re-run)", async () => {

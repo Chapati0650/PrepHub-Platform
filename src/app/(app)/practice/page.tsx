@@ -48,7 +48,7 @@ export default async function PracticePage() {
         <p className="mt-3 text-muted-foreground">
           {started
             ? "You have already started it and your answers are saved, so you can pick up where you stopped."
-            : "It is 21 questions and takes about 20 minutes. Your answers save as you go, so you can stop and come back."}
+            : "It is 14 questions and takes about 15 minutes. Your answers save as you go, so you can stop and come back."}
         </p>
         <div className="mt-8 flex flex-wrap items-center gap-3">
           <LinkButton size="cta" href="/diagnostic">

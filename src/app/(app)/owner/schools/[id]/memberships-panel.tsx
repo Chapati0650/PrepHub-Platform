@@ -56,11 +56,14 @@ export type TransferTarget = { id: string; officialName: string; parentDistrictI
 export function MembershipsPanel({
   organizationId,
   memberships,
+  total,
   schools,
   transferTargets,
 }: {
   organizationId: string;
   memberships: MembershipRow[];
+  /** Every membership at this organization, not just the page shown here. */
+  total: number;
   schools: { id: string; officialName: string }[];
   transferTargets: TransferTarget[];
 }) {
@@ -93,6 +96,15 @@ export function MembershipsPanel({
             </TableBody>
           </Table>
         </div>
+      )}
+
+      {/* Says so rather than quietly showing a slice: at district scale this
+          list is the most recent arrivals, and the Student Directory is the
+          surface for working through a whole roster. */}
+      {total > memberships.length && (
+        <p className="text-sm text-muted-foreground tabular-nums">
+          Showing the {memberships.length} most recent of {total.toLocaleString()}.
+        </p>
       )}
 
       <ManualActivationForm organizationId={organizationId} schools={schools} />

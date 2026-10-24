@@ -43,7 +43,7 @@ export default function AccessSelectionPage() {
           href="/diagnostic"
           title="Take the Diagnostic First"
           description="See your predicted SAT score before deciding how you'd like to use PrepHub."
-          meta="Free · 21 questions"
+          meta="Free · about 15 minutes"
         />
       </div>
     </div>

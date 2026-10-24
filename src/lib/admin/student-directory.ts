@@ -1,13 +1,30 @@
 import type { MembershipStatus, Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { logUnauthorizedAccess } from "@/lib/logger";
+import {
+  emptyStudentActivity,
+  getStudentActivity,
+  type StudentActivity,
+} from "@/lib/school/student-activity";
 import { AdminError } from "./errors";
 
 export type StudentDirectoryFilters = {
   search?: string;
   graduationYear?: number;
   status?: MembershipStatus;
+  /** 1-based. Out-of-range values are clamped rather than erroring. */
+  page?: number;
 };
+
+/**
+ * Rows per page.
+ *
+ * The directory used to return every membership at the school. That is fine
+ * for a pilot campus and unusable for a district: a 2,000-student school meant
+ * 2,000 rows fetched, three more unbounded queries to derive last-active, and
+ * 2,000 table rows rendered into the HTML. Paging bounds all four.
+ */
+export const STUDENT_DIRECTORY_PAGE_SIZE = 50;
 
 export type StudentDirectoryEntry = {
   membershipId: string;
@@ -17,17 +34,36 @@ export type StudentDirectoryEntry = {
   status: MembershipStatus;
   registeredAt: Date;
   lastActiveAt: Date | null;
+  /** Engagement, not performance — see the note below. */
+  activity: StudentActivity;
 };
 
-// PRD-011 §12 — the directory's field list is a deliberately narrow slice of
-// account/administrative metadata; it structurally cannot carry any academic
-// field because none is ever selected out of the database here (§21 — the
-// dashboard should not let an admin reverse-engineer performance from what's
-// shown, and the simplest guarantee of that is not fetching it at all).
+// PRD-011 §12 — the directory's field list is account/administrative metadata
+// plus engagement: how many questions a student has answered, how many
+// sessions they finished, roughly how long they have spent, and when they were
+// last here.
+//
+// The line this holds, and the reason it is drawn where it is: an
+// Administrator sees *how much work* a student has done and never *how well*
+// they did it. No correctness, ability, mastery or predicted-score field is
+// selected out of the database anywhere in this file, which is a stronger
+// guarantee than filtering one out later (§21 — the dashboard must not let an
+// admin reverse-engineer performance from what's shown). PRD-011 §7 originally
+// excluded engagement too; it was added on 2026-10-21 after an administrator
+// asked for it directly, because "has this student even started?" is the
+// question an intervention actually turns on. Per-student *scores* remain a
+// separate decision and are deliberately not implied by this one.
+export type StudentDirectoryPage = {
+  entries: StudentDirectoryEntry[];
+  total: number;
+  page: number;
+  pageCount: number;
+};
+
 export async function getStudentDirectory(
   schoolId: string,
   filters: StudentDirectoryFilters = {},
-): Promise<StudentDirectoryEntry[]> {
+): Promise<StudentDirectoryPage> {
   const where: Prisma.StudentMembershipWhereInput = {
     schoolId,
     ...(filters.graduationYear ? { expectedGraduationYear: filters.graduationYear } : {}),
@@ -42,8 +78,14 @@ export async function getStudentDirectory(
       : {}),
   };
 
+  const total = await prisma.studentMembership.count({ where });
+  const pageCount = Math.max(1, Math.ceil(total / STUDENT_DIRECTORY_PAGE_SIZE));
+  const page = Math.min(Math.max(1, Math.floor(filters.page ?? 1)), pageCount);
+
   const memberships = await prisma.studentMembership.findMany({
     where,
+    skip: (page - 1) * STUDENT_DIRECTORY_PAGE_SIZE,
+    take: STUDENT_DIRECTORY_PAGE_SIZE,
     select: {
       id: true,
       studentId: true,
@@ -56,48 +98,33 @@ export async function getStudentDirectory(
     orderBy: { activatedAt: "desc" },
   });
 
-  if (memberships.length === 0) return [];
+  if (memberships.length === 0) return { entries: [], total, page, pageCount };
 
   const studentIds = memberships.map((m) => m.studentId);
 
-  // "Last Active Date" has no dedicated column — it's derived as the most
-  // recent of any learning activity across the three places it's recorded.
-  const [finalizedMax, practiceSetMax, diagnosticSessions] = await Promise.all([
-    prisma.finalizedAttempt.groupBy({
-      by: ["studentId"],
-      where: { studentId: { in: studentIds } },
-      _max: { finalizedAt: true },
-    }),
-    prisma.practiceSet.groupBy({
-      by: ["studentId"],
-      where: { studentId: { in: studentIds }, completedAt: { not: null } },
-      _max: { completedAt: true },
-    }),
-    prisma.diagnosticSession.findMany({
-      where: { studentId: { in: studentIds }, completedAt: { not: null } },
-      select: { studentId: true, completedAt: true },
-    }),
-  ]);
+  // One query for the page's students, covering every table a student's
+  // answers and sessions can land in. "Last Active Date" still has no
+  // dedicated column — it is the most recent of any of them.
+  const activity = await getStudentActivity(studentIds);
 
-  const lastActiveByStudent = new Map<string, Date>();
-  const considerActivity = (studentId: string, at: Date | null | undefined) => {
-    if (!at) return;
-    const current = lastActiveByStudent.get(studentId);
-    if (!current || at > current) lastActiveByStudent.set(studentId, at);
+  return {
+    entries: memberships.map((m) => {
+      const studentActivity = activity.get(m.studentId) ?? emptyStudentActivity();
+      return {
+        membershipId: m.id,
+        firstName: m.student.firstName,
+        schoolEmail: m.verifiedSchoolEmail,
+        graduationYear: m.expectedGraduationYear,
+        status: m.status,
+        registeredAt: m.activatedAt,
+        lastActiveAt: studentActivity.lastActiveAt,
+        activity: studentActivity,
+      };
+    }),
+    total,
+    page,
+    pageCount,
   };
-  for (const row of finalizedMax) considerActivity(row.studentId, row._max.finalizedAt);
-  for (const row of practiceSetMax) considerActivity(row.studentId, row._max.completedAt);
-  for (const row of diagnosticSessions) considerActivity(row.studentId, row.completedAt);
-
-  return memberships.map((m) => ({
-    membershipId: m.id,
-    firstName: m.student.firstName,
-    schoolEmail: m.verifiedSchoolEmail,
-    graduationYear: m.expectedGraduationYear,
-    status: m.status,
-    registeredAt: m.activatedAt,
-    lastActiveAt: lastActiveByStudent.get(m.studentId) ?? null,
-  }));
 }
 
 // PRD-011 §14 — the only two fields an Administrator may correct. Scoped to

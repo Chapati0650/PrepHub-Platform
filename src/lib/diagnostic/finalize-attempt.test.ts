@@ -14,6 +14,7 @@ const mocked = prisma as unknown as { diagnosticAttempt: Record<string, ReturnTy
 const baseAttempt = {
   id: "attempt1",
   submittedAt: null,
+  waivedAt: null,
   diagnosticSession: { studentId: "student1", status: "IN_PROGRESS" },
   question: { questionType: "MULTIPLE_CHOICE" as const },
   questionRevision: {
@@ -73,7 +74,7 @@ describe("finalizeDiagnosticAttempt", () => {
 
     expect(mocked.diagnosticAttempt.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "attempt1", submittedAt: null },
+        where: { id: "attempt1", submittedAt: null, waivedAt: null },
         data: expect.objectContaining({ isCorrect: true, isBlank: false, answer: "c1" }),
       }),
     );
@@ -88,5 +89,15 @@ describe("finalizeDiagnosticAttempt", () => {
     expect(mocked.diagnosticAttempt.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ isCorrect: false }) }),
     );
+  });
+
+  it("refuses to grade a waived bonus question, even with a valid id", async () => {
+    // A waived Hard question is never sent to the client; this only fires for
+    // a forged or replayed request, and grading it would quietly overturn the
+    // bonus-round rule.
+    mocked.diagnosticAttempt.findUnique.mockResolvedValue({ ...baseAttempt, waivedAt: new Date() });
+
+    await expect(finalizeDiagnosticAttempt("student1", "attempt1", "c1")).rejects.toThrow(/not found/i);
+    expect(mocked.diagnosticAttempt.updateMany).not.toHaveBeenCalled();
   });
 });

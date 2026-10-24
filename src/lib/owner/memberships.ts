@@ -27,27 +27,34 @@ export async function manuallyActivateStudent(input: ManualActivationInput) {
     );
   }
 
-  const membership = await prisma.studentMembership.create({
-    data: {
-      studentId: student.id,
-      organizationId: input.organizationId,
-      schoolId: input.schoolId,
-      verifiedSchoolEmail: input.verifiedSchoolEmail,
-      currentGrade: input.currentGrade,
-      expectedGraduationYear: input.expectedGraduationYear,
-      activationMethod: "OWNER_OVERRIDE",
-    },
-  });
+  // One transaction, here and in every transition below. These were two
+  // separate writes, and a failure between them left a membership whose
+  // status change had no audit record - which is the entire purpose of
+  // MembershipHistoryEvent (PRD-017 §16) and exactly what CLAUDE.md's
+  // "membership activation/removal/graduation are atomic" invariant is about.
+  return prisma.$transaction(async (tx) => {
+    const membership = await tx.studentMembership.create({
+      data: {
+        studentId: student.id,
+        organizationId: input.organizationId,
+        schoolId: input.schoolId,
+        verifiedSchoolEmail: input.verifiedSchoolEmail,
+        currentGrade: input.currentGrade,
+        expectedGraduationYear: input.expectedGraduationYear,
+        activationMethod: "OWNER_OVERRIDE",
+      },
+    });
 
-  await prisma.membershipHistoryEvent.create({
-    data: {
-      membershipId: membership.id,
-      eventType: "OWNER_OVERRIDE_ACTIVATION",
-      newOrganizationId: input.organizationId,
-    },
-  });
+    await tx.membershipHistoryEvent.create({
+      data: {
+        membershipId: membership.id,
+        eventType: "OWNER_OVERRIDE_ACTIVATION",
+        newOrganizationId: input.organizationId,
+      },
+    });
 
-  return membership;
+    return membership;
+  });
 }
 
 // PRD-017 §14: ends access immediately; preserves the account, progress, and
@@ -56,21 +63,23 @@ export async function removeMembership(membershipId: string, performedByAccountI
   const membership = await prisma.studentMembership.findUnique({ where: { id: membershipId } });
   if (!membership) throw new OwnerError("MEMBERSHIP_NOT_FOUND", "Membership not found.");
 
-  const updated = await prisma.studentMembership.update({
-    where: { id: membershipId },
-    data: { status: "REMOVED", removedAt: new Date() },
-  });
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.studentMembership.update({
+      where: { id: membershipId },
+      data: { status: "REMOVED", removedAt: new Date() },
+    });
 
-  await prisma.membershipHistoryEvent.create({
-    data: {
-      membershipId,
-      eventType: "REMOVAL",
-      performedByAccountId,
-      optionalReason: reason,
-    },
-  });
+    await tx.membershipHistoryEvent.create({
+      data: {
+        membershipId,
+        eventType: "REMOVAL",
+        performedByAccountId,
+        optionalReason: reason,
+      },
+    });
 
-  return updated;
+    return updated;
+  });
 }
 
 // PRD-017 §14: reactivates the existing membership rather than creating a
@@ -88,16 +97,18 @@ export async function restoreMembership(membershipId: string, performedByAccount
     throw new OwnerError("INVALID_INPUT", "The organization must be Active to restore access.");
   }
 
-  const updated = await prisma.studentMembership.update({
-    where: { id: membershipId },
-    data: { status: "ACTIVE", restoredAt: new Date() },
-  });
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.studentMembership.update({
+      where: { id: membershipId },
+      data: { status: "ACTIVE", restoredAt: new Date() },
+    });
 
-  await prisma.membershipHistoryEvent.create({
-    data: { membershipId, eventType: "RESTORATION", performedByAccountId },
-  });
+    await tx.membershipHistoryEvent.create({
+      data: { membershipId, eventType: "RESTORATION", performedByAccountId },
+    });
 
-  return updated;
+    return updated;
+  });
 }
 
 export async function updateGraduationInfo(
@@ -119,16 +130,18 @@ export async function markGraduated(membershipId: string, performedByAccountId: 
   const membership = await prisma.studentMembership.findUnique({ where: { id: membershipId } });
   if (!membership) throw new OwnerError("MEMBERSHIP_NOT_FOUND", "Membership not found.");
 
-  const updated = await prisma.studentMembership.update({
-    where: { id: membershipId },
-    data: { status: "GRADUATED", graduatedAt: new Date() },
-  });
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.studentMembership.update({
+      where: { id: membershipId },
+      data: { status: "GRADUATED", graduatedAt: new Date() },
+    });
 
-  await prisma.membershipHistoryEvent.create({
-    data: { membershipId, eventType: "GRADUATION", performedByAccountId },
-  });
+    await tx.membershipHistoryEvent.create({
+      data: { membershipId, eventType: "GRADUATION", performedByAccountId },
+    });
 
-  return updated;
+    return updated;
+  });
 }
 
 // PRD-017 §15: a dedicated student-facing transfer flow is out of scope — only
@@ -144,41 +157,65 @@ export async function resolveSchoolTransfer(
   const membership = await prisma.studentMembership.findUnique({ where: { id: membershipId } });
   if (!membership) throw new OwnerError("MEMBERSHIP_NOT_FOUND", "Membership not found.");
 
-  const updated = await prisma.studentMembership.update({
-    where: { id: membershipId },
-    data: {
-      organizationId: newOrganizationId,
-      schoolId: newSchoolId,
-      verifiedSchoolEmail: newVerifiedSchoolEmail,
-      status: "ACTIVE",
-      restoredAt: new Date(),
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.studentMembership.update({
+      where: { id: membershipId },
+      data: {
+        organizationId: newOrganizationId,
+        schoolId: newSchoolId,
+        verifiedSchoolEmail: newVerifiedSchoolEmail,
+        status: "ACTIVE",
+        restoredAt: new Date(),
+      },
+    });
 
-  await prisma.membershipHistoryEvent.create({
-    data: {
-      membershipId,
-      eventType: "MANUAL_TRANSFER",
-      performedByAccountId,
-      previousOrganizationId: membership.organizationId,
-      newOrganizationId,
-    },
-  });
+    await tx.membershipHistoryEvent.create({
+      data: {
+        membershipId,
+        eventType: "MANUAL_TRANSFER",
+        performedByAccountId,
+        previousOrganizationId: membership.organizationId,
+        newOrganizationId,
+      },
+    });
 
-  return updated;
+    return updated;
+  });
 }
 
 // Mirrors the same District-vs-School distinction as listOrganizations' counts:
 // a District's memberships are everyone under the contract (organizationId); a
 // School's are students actually at that school (schoolId) — not the same
 // relation once a school belongs to a district.
-export async function listMemberships(organizationId: string) {
+/**
+ * How many memberships the Owner organization page shows at once.
+ *
+ * It used to show all of them. That is fine for a pilot campus and unusable
+ * for a district: two thousand memberships meant two thousand rows fetched
+ * with the student joined and two thousand table rows rendered into the HTML,
+ * on a page the Owner opens to check a contract date. The Student Directory is
+ * the surface built for working through a roster at length; this list is the
+ * most recent arrivals plus a total.
+ */
+export const MEMBERSHIP_PAGE_SIZE = 50;
+
+export async function listMemberships(
+  organizationId: string,
+  { limit = MEMBERSHIP_PAGE_SIZE }: { limit?: number } = {},
+) {
   const org = await prisma.organization.findUnique({ where: { id: organizationId } });
   if (!org) throw new OwnerError("ORGANIZATION_NOT_FOUND", "Organization not found.");
 
-  return prisma.studentMembership.findMany({
-    where: org.organizationType === "DISTRICT" ? { organizationId } : { schoolId: organizationId },
-    include: { student: { select: { id: true, firstName: true, email: true } } },
-    orderBy: { activatedAt: "desc" },
-  });
+  const where =
+    org.organizationType === "DISTRICT" ? { organizationId } : { schoolId: organizationId };
+  const [entries, total] = await Promise.all([
+    prisma.studentMembership.findMany({
+      where,
+      include: { student: { select: { id: true, firstName: true, email: true } } },
+      orderBy: { activatedAt: "desc" },
+      take: limit,
+    }),
+    prisma.studentMembership.count({ where }),
+  ]);
+  return { entries, total };
 }

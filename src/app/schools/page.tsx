@@ -331,7 +331,7 @@ function Setup() {
 const STUDENT_FEATURES = [
   {
     name: "Diagnostic",
-    body: "21 questions in one sitting, one per difficulty across all seven tested categories. It ends with a Predicted SAT Score range and names the two categories costing them the most.",
+    body: "Fourteen questions across all seven tested categories, easiest first. The hardest questions only appear in categories a student has already shown they can handle, so a student who is struggling never meets a wall of them. It ends with a Predicted SAT Score range and names the two categories costing them the most.",
   },
   {
     name: "Personalized Practice",
@@ -538,11 +538,14 @@ function Ccmr() {
   );
 }
 
+// The "Administrators never see an individual student's performance" point was
+// removed on 2026-10-24. It was written when the admin area was aggregate-only,
+// and it stopped being the whole truth once the Student Directory started
+// showing per-student engagement (questions answered, sessions, study time) at
+// an administrator's request. Scores are still never shown, but a flat "never
+// see an individual student" would now read as a promise the product doesn't
+// keep — and a district that reads it carefully would catch that.
 const PRIVACY_POINTS = [
-  {
-    name: "Administrators never see an individual student's performance",
-    body: "This is enforced by the shape of the data rather than by a filter someone could switch off. The queries behind every campus figure return totals with no field that could carry one student's score.",
-  },
   {
     name: "A student's account is theirs",
     body: "Their login, their district access and their learning history are three separate things. Graduating or leaving the district ends the access without touching the account or the history.",

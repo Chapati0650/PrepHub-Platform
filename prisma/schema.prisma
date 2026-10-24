@@ -65,6 +65,13 @@ model User {
   // this field is real, persisted preference storage, wired up when one exists.
   dailyReminderEnabled Boolean @default(true)
 
+  /// Hides this student from their school's weekly 1v1 Rush leaderboard
+  /// (2026-10-24). Shown by default — first name only — because a
+  /// leaderboard nobody appears on does nothing, and a student who would
+  /// rather not be listed turns it off in Settings. They still see their own
+  /// rank; only other students stop seeing them.
+  rushLeaderboardHidden Boolean @default(false)
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime? // PRD-001: deletion is atomic + anonymizing, not row deletion
@@ -90,7 +97,8 @@ model User {
   collegeAppsProfile     CollegeAppsProfile?
   collegeApplications    CollegeApplication[]
   applicationItems       ApplicationItem[]
-  rushChallenges         RushChallenge[]
+  rushChallenges         RushChallenge[]          @relation("RushCreator")
+  rushInvites            RushChallenge[]          @relation("RushInvite")
   rushRuns               RushRun[]
   dailyChallengeAttempts DailyChallengeAttempt[]
   analyticsEvents        AnalyticsEvent[]
@@ -118,6 +126,8 @@ model Account {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+  /// Auth.js looks up a user's linked providers by account.
+  @@index([userId])
   @@map("accounts")
 }
 
@@ -264,6 +274,13 @@ model Organization {
   // for "known but not partnered" schools without an active contract).
   directoryVisible Boolean @default(true)
 
+  /// Whether this organization's students see a weekly 1v1 Rush leaderboard
+  /// (2026-10-24). On by default; the Owner turns it off for a school or a
+  /// whole district whose data agreement doesn't allow students to see each
+  /// other's names and scores. A school inside a district shows one only if
+  /// both allow it.
+  rushLeaderboardEnabled Boolean @default(true)
+
   parentDistrictId String? // null for DISTRICT orgs; set on SCHOOL orgs under a district
   parentDistrict   Organization?  @relation("DistrictSchools", fields: [parentDistrictId], references: [id])
   schools          Organization[] @relation("DistrictSchools")
@@ -378,6 +395,13 @@ model StudentMembership {
 
   historyEvents MembershipHistoryEvent[]
 
+  /// Every school-scoped query is `{ schoolId, status }` or
+  /// `{ organizationId, status }` — the admin area, School Community, the
+  /// campus report, roster invitations. Both are listed because a district
+  /// student's organizationId is the district while schoolId is their campus,
+  /// so neither can stand in for the other (PRD-017 §3).
+  @@index([schoolId, status])
+  @@index([organizationId, status])
   @@map("student_memberships")
 }
 
@@ -578,6 +602,9 @@ model Question {
   dailyChallenges    DailyChallenge[]
 
   @@index([sourceImageHash])
+  /// The Questions table filters by family, and publishing a family touches
+  /// every question in it.
+  @@index([familyId])
   @@map("questions")
 }
 
@@ -644,6 +671,8 @@ model QuestionRevision {
   rushSlots          RushSlot[]
   dailyChallenges    DailyChallenge[]
 
+  /// The editor lists a question's revision history.
+  @@index([questionId])
   @@map("question_revisions")
 }
 
@@ -843,6 +872,15 @@ model FinalizedAttempt {
   blueprintSlot BlueprintSlot @relation(fields: [blueprintSlotId], references: [id], onDelete: Cascade)
   question      Question      @relation(fields: [questionId], references: [id])
 
+  /// Every per-student read goes through this: the dashboard, Progress, the
+  /// Student Directory and every campus aggregate filter on `studentId`, and
+  /// the streak/today/this-week figures add a `finalizedAt` range on top. With
+  /// no index this table was scanned end to end for each of them, and it is
+  /// the fastest-growing table in the product — one row per question answered,
+  /// per student, forever.
+  @@index([studentId, finalizedAt])
+  /// Session Review loads one set's attempts.
+  @@index([practiceSetId])
   @@map("finalized_attempts")
 }
 
@@ -853,11 +891,36 @@ enum DiagnosticStatus {
 
 // One per student, ever — PRD-012 §25: no traditional retake. A row is only
 // created once the student actually begins (Not Started = no row, derived).
+/// Which version of the Diagnostic a session was run as.
+///
+/// FULL_21 is the original instrument: all 21 questions, every student, in the
+/// order they were generated. STAGED (2026-10-24) is fourteen core questions —
+/// one Easy and one Medium per category — and then a bonus round holding the
+/// Hard question only for categories where the student got the Medium right.
+///
+/// Recorded per session because the two produce slightly different starting
+/// scores for the same student (see src/lib/diagnostic/sequence.ts), and a
+/// district's gain reporting must never compare a cohort measured one way with
+/// a cohort measured the other without knowing it.
+enum DiagnosticFormat {
+  FULL_21
+  STAGED
+}
+
 model DiagnosticSession {
   id              String           @id @default(cuid())
   studentId       String           @unique
   status          DiagnosticStatus @default(IN_PROGRESS)
   currentPosition Int              @default(0)
+
+  /// Defaults to FULL_21 at the database level on purpose, and new code always
+  /// writes STAGED explicitly. The migration that adds this column lands before
+  /// the code that uses it, and in that window the old code is still creating
+  /// sessions in the old order; a STAGED default would mislabel them. An
+  /// IN_PROGRESS FULL_21 session is converted to STAGED the next time its
+  /// student opens it (convertLegacySession), so only finished ones keep the
+  /// old label — which is then simply the truth about which test they took.
+  format DiagnosticFormat @default(FULL_21)
 
   startedAt   DateTime  @default(now())
   completedAt DateTime?
@@ -889,6 +952,13 @@ model DiagnosticAttempt {
   isBlank     Boolean?
   isCorrect   Boolean?
   submittedAt DateTime?
+
+  /// Set on a Hard question that is never shown, because the student missed
+  /// that category's Medium (STAGED format only). It scores exactly as a wrong
+  /// answer — `isCorrect` stays null, and every scorer reads `!!isCorrect` —
+  /// so the scoring tables needed no change. A Hard question that has already
+  /// been answered is never waived.
+  waivedAt DateTime?
 
   diagnosticSession DiagnosticSession @relation(fields: [diagnosticSessionId], references: [id], onDelete: Cascade)
   question          Question          @relation(fields: [questionId], references: [id])
@@ -929,6 +999,11 @@ model PredictionHistoryEntry {
   student     User         @relation(fields: [studentId], references: [id], onDelete: Cascade)
   practiceSet PracticeSet? @relation(fields: [sourceSetId], references: [id])
 
+  /// Had no index at all beyond the primary key, and is read by student on
+  /// the dashboard, Progress, the campus impact report and the school
+  /// aggregate — all of which want it in `createdAt` order, which this also
+  /// serves.
+  @@index([studentId, createdAt])
   @@map("prediction_history_entries")
 }
 
@@ -956,6 +1031,8 @@ model Announcement {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy    User         @relation(fields: [createdByUserId], references: [id])
 
+  /// Read on every dashboard render for a student with a school membership.
+  @@index([organizationId, publishedAt])
   @@map("announcements")
 }
 
@@ -1087,6 +1164,8 @@ model LessonProgress {
   lesson  Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
   @@unique([studentId, lessonId])
+  /// Counting who has watched a lesson.
+  @@index([lessonId])
   @@map("lesson_progress")
 }
 
@@ -1212,6 +1291,8 @@ model ApplicationItem {
   application CollegeApplication? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@index([studentId, applicationId, position])
+  /// The checklist loads one application's items.
+  @@index([applicationId])
   @@map("application_items")
 }
 
@@ -1323,6 +1404,16 @@ model RushChallenge {
   // livePositionStartedAt is when the current question opened for both,
   // and tickLive advances it when both have answered or the limit passes.
   // No WebSockets on this host — clients poll getLiveState once a second.
+  /// Which points rules every run in this challenge is scored by. 1 is speed
+  /// and correctness only; 2 (2026-10-24) adds the answer-streak bonus. Stored
+  /// per challenge rather than read from the current config, because a friend
+  /// challenge is two runs played days apart: the second player must be
+  /// scored by the rules the first one was, or a streak bonus the first player
+  /// never had a chance at decides the result. Defaults to 1 at the database
+  /// level so a challenge created by older code during a deploy is labelled
+  /// truthfully; new code writes the current version explicitly.
+  scoringVersion Int @default(1)
+
   live                  Boolean         @default(false)
   liveStatus            RushLiveStatus?
   liveStartsAt          DateTime?
@@ -1330,10 +1421,25 @@ model RushChallenge {
   livePositionStartedAt DateTime?
 
   set     RushSet   @relation(fields: [setId], references: [id], onDelete: Cascade)
-  creator User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  creator User      @relation("RushCreator", fields: [creatorId], references: [id], onDelete: Cascade)
   runs    RushRun[]
 
+  /// The match this one is a rematch of (2026-10-24). Unique, so a match can
+  /// be rematched exactly once: two players pressing Rematch in the same
+  /// instant both land in the same new match — the second insert hits this
+  /// constraint and joins the first — instead of each opening a room and
+  /// waiting for the other. A rematch of a rematch chains naturally.
+  rematchOfId String?        @unique
+  rematchOf   RushChallenge? @relation("Rematch", fields: [rematchOfId], references: [id], onDelete: SetNull)
+  rematch     RushChallenge? @relation("Rematch")
+
+  /// The one student a rematch is for. A rematch room is theirs to join and
+  /// nobody else's, which is also why a rematch lobby shows no share code.
+  invitedStudentId String?
+  invitedStudent   User?   @relation("RushInvite", fields: [invitedStudentId], references: [id], onDelete: Cascade)
+
   @@index([mode, createdAt])
+  @@index([invitedStudentId])
   @@index([live, liveStatus])
   @@map("rush_challenges")
 }
@@ -1495,6 +1601,14 @@ model SchoolRosterEntry {
   /// never row-removal — see CLAUDE.md).
   removedAt DateTime?
 
+  /// When this student was last emailed an invitation to claim their district
+  /// access, and how many times they have been. Recorded so a second send can
+  /// skip everyone already invited: a district roster is sent in chunks to fit
+  /// inside a serverless request, and without this marker the second chunk
+  /// would be the same people again.
+  invitedAt   DateTime?
+  inviteCount Int       @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1508,6 +1622,9 @@ model SchoolRosterEntry {
   @@unique([organizationId, email])
   @@index([email])
   @@index([organizationId, removedAt])
+  /// Campus-scoped roster reads; `organizationId` is already covered as the
+  /// leading column of the unique below.
+  @@index([schoolId])
   @@map("school_roster_entries")
 }
 
@@ -1581,4 +1698,42 @@ model FocusedSlot {
   @@unique([sessionId, position])
   @@index([questionId])
   @@map("focused_slots")
+}
+
+/// One email waiting to be sent.
+///
+/// Why a queue exists at all: a district announcement or roster invitation
+/// goes to thousands of addresses, and the provider's batch endpoint takes a
+/// hundred per call. Twenty-odd sequential calls do not fit inside a
+/// serverless request, so sending them straight from the request that
+/// triggered them meant the function was killed partway through, having
+/// delivered an unknowable subset with no record of which and no way to
+/// retry. Rows here are written in the same transaction as the thing they
+/// announce, then drained — partly by that same request, so a small school
+/// still sees instant delivery, and the rest by a scheduled run.
+///
+/// The body is stored rather than re-derived so a drain run never has to
+/// reconstruct what was meant to be said; an announcement edited or removed
+/// afterwards does not silently change the mail already queued for it.
+model QueuedEmail {
+  id      String @id @default(cuid())
+  /// Free-form label for logs and the Owner status page, e.g. "announcement".
+  kind    String
+  to      String
+  subject String
+  body    String @db.Text
+
+  /// Taken by a drain run, so two overlapping runs can't both send this row.
+  /// Cleared on failure, and treated as abandoned once older than the stale
+  /// window, so a run killed mid-flight doesn't strand its claim forever.
+  claimedAt DateTime?
+  sentAt    DateTime?
+  attempts  Int       @default(0)
+  lastError String?
+
+  createdAt DateTime @default(now())
+
+  /// The drain query's index: unsent rows, oldest first.
+  @@index([sentAt, createdAt])
+  @@map("queued_emails")
 }

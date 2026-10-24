@@ -10,11 +10,17 @@ import {
 } from "./actions";
 
 export function DiagnosticRunner({
+  title,
+  itemLabel,
+  finishLabel,
   items,
   studentName,
   initialPosition,
   initialQuestion,
 }: {
+  title: string;
+  itemLabel: string;
+  finishLabel: string;
   items: SessionRunnerItem[];
   studentName?: string;
   initialPosition: number;
@@ -22,7 +28,9 @@ export function DiagnosticRunner({
 }) {
   return (
     <SessionRunner
-      title="Diagnostic"
+      title={title}
+      itemLabel={itemLabel}
+      finishLabel={finishLabel}
       studentName={studentName}
       initialItems={items}
       initialPosition={initialPosition}

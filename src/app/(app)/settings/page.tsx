@@ -16,6 +16,7 @@ import { ProfileForm } from "./profile-form";
 import { NotificationsForm } from "./notifications-form";
 import { ThemeToggle } from "./theme-toggle";
 import { SettingsNav, type SettingsSectionLink } from "./settings-nav";
+import { LeaderboardForm } from "./leaderboard-form";
 
 const PLAN_LABEL: Record<string, string> = { MONTHLY: "Monthly ($25/mo)", ANNUAL: "Annual ($99/yr)" };
 const ROLE_LABEL: Record<string, string> = {
@@ -85,6 +86,7 @@ export default async function SettingsPage() {
             image: true,
             createdAt: true,
             dailyReminderEnabled: true,
+            rushLeaderboardHidden: true,
           },
         })
       : null,
@@ -108,6 +110,9 @@ export default async function SettingsPage() {
     return !best || m.currentMastery > best.value ? { category: m.category, value: m.currentMastery } : best;
   }, null);
 
+  // Only a student with a school has a leaderboard to appear on.
+  const showLeaderboardSection = Boolean(showStudentSections && user && membership?.status === "ACTIVE");
+
   const sections: SettingsSectionLink[] = [
     { id: "profile", label: "Profile" },
     ...(showStudentSections && user
@@ -116,6 +121,7 @@ export default async function SettingsPage() {
           { id: "notifications", label: "Notifications" },
         ]
       : []),
+    ...(showLeaderboardSection ? [{ id: "leaderboard", label: "Leaderboard" }] : []),
     { id: "appearance", label: "Appearance" },
     ...(showStudentSections && user && !isAdmin ? [{ id: "subscription", label: "Subscription" }] : []),
     ...(showStudentSections && user ? [{ id: "legal", label: "Legal" }] : []),
@@ -224,6 +230,18 @@ export default async function SettingsPage() {
                   <NotificationsForm dailyReminderEnabled={user.dailyReminderEnabled} />
                 </Card>
               </Section>
+
+              {showLeaderboardSection && membership && (
+                <Section
+                  id="leaderboard"
+                  title="Leaderboard"
+                  description="Whether schoolmates see you on the weekly 1v1 Rush leaderboard."
+                >
+                  <Card>
+                    <LeaderboardForm shown={!user.rushLeaderboardHidden} schoolName={membership.school.officialName} />
+                  </Card>
+                </Section>
+              )}
             </>
           )}
 

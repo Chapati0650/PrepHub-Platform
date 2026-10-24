@@ -1,23 +1,29 @@
 "use client";
 
-import { useActionState, useRef, useState } from "react";
-import { Upload, Check, X } from "lucide-react";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Upload, Check, X, Mail } from "lucide-react";
 import {
   commitRosterAction,
   previewRosterAction,
   removeRosterEntryAction,
+  sendRosterInvitesAction,
   setEnrollmentModeAction,
   type ActionState,
+  type RosterInviteState,
   type RosterPreviewState,
 } from "../actions";
 import type { RosterListEntry } from "@/lib/owner/roster";
+import type { RosterInviteSummary } from "@/lib/owner/roster-invites";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const initialPreview: RosterPreviewState = {};
 const initialAction: ActionState = {};
+const initialInvite: RosterInviteState = {};
 
 const MODE_COPY: Record<string, { label: string; detail: string }> = {
   DOMAIN: {
@@ -42,6 +48,9 @@ export function RosterPanel({
   joined,
   hasDomain,
   multiCampus,
+  invites,
+  matching,
+  search,
 }: {
   id: string;
   enrollmentMode: string;
@@ -50,6 +59,10 @@ export function RosterPanel({
   joined: number;
   hasDomain: boolean;
   multiCampus: boolean;
+  invites: RosterInviteSummary;
+  /** How many rows the current search matches; equals `total` when not searching. */
+  matching: number;
+  search: string;
 }) {
   const [preview, previewAction, previewing] = useActionState(previewRosterAction, initialPreview);
   const [commit, commitAction, committing] = useActionState(commitRosterAction, initialAction);
@@ -240,6 +253,9 @@ export function RosterPanel({
         )}
       </div>
 
+      {/* Getting them in */}
+      <InvitePanel id={id} summary={invites} />
+
       {/* Current roster */}
       <div className="border-t border-border pt-6">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -249,8 +265,14 @@ export function RosterPanel({
           <p className="text-sm text-muted-foreground tabular-nums">{joined} have joined</p>
         </div>
 
+        <RosterSearch initial={search} />
+
         {entries.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">Nobody yet. Upload a roster above.</p>
+          <p className="mt-3 text-sm text-muted-foreground">
+            {search
+              ? `Nobody on this roster matches "${search}".`
+              : "Nobody yet. Upload a roster above."}
+          </p>
         ) : (
           <ul className="mt-3 divide-y divide-border border-y border-border text-sm">
             {entries.map((e) => (
@@ -289,9 +311,15 @@ export function RosterPanel({
             ))}
           </ul>
         )}
-        {total > entries.length && (
-          <p className="mt-2 text-sm text-muted-foreground">
-            Showing the first {entries.length} of {total}.
+        {matching > entries.length && (
+          <p className="mt-2 text-sm text-muted-foreground tabular-nums">
+            Showing the first {entries.length} of {matching.toLocaleString()}
+            {search ? ` matching "${search}"` : ""}. Narrow the search to find someone further down.
+          </p>
+        )}
+        {search && matching <= entries.length && (
+          <p className="mt-2 text-sm text-muted-foreground tabular-nums">
+            {matching.toLocaleString()} of {total.toLocaleString()} match &ldquo;{search}&rdquo;.
           </p>
         )}
       </div>
@@ -306,6 +334,127 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: "wa
         {value}
       </p>
       <p className="text-caption tracking-[0.12em] text-muted-foreground uppercase">{label}</p>
+    </div>
+  );
+}
+
+/**
+ * Inviting the roster.
+ *
+ * Two separate buttons, not one with a checkbox: the first invitation and
+ * chasing the people who ignored it are different decisions, and the count on
+ * each button is what makes which one you are about to do unambiguous. Both
+ * are capped per click, so the panel says what is left rather than pretending
+ * one press covered a district.
+ */
+function InvitePanel({ id, summary }: { id: string; summary: RosterInviteSummary }) {
+  const [state, action, pending] = useActionState(sendRosterInvitesAction, initialInvite);
+
+  return (
+    <div className="border-t border-border pt-6">
+      <p className="text-sm font-medium">Invite them</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Emails every student on the roster who hasn&apos;t claimed their access, asking them to sign up
+        with their school address. No account or password is ever created for them.
+      </p>
+
+      <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <Stat label="Awaiting claim" value={summary.awaitingClaim} />
+        <Stat label="Never invited" value={summary.neverInvited} />
+        <Stat label="Invited already" value={summary.alreadyInvited} />
+      </div>
+
+      {summary.lastInvitedAt && (
+        <p className="mt-3 text-sm text-muted-foreground">
+          Last invitation sent{" "}
+          {new Date(summary.lastInvitedAt).toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+          })}
+          .
+        </p>
+      )}
+
+      {state.error && (
+        <Alert variant="destructive" className="mt-4">
+          <AlertDescription>{state.error}</AlertDescription>
+        </Alert>
+      )}
+
+      {state.success && (
+        <Alert className="mt-4">
+          <AlertDescription>
+            {state.queued === 0
+              ? "Nobody was waiting on an invitation."
+              : `Queued ${state.queued} invitation${state.queued === 1 ? "" : "s"}.${
+                  state.remaining ? ` ${state.remaining} still to go — send again to continue.` : ""
+                }`}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <div className="mt-4 flex flex-wrap gap-3">
+        <form action={action}>
+          <input type="hidden" name="id" value={id} />
+          <Button type="submit" disabled={pending || summary.neverInvited === 0}>
+            <Mail className="size-4" aria-hidden />
+            {pending ? "Sending..." : `Invite ${summary.neverInvited} student${summary.neverInvited === 1 ? "" : "s"}`}
+          </Button>
+        </form>
+
+        {summary.alreadyInvited > 0 && (
+          <form action={action}>
+            <input type="hidden" name="id" value={id} />
+            <input type="hidden" name="reminder" value="1" />
+            <Button type="submit" variant="outline" disabled={pending}>
+              {pending ? "Sending..." : `Remind all ${summary.awaitingClaim} unclaimed`}
+            </Button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Debounced search over the roster, kept in the URL.
+ *
+ * The same shape as the Student Directory's search for the same reason: a
+ * district roster is thousands of rows, the list shows the first few hundred,
+ * and the student somebody is calling about is almost never in them.
+ */
+function RosterSearch({ initial }: { initial: string }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [, startTransition] = useTransition();
+  const [value, setValue] = useState(initial);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (value === initial) return;
+      const params = new URLSearchParams(searchParams.toString());
+      if (value.trim()) params.set("roster", value.trim());
+      else params.delete("roster");
+      startTransition(() => router.push(`${pathname}?${params.toString()}`));
+    }, 400);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  return (
+    <div className="mt-3">
+      <Label htmlFor="roster-search" className="sr-only">
+        Search the roster
+      </Label>
+      <Input
+        id="roster-search"
+        placeholder="Search by email or first name…"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className="w-full sm:w-80"
+      />
     </div>
   );
 }

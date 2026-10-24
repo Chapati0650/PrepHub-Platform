@@ -57,15 +57,22 @@ export async function generatePracticeSet(studentId: string) {
   const randomSeed = generateSeed();
   const random = createRandom(randomSeed);
 
-  const plannedSlots: PlannedSlot[] = [];
+  const grouped: PlannedSlot[] = [];
   for (const allocation of allocations) {
     const ability = abilityByCategory.get(allocation.category)!;
     for (let i = 0; i < allocation.total; i++) {
       const plannedDifficulty = sampleDifficulty(ability, random);
-      plannedSlots.push({ plannedCategory: allocation.category, plannedDifficulty });
+      grouped.push({ plannedCategory: allocation.category, plannedDifficulty });
     }
   }
-  shuffle(plannedSlots, random);
+  // `shuffle` returns a new array; it does not shuffle in place. This line
+  // used to read `shuffle(plannedSlots, random);` with the result discarded,
+  // so from the initial commit until 2026-10-24 every Practice Set was served
+  // grouped by category in allocation order — a student's weakest category,
+  // which gets the most questions, arriving as one unbroken run at the start.
+  // The same mistake in start-diagnostic.ts gave every student three Reading
+  // passages as Diagnostic questions one to three.
+  const plannedSlots = shuffle(grouped, random);
 
   const excludeQuestionIds = new Set<string>();
   const excludeFamilyIds = new Set<string>();

@@ -90,6 +90,23 @@ describe("generatePracticeSet", () => {
     expect([...counts.values()].reduce((a, b) => a + b, 0)).toBe(21);
   });
 
+  it("interleaves categories rather than serving them in grouped runs", async () => {
+    // The regression this guards: the shuffle's result was discarded, so
+    // every set was served grouped by category — the weakest category, with
+    // the most questions, as one unbroken run. Grouped order has exactly
+    // (categories - 1) = 6 changes of category in 21 slots; a real shuffle of
+    // this allocation essentially never comes close. Checked across several
+    // generated sets so one unlucky draw can't fail the suite.
+    mocked.categoryState.findMany.mockResolvedValue(categoryStatesAt(50));
+
+    for (let run = 0; run < 5; run++) {
+      const result = await generatePracticeSet("student1");
+      const order = (result as { slots: { resolvedCategory: string }[] }).slots.map((s) => s.resolvedCategory);
+      const changes = order.filter((category, i) => i > 0 && category !== order[i - 1]).length;
+      expect(changes).toBeGreaterThan(ALL_CATEGORIES.length - 1);
+    }
+  });
+
   it("never selects the same Exact Question twice in one set", async () => {
     mocked.categoryState.findMany.mockResolvedValue(categoryStatesAt(50));
 

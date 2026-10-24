@@ -7,30 +7,48 @@ import {
 } from "@/lib/announcements";
 import { AdminError } from "@/lib/admin/errors";
 import { prisma } from "@/lib/prisma";
-import { sendEmail } from "@/lib/email";
+import { drainForRequest } from "@/lib/email-queue";
 
 vi.mock("@/lib/prisma", () => {
+  // The announcement row and its mail are written in one transaction, so the
+  // transaction client is what the publish assertions look at.
+  const tx = {
+    announcement: { create: vi.fn() },
+    queuedEmail: { createMany: vi.fn() },
+  };
   const mockPrisma: Record<string, unknown> = {
-    announcement: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+    announcement: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     organization: { findUniqueOrThrow: vi.fn() },
     studentMembership: { findMany: vi.fn() },
+    $transaction: vi.fn(),
+    __tx: tx,
   };
   return { prisma: mockPrisma };
 });
 
-vi.mock("@/lib/email", () => ({ sendEmail: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("@/lib/email-queue", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/email-queue")>("@/lib/email-queue");
+  // queueRows is pure, so the real one is used; only the send is stubbed.
+  return { queueRows: actual.queueRows, drainForRequest: vi.fn().mockResolvedValue(undefined) };
+});
 
 const mocked = prisma as unknown as {
   announcement: Record<string, ReturnType<typeof vi.fn>>;
   organization: Record<string, ReturnType<typeof vi.fn>>;
   studentMembership: Record<string, ReturnType<typeof vi.fn>>;
+  $transaction: ReturnType<typeof vi.fn>;
+  __tx: {
+    announcement: Record<string, ReturnType<typeof vi.fn>>;
+    queuedEmail: Record<string, ReturnType<typeof vi.fn>>;
+  };
 };
-const mockedSendEmail = sendEmail as unknown as ReturnType<typeof vi.fn>;
+const mockedDrain = drainForRequest as unknown as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
   mocked.organization.findUniqueOrThrow.mockResolvedValue({ officialName: "Lebanon Trail High School" });
   mocked.studentMembership.findMany.mockResolvedValue([]);
+  mocked.$transaction.mockImplementation((fn: (t: unknown) => unknown) => fn(mocked.__tx));
 });
 
 describe("listAnnouncements", () => {
@@ -87,8 +105,8 @@ describe("getActiveAnnouncementsForStudents", () => {
 });
 
 describe("publishAnnouncement", () => {
-  it("creates the announcement and emails every ACTIVE registered student at their school email", async () => {
-    mocked.announcement.create.mockResolvedValue({
+  it("creates the announcement and queues mail for every ACTIVE registered student", async () => {
+    mocked.__tx.announcement.create.mockResolvedValue({
       id: "a1",
       title: "Testing Update",
       message: "Good luck!",
@@ -106,14 +124,24 @@ describe("publishAnnouncement", () => {
     expect(mocked.studentMembership.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { schoolId: "school1", status: "ACTIVE" } }),
     );
-    expect(mockedSendEmail).toHaveBeenCalledTimes(2);
-    expect(mockedSendEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: "ada@school.edu", subject: expect.stringContaining("Testing Update") }),
-    );
+    // One queue row per student, written in the same transaction as the
+    // announcement, so the announcement can't exist with no mail behind it.
+    expect(mocked.__tx.queuedEmail.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          to: "ada@school.edu",
+          kind: "announcement",
+          subject: expect.stringContaining("Testing Update"),
+        }),
+        expect.objectContaining({ to: "grace@school.edu" }),
+      ],
+    });
+    // Then drained from this request, so a small campus gets it at once.
+    expect(mockedDrain).toHaveBeenCalled();
   });
 
   it("still publishes even when there are zero currently-ACTIVE students to email", async () => {
-    mocked.announcement.create.mockResolvedValue({
+    mocked.__tx.announcement.create.mockResolvedValue({
       id: "a1",
       title: "t",
       message: "m",
@@ -126,7 +154,8 @@ describe("publishAnnouncement", () => {
     const result = await publishAnnouncement("school1", "admin1", { title: "t", message: "m" });
 
     expect(result.id).toBe("a1");
-    expect(mockedSendEmail).not.toHaveBeenCalled();
+    // Nothing queued rather than an empty insert.
+    expect(mocked.__tx.queuedEmail.createMany).not.toHaveBeenCalled();
   });
 });
 

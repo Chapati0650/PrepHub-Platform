@@ -3,6 +3,8 @@ import { OwnerSchoolSwitcher } from "../school-switcher";
 import { getStudentDirectory, type StudentDirectoryFilters } from "@/lib/admin/student-directory";
 import { PageHeader } from "@/components/page-header";
 import { StudentDirectoryTable } from "./student-directory-table";
+import { CampusInvitePanel } from "./invite-panel";
+import { getRosterInviteSummary, inviteScopeForSchool } from "@/lib/owner/roster-invites";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -11,10 +13,12 @@ function one(value: string | string[] | undefined): string | undefined {
 }
 
 function parseFilters(searchParams: SearchParams): StudentDirectoryFilters {
+  const page = Number(one(searchParams.page));
   const graduationYear = one(searchParams.graduationYear);
   const status = one(searchParams.status);
   return {
     search: one(searchParams.search),
+    page: Number.isFinite(page) && page > 0 ? page : 1,
     graduationYear: graduationYear ? Number(graduationYear) : undefined,
     status: status as StudentDirectoryFilters["status"],
   };
@@ -41,8 +45,11 @@ export default async function StudentDirectoryPage({ searchParams }: { searchPar
     );
   }
 
-  const filters = parseFilters(await searchParams);
-  const students = await getStudentDirectory(schoolId, filters);
+  const filters = parseFilters(params);
+  const [directory, invites] = await Promise.all([
+    getStudentDirectory(schoolId, filters),
+    inviteScopeForSchool(schoolId).then(getRosterInviteSummary),
+  ]);
   const currentYear = new Date().getFullYear();
 
   return (
@@ -51,8 +58,25 @@ export default async function StudentDirectoryPage({ searchParams }: { searchPar
         <OwnerSchoolSwitcher basePath="/admin/students" schools={availableSchools} currentSchoolId={schoolId} />
       )}
 
-      <PageHeader eyebrow="Administrator" title="Student Directory" />
-      <StudentDirectoryTable students={students} filters={filters} currentYear={currentYear} />
+      {/* The description states the boundary out loud, because an
+          administrator seeing engagement columns will reasonably wonder
+          whether scores are here too, and a student deserves to be able to
+          read the same sentence. */}
+      <PageHeader
+        eyebrow="Administrator"
+        title="Student Directory"
+        description="Every student registered through your school, with how much work each has done. Engagement only — PrepHub never shows you an individual student's answers, mastery or predicted score."
+      />
+      <CampusInvitePanel summary={invites} readOnly={viewingAsOwner} />
+
+      <StudentDirectoryTable
+        students={directory.entries}
+        total={directory.total}
+        page={directory.page}
+        pageCount={directory.pageCount}
+        filters={filters}
+        currentYear={currentYear}
+      />
     </div>
   );
 }
