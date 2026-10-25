@@ -2,6 +2,7 @@ import { PageViewBeacon } from "@/components/analytics/page-view-beacon";
 import { SiteFooter, SiteHeader } from "@/components/marketing/site-chrome";
 import { LinkButton } from "@/components/ui/link-button";
 import { Marker } from "@/components/ui/marker";
+import { SchoolAccessNote } from "@/components/school-access-note";
 import { LandingVideoCard } from "./landing-videos";
 import { getLandingVideos } from "@/lib/youtube/landing-videos";
 import { DiagnosticVisual, MasteryVisual } from "./landing-visuals";
@@ -77,6 +78,7 @@ function Hero() {
               I already have an account
             </LinkButton>
           </div>
+          <SchoolAccessNote variant="landing" className="mt-6 max-w-xl" />
         </div>
 
         <HeroVisual />

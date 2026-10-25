@@ -1,4 +1,3 @@
-import type { CommunityGoalMetric } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { OwnerError } from "./errors";
 
@@ -55,30 +54,6 @@ export async function updateOrganizationDetails(id: string, input: UpdateOrganiz
 
 // PRD-009 §7 — one active community goal per school. Districts don't get a
 // School Community page, so only SCHOOL-type orgs may have one configured.
-export type UpdateCommunityGoalInput = {
-  communityGoalMetric: CommunityGoalMetric | null;
-  communityGoalTarget: number | null;
-};
-
-export async function updateCommunityGoal(id: string, input: UpdateCommunityGoalInput) {
-  const org = await prisma.organization.findUnique({ where: { id } });
-  if (!org) throw new OwnerError("ORGANIZATION_NOT_FOUND", "Organization not found.");
-  if (org.organizationType !== "SCHOOL") {
-    throw new OwnerError("INVALID_INPUT", "Only schools can have a community goal.");
-  }
-  if (input.communityGoalMetric && (!input.communityGoalTarget || input.communityGoalTarget <= 0)) {
-    throw new OwnerError("INVALID_INPUT", "Enter a goal target greater than zero.");
-  }
-
-  return prisma.organization.update({
-    where: { id },
-    data: {
-      communityGoalMetric: input.communityGoalMetric,
-      communityGoalTarget: input.communityGoalMetric ? input.communityGoalTarget : null,
-    },
-  });
-}
-
 // PRD-011 §9 — the Owner-established eligible student population for a
 // school; Administrators can view it but never edit it directly. Districts
 // don't get one — Registered PrepHub Students/Registration Percentage are

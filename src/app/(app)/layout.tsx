@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { getAccessContext, hasPaidAccess } from "@/lib/entitlements";
+import { getAccessContext, hasActiveSchoolEntitlement, hasPaidAccess } from "@/lib/entitlements";
 import { catchUpDistrictEnrollment } from "@/lib/district/enrollment";
-import { logoutAction } from "./actions";
+import { prisma } from "@/lib/prisma";
+import { logoutAction, markPremiumCelebratedAction } from "./actions";
+import { resendDistrictVerificationAction } from "./access/actions";
 import { AppShell } from "@/components/app-shell";
 
 // PRD-000's primary nav for students (Home/Practice/Progress/Profile) — also
@@ -43,7 +45,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // student's full paid access. It corrected itself on the next navigation,
   // but a district student's very first screen is exactly where an upgrade
   // prompt must never appear.
-  if (role === "STUDENT") await catchUpDistrictEnrollment(session.user.id);
+  //
+  // It also says what, if anything, the student still has to do — confirm
+  // their email, or pick their campus — which the shell shows in its top bar.
+  const district = role === "STUDENT" ? await catchUpDistrictEnrollment(session.user.id) : null;
+  const districtPrompt = district?.prompt ?? null;
 
   // The shell's Upgrade row and launch-pricing banner are purely
   // presentational — nothing behind them is gated here — but they must still
@@ -51,7 +57,23 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // entitlement service (CLAUDE.md invariant) rather than a second guess.
   // Only students can be unpaid: administrators have inherent access and
   // the Owner never buys the product.
-  const showUpgrade = role === "STUDENT" && !(await hasPaidAccess(session.user.id));
+  //
+  // A student one step from their school's free access is not shown a price
+  // at all: offering to sell them what their school already pays for is the
+  // mistake the district bar exists to prevent.
+  const oneStepFromSchoolAccess = districtPrompt?.kind === "CONFIRM_EMAIL" || districtPrompt?.kind === "PICK_CAMPUS";
+  const [paid, classEnrollment] = await Promise.all([
+    role === "STUDENT" ? hasPaidAccess(session.user.id) : true,
+    // Homework appears in the nav only for a student who is in a class: for
+    // everyone studying on their own it would be a dead item.
+    role === "STUDENT"
+      ? prisma.classroomEnrollment.findFirst({
+          where: { studentId: session.user.id, removedAt: null, classroom: { archivedAt: null } },
+          select: { id: true },
+        })
+      : null,
+  ]);
+  const showUpgrade = role === "STUDENT" && !paid && !oneStepFromSchoolAccess;
 
   // The school providing this student's access, for the sidebar. Free: it
   // comes from the same cached context the entitlement decision already read,
@@ -63,12 +85,29 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       ? { name: membership.organization.officialName, logoMediaId: membership.organization.logoMediaId }
       : null;
 
+  // The once-per-student "your school covers Premium" moment. Only while the
+  // entitlement is genuinely live — a membership whose contract hasn't
+  // started grants nothing, so celebrating it would be a lie.
+  const celebration =
+    role === "STUDENT" && membership && !membership.celebratedAt && hasActiveSchoolEntitlement(membership)
+      ? {
+          organizationName: membership.organization.officialName,
+          logoMediaId: membership.organization.logoMediaId,
+          firstName: session.user.name ?? null,
+        }
+      : null;
+
   return (
     <AppShell
       role={role}
       user={{ name: session.user.name ?? "", email: session.user.email ?? "" }}
       showUpgrade={showUpgrade}
       provider={provider}
+      districtPrompt={districtPrompt}
+      resendVerification={resendDistrictVerificationAction}
+      celebration={celebration}
+      markCelebrated={markPremiumCelebratedAction}
+      showHomework={Boolean(classEnrollment)}
       logoutAction={logoutAction}
     >
       {children}

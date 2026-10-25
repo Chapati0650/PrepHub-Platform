@@ -5,20 +5,21 @@ import { prisma } from "@/lib/prisma";
  * One definition of "this student answered a question" and "this student
  * finished a session", shared by every school-facing surface.
  *
- * Why this module exists: answering is recorded in six different tables,
+ * Why this module exists: answering is recorded in seven different tables,
  * because each study mode that was added after the adaptive core deliberately
  * kept its own rows rather than writing into `FinalizedAttempt` (see
  * CLAUDE.md on the 800 Club, 1v1 Rush, Focused Practice and the Daily
  * Challenge — the isolation is what keeps a hard-only or speed-only sample out
  * of the adaptive engine). The cost of that isolation is that anything
- * counting "questions answered" has to know all six places, and the school
+ * counting "questions answered" has to know all of them, and the school
  * aggregate knew only two. A student who had answered two hundred Focused
  * Practice questions showed on a campus report as having answered none of
  * them, which for a district paying per student is simply a wrong number.
+ * Homework (2026-10-24) was the seventh, added here and nowhere else.
  *
  * Both fragments below are composed into whichever query needs them, so a
- * seventh study mode is added in exactly one place and every campus figure
- * picks it up at once.
+ * new study mode is added in exactly one place and every campus figure picks
+ * it up at once.
  */
 
 /**
@@ -26,7 +27,7 @@ import { prisma } from "@/lib/prisma";
  * anywhere in the product.
  *
  * Every mode's "answered" marker differs, and each one is the column its own
- * finalization writes: `finalizedAt` for adaptive/focused/club slots,
+ * finalization writes: `finalizedAt` for adaptive/focused/club/homework slots,
  * `submittedAt` for a diagnostic attempt, `answeredAt` for Rush and the Daily
  * Challenge. A null marker means the question was served but never answered,
  * so each branch excludes it.
@@ -65,6 +66,12 @@ function answerActivity(studentIds: string[]): Prisma.Sql {
     SELECT dca."studentId", dca."answeredAt"
       FROM "daily_challenge_attempts" dca
      WHERE dca."studentId" IN (${ids})
+    UNION ALL
+    SELECT hs."studentId", hsl."finalizedAt"
+      FROM "homework_slots" hsl
+      JOIN "homework_sessions" hs ON hs."id" = hsl."sessionId"
+     WHERE hs."studentId" IN (${ids})
+       AND hsl."finalizedAt" IS NOT NULL
   `;
 }
 
@@ -98,6 +105,10 @@ function sessionActivity(studentIds: string[]): Prisma.Sql {
     SELECT rr."studentId", rr."startedAt", rr."completedAt"
       FROM "rush_runs" rr
      WHERE rr."studentId" IN (${ids}) AND rr."completedAt" IS NOT NULL
+    UNION ALL
+    SELECT hs."studentId", hs."createdAt", hs."completedAt"
+      FROM "homework_sessions" hs
+     WHERE hs."studentId" IN (${ids}) AND hs."completedAt" IS NOT NULL
   `;
 }
 
@@ -194,17 +205,34 @@ export async function getStudentActivity(studentIds: string[]): Promise<Map<stri
 
 /**
  * How many questions these students have answered in total, optionally only
- * since a moment. One integer, counted in the database.
+ * since a moment (and, for a goal with a deadline, until one). One integer,
+ * counted in the database.
  */
-export async function countAnswers(studentIds: string[], since?: Date): Promise<number> {
+export async function countAnswers(studentIds: string[], since?: Date, until?: Date): Promise<number> {
   if (studentIds.length === 0) return 0;
   const rows = await prisma.$queryRaw<{ total: number }[]>`
     WITH answers AS (${answerActivity(studentIds)})
     SELECT COUNT(*)::int AS total
       FROM answers
      WHERE ${since ? Prisma.sql`answered_at >= ${since}` : Prisma.sql`TRUE`}
+       AND ${until ? Prisma.sql`answered_at <= ${until}` : Prisma.sql`TRUE`}
   `;
   return Number(rows[0]?.total ?? 0);
+}
+
+/**
+ * Capped study hours from sessions these students finished between two
+ * moments — a community goal's window. One number, aggregated in the database.
+ */
+export async function studyHoursBetween(studentIds: string[], from: Date, to: Date): Promise<number> {
+  if (studentIds.length === 0) return 0;
+  const rows = await prisma.$queryRaw<{ hoursBetween: number | null }[]>`
+    WITH sessions AS (${sessionActivity(studentIds)})
+    SELECT SUM(${cappedHours("started_at", "completed_at")})::double precision AS "hoursBetween"
+      FROM sessions
+     WHERE completed_at >= ${from} AND completed_at <= ${to}
+  `;
+  return Number(rows[0]?.hoursBetween ?? 0);
 }
 
 /**

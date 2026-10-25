@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { Bookmark, ChevronUp, Calculator as CalcIcon } from "lucide-react";
+import { Bookmark, ChevronUp, Calculator as CalcIcon, Highlighter, PenLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LatexText } from "@/components/content/latex-text";
@@ -15,6 +15,21 @@ import { Calculator } from "./calculator";
 import { TimerBadge } from "./timer-badge";
 import { SessionNavGrid, type NavItemState } from "./session-nav-grid";
 import { SplitPane } from "./split-pane";
+import { Scratchpad } from "./scratchpad";
+import { Annotator, highlightsSupported } from "./annotator";
+
+// False during the server render and hydration, true straight after — the
+// same idiom as the theme toggle (CLAUDE.md, next-themes gotcha). Saved
+// highlights live only in this browser, so the highlighter must not render
+// until after hydration or the server and client would disagree.
+const noopSubscribe = () => () => {};
+function useHasMounted(): boolean {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false,
+  );
+}
 
 export type SessionRunnerItem = {
   id: string;
@@ -79,6 +94,16 @@ export function SessionRunner(props: SessionRunnerProps) {
   const [timerHidden, setTimerHidden] = useState(false);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [eliminated, setEliminated] = useState<Map<string, Set<string>>>(new Map());
+
+  // Scratch work and highlighting (2026-10-24): a whiteboard per question,
+  // and Bluebook's Annotate for the passage and the question. Both are kept
+  // in this browser only (see local-store.ts).
+  const [scratchOpen, setScratchOpen] = useState(false);
+  const [annotateHint, setAnnotateHint] = useState(false);
+  const mounted = useHasMounted();
+  const passageRef = useRef<HTMLDivElement | null>(null);
+  const questionRef = useRef<HTMLDivElement | null>(null);
+  const annotationRoots = useMemo(() => ({ passage: passageRef, question: questionRef }), []);
 
   const currentItem = items[position];
   const loaded = cache.get(currentItem.id);
@@ -228,6 +253,26 @@ export function SessionRunner(props: SessionRunnerProps) {
           </div>
 
           <div className="flex items-center justify-end gap-4">
+            {mounted && highlightsSupported() && (
+              <button
+                type="button"
+                onClick={() => setAnnotateHint((v) => !v)}
+                aria-expanded={annotateHint}
+                className="flex flex-col items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+              >
+                <Highlighter className="size-5" aria-hidden />
+                Annotate
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setScratchOpen((v) => !v)}
+              aria-pressed={scratchOpen}
+              className={`flex flex-col items-center gap-0.5 text-[11px] hover:text-foreground ${scratchOpen ? "text-foreground" : "text-muted-foreground"}`}
+            >
+              <PenLine className="size-5" aria-hidden />
+              Scratch work
+            </button>
             {loaded?.content.calculatorSetting === "ALLOWED" && (
               <button
                 type="button"
@@ -273,29 +318,40 @@ export function SessionRunner(props: SessionRunnerProps) {
               </div>
             </div>
 
+            {annotateHint && (
+              <p role="status" className="mt-3 border-l-2 border-marker pl-3 text-sm text-muted-foreground">
+                Select any words in the passage or the question to highlight them or add a note. Click a highlight to
+                change or remove it.
+              </p>
+            )}
+
             <div className="pt-5">
               <SplitPane
                 hasPassage={hasPassage}
                 left={
-                  <QuestionStatement
-                    text={loaded.content.passageText ?? ""}
-                    imageId={null}
-                    mediaBasePath="/api/media"
-                    className="bg-transparent p-0"
-                    textClassName="text-lg leading-relaxed lg:text-xl lg:leading-relaxed"
-                  />
+                  <div ref={passageRef}>
+                    <QuestionStatement
+                      text={loaded.content.passageText ?? ""}
+                      imageId={null}
+                      mediaBasePath="/api/media"
+                      className="bg-transparent p-0"
+                      textClassName="text-lg leading-relaxed lg:text-xl lg:leading-relaxed"
+                    />
+                  </div>
                 }
               >
               {/* No tinted panel behind the stem. Bluebook sets the question
                   as plain text on the page, and the box made every question
                   look like a callout rather than the thing being asked. */}
-              <QuestionStatement
-                text={loaded.content.questionText}
-                imageId={loaded.content.questionImageId}
-                mediaBasePath="/api/media"
-                className="bg-transparent p-0"
-                textClassName="text-lg leading-relaxed lg:text-xl lg:leading-relaxed"
-              />
+              <div ref={questionRef}>
+                <QuestionStatement
+                  text={loaded.content.questionText}
+                  imageId={loaded.content.questionImageId}
+                  mediaBasePath="/api/media"
+                  className="bg-transparent p-0"
+                  textClassName="text-lg leading-relaxed lg:text-xl lg:leading-relaxed"
+                />
+              </div>
 
               {calculatorOpen && loaded.content.calculatorSetting === "ALLOWED" && (
                 <div className="mt-4">
@@ -441,6 +497,16 @@ export function SessionRunner(props: SessionRunnerProps) {
                   )}
                 </div>
               )}
+
+              {/* Keyed by question so each one keeps its own highlights. */}
+              {mounted && (
+                <Annotator
+                  key={currentItem.id}
+                  storageKey={currentItem.id}
+                  roots={annotationRoots}
+                  contentKey={`${currentItem.id}:${loaded.content.questionRevisionId}:${hasPassage}`}
+                />
+              )}
               </SplitPane>
             </div>
           </>
@@ -512,6 +578,8 @@ export function SessionRunner(props: SessionRunnerProps) {
           </div>
         </div>
       </footer>
+
+      {scratchOpen && <Scratchpad key={currentItem.id} storageKey={currentItem.id} onClose={() => setScratchOpen(false)} />}
 
       {blankWarning !== null && (
         <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4" role="alertdialog" aria-modal="true">

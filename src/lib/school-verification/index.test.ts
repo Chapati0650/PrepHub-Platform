@@ -14,6 +14,7 @@ vi.mock("@/lib/prisma", () => ({
     organizationDomain: { findFirst: vi.fn() },
     schoolVerificationToken: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     user: { findUniqueOrThrow: vi.fn(), findUnique: vi.fn() },
+    schoolRosterEntry: { findFirst: vi.fn() },
     $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   },
 }));
@@ -26,6 +27,7 @@ const mocked = prisma as unknown as {
   organizationDomain: Record<string, ReturnType<typeof vi.fn>>;
   schoolVerificationToken: Record<string, ReturnType<typeof vi.fn>>;
   user: Record<string, ReturnType<typeof vi.fn>>;
+  schoolRosterEntry: Record<string, ReturnType<typeof vi.fn>>;
 };
 const mockedScheduleNonRenewal = scheduleSubscriptionNonRenewal as unknown as ReturnType<typeof vi.fn>;
 
@@ -152,6 +154,7 @@ describe("resolveVerificationToken", () => {
     mocked.schoolVerificationToken.findUnique.mockResolvedValue({
       id: "t1",
       studentId: "student1",
+      requestedEmail: "kid@k12.friscoisd.org",
       completedAt: null,
       expiresAt: new Date(Date.now() + 10_000),
       matchedOrganization: {
@@ -174,6 +177,7 @@ describe("resolveVerificationToken", () => {
     mocked.schoolVerificationToken.findUnique.mockResolvedValue({
       id: "t1",
       studentId: "student1",
+      requestedEmail: "kid@k12.friscoisd.org",
       completedAt: null,
       expiresAt: new Date(Date.now() + 10_000),
       matchedOrganization: {
@@ -186,6 +190,58 @@ describe("resolveVerificationToken", () => {
 
     const result = await resolveVerificationToken("t1");
     expect(result.requiresSchoolSelection).toBe(false);
+  });
+});
+
+// A roster-only organization has said its roster is the whole answer.
+// Auto-enrollment honoured that before this flow did; without these checks,
+// "verify a school email" was a way around the district's own list.
+describe("requestSchoolVerification with a roster-only organization", () => {
+  const rosterOnly = { id: "org1", status: "ACTIVE", organizationType: "SCHOOL", officialName: "Northwest ISD", enrollmentMode: "ROSTER" };
+
+  beforeEach(() => {
+    mocked.studentMembership.findUnique.mockResolvedValue(null);
+    mocked.organizationDomain.findFirst.mockResolvedValue({ organizationId: "org1", organization: rosterOnly });
+    mocked.schoolVerificationToken.create.mockResolvedValue({});
+    mocked.user.findUnique.mockResolvedValue({ firstName: "Ada" });
+  });
+
+  it("refuses an address on the domain that isn't on the roster, and says why", async () => {
+    mocked.schoolRosterEntry.findFirst.mockResolvedValue(null);
+
+    await expect(requestSchoolVerification("student1", "kid@nisd.net")).rejects.toMatchObject({
+      code: "NOT_ON_ROSTER",
+      message: expect.stringContaining("Northwest ISD uses PrepHub"),
+    });
+    expect(mocked.schoolVerificationToken.create).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("sends the link to an address the district rostered", async () => {
+    mocked.schoolRosterEntry.findFirst.mockResolvedValue({
+      organizationId: "org1",
+      schoolId: "org1",
+      graduationYear: 2028,
+      organization: { status: "ACTIVE", contractStartDate: new Date(0), contractEndDate: new Date(Date.now() + 1e10) },
+      school: { officialName: "Northwest ISD" },
+    });
+
+    await requestSchoolVerification("student1", "kid@nisd.net");
+
+    expect(mocked.schoolVerificationToken.create).toHaveBeenCalled();
+    expect(sendEmail).toHaveBeenCalled();
+  });
+
+  it("doesn't consult the roster at all for an organization that admits by domain", async () => {
+    mocked.organizationDomain.findFirst.mockResolvedValue({
+      organizationId: "org1",
+      organization: { ...rosterOnly, enrollmentMode: "DOMAIN" },
+    });
+
+    await requestSchoolVerification("student1", "kid@nisd.net");
+
+    expect(mocked.schoolRosterEntry.findFirst).not.toHaveBeenCalled();
+    expect(sendEmail).toHaveBeenCalled();
   });
 });
 
@@ -223,6 +279,59 @@ describe("completeSchoolVerification", () => {
     await expect(completeSchoolVerification("raw", "student1")).rejects.toMatchObject({
       code: "ALREADY_HAS_MEMBERSHIP",
     });
+  });
+
+  it("uses the roster's campus for a rostered student instead of asking which school", async () => {
+    mocked.schoolVerificationToken.findUnique.mockResolvedValue(
+      baseToken({
+        matchedOrganization: {
+          id: "district1",
+          status: "ACTIVE",
+          organizationType: "DISTRICT",
+          schools: [
+            { id: "s1", status: "ACTIVE" },
+            { id: "s2", status: "ACTIVE" },
+          ],
+        },
+      }),
+    );
+    mocked.schoolRosterEntry.findFirst.mockResolvedValue({
+      organizationId: "district1",
+      schoolId: "s2",
+      graduationYear: 2027,
+      organization: { status: "ACTIVE", contractStartDate: new Date(0), contractEndDate: new Date(Date.now() + 1e10) },
+      school: { officialName: "Byron Nelson High School" },
+    });
+    mocked.studentMembership.findUnique.mockResolvedValue(null);
+    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 11 });
+
+    await completeSchoolVerification("raw", "student1");
+
+    const created = mocked.studentMembership.create.mock.calls[0][0].data;
+    expect(created.schoolId).toBe("s2");
+    // The district's graduation year beats one inferred from the grade.
+    expect(created.expectedGraduationYear).toBe(2027);
+  });
+
+  it("refuses at completion when the district switched to roster-only in the meantime", async () => {
+    mocked.schoolVerificationToken.findUnique.mockResolvedValue(
+      baseToken({
+        matchedOrganization: {
+          id: "school1",
+          status: "ACTIVE",
+          organizationType: "SCHOOL",
+          officialName: "Northwest High School",
+          enrollmentMode: "ROSTER",
+          schools: [],
+        },
+      }),
+    );
+    mocked.schoolRosterEntry.findFirst.mockResolvedValue(null);
+    mocked.studentMembership.findUnique.mockResolvedValue(null);
+    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 10 });
+
+    await expect(completeSchoolVerification("raw", "student1")).rejects.toMatchObject({ code: "NOT_ON_ROSTER" });
+    expect(mocked.studentMembership.create).not.toHaveBeenCalled();
   });
 
   it("throws NEEDS_SCHOOL_SELECTION for a multi-school district with no schoolId given", async () => {

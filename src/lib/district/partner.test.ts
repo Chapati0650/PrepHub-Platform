@@ -76,6 +76,11 @@ describe("resolvePartner", () => {
       kind: "NEEDS_CAMPUS",
       organizationId: "org1",
       officialName: "Northwest ISD",
+      // What the student is asked to choose from.
+      campuses: [
+        { id: "campus1", officialName: "Northwest High School" },
+        { id: "campus2", officialName: "Byron Nelson High School" },
+      ],
     });
   });
 

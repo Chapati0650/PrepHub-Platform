@@ -13,11 +13,11 @@ import {
   confirmPasswordResetSchema,
 } from "@/lib/validation/auth";
 import { createAccount, requestPasswordReset, confirmPasswordReset } from "@/lib/auth/account";
-import { isDistrictCandidateEmail } from "@/lib/district/enrollment";
-import { requestSchoolVerification } from "@/lib/school-verification";
+import { ensureDistrictMembership, isDistrictCandidateEmail } from "@/lib/district/enrollment";
+import { sendDistrictVerificationEmail } from "@/lib/district/email-verification";
 import { AuthError } from "@/lib/auth/errors";
 import { checkRateLimitEnforced, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
-import { logAuthFailure, logRateLimitExceeded } from "@/lib/logger";
+import { logAuthFailure, logEvent, logRateLimitExceeded } from "@/lib/logger";
 
 const TOO_MANY_REQUESTS_MESSAGE = "Too many attempts. Please wait a few minutes and try again.";
 
@@ -55,21 +55,31 @@ export async function signUpAction(_prev: ActionState, formData: FormData): Prom
     throw err;
   }
 
-  // Signing up with a school address on a partner district's domain: send the
-  // confirmation link straight away, so it is already waiting by the time the
-  // three onboarding questions are done.
+  // Signing up with an address a district recognises — on its domain or on
+  // its roster: send the confirmation link straight away, so it is already
+  // waiting by the time the three onboarding questions are done.
   //
   // Credentials signup verifies no email at all — anyone could type an
   // address at a partner domain — so this path cannot auto-enroll the way a
   // Google Workspace sign-in does. One click in their inbox is the smallest
-  // honest version of it. Best-effort: a student who never clicks still has a
-  // working account, and /home shows them the prompt again.
-  if (await isDistrictCandidateEmail(created.email)) {
-    try {
-      await requestSchoolVerification(created.id, created.email);
-    } catch {
-      // Already-linked email, inactive partner, etc. — never fail the signup.
+  // honest version of it. `ensureDistrictMembership` is what decides: it
+  // answers NEEDS_EMAIL_VERIFICATION only for a live match, so an ordinary
+  // signup is never sent an email asking it to confirm something that
+  // unlocks nothing. The candidate check in front of it is in-memory, so the
+  // common signup pays no query. Best-effort: a student who never clicks
+  // still has a working account, and the app shell shows them the prompt.
+  try {
+    if (
+      (await isDistrictCandidateEmail(created.email)) &&
+      (await ensureDistrictMembership(created.id)) === "NEEDS_EMAIL_VERIFICATION"
+    ) {
+      await sendDistrictVerificationEmail(created.id);
     }
+  } catch (err) {
+    logEvent("SCHOOL_VERIFICATION_FAILURE", "Could not send the district confirmation email at signup", {
+      accountId: created.id,
+      reason: err instanceof Error ? err.message : "unknown",
+    });
   }
 
   // Immediately sign in the newly-created account rather than making the

@@ -54,9 +54,9 @@ test.describe("School Administrator (PRD-011)", () => {
     const adminEmail = uniqueEmail();
     const adminPassword = "adminpass123";
     await page.getByRole("button", { name: "Create Administrator" }).click();
-    await page.getByLabel("First name").fill("Staff");
-    await page.getByLabel("Email").fill(adminEmail);
-    await page.getByLabel("Password").fill(adminPassword);
+    await dialog.getByLabel("First name").fill("Staff");
+    await dialog.getByLabel("Email").fill(adminEmail);
+    await dialog.getByLabel("Password").fill(adminPassword);
     await dialog.getByRole("button", { name: "Create Administrator" }).click();
     await expect(page.getByText(adminEmail)).toBeVisible();
 

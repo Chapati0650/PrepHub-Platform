@@ -73,16 +73,22 @@ test.describe("School Community (PRD-009) and Profile & Settings (PRD-010)", () 
     await dialog.getByRole("button", { name: "Activate Student" }).click();
     await expect(page.getByText(studentEmail)).toBeVisible();
 
-    await page.getByLabel("Goal metric").click();
+    await page.getByLabel("The school is counting").click();
     await page.getByRole("option", { name: "Questions Answered" }).click();
-    await page.getByLabel("Goal target").fill("100000");
+    await page.getByLabel("Target", { exact: true }).fill("100000");
+    await page.getByLabel("Prize (optional)").fill("Pizza party");
     await page.getByRole("button", { name: "Save goal" }).click();
-    await expect(page.getByText("Saved.")).toBeVisible();
+    await expect(page.getByText("Saved. Students see it on School Community now.")).toBeVisible();
 
     // Student: Settings reflects the school membership and school-managed billing.
     await studentPage.goto("/settings");
+    // The membership is new, so the once-only "your school covers Premium"
+    // moment opens first; closing it is the student's first click.
+    await studentPage.getByRole("button", { name: "Start practicing" }).click();
+    await expect(studentPage.getByRole("dialog")).not.toBeVisible();
     await expect(studentPage.getByText("Verified school")).toBeVisible();
-    await expect(studentPage.getByText("Plano Academy", { exact: true })).toBeVisible();
+    // Scoped to the profile: the sidebar's "Provided by" row names the school too.
+    await expect(studentPage.locator("#profile").getByText("Plano Academy", { exact: true })).toBeVisible();
     await expect(studentPage.getByText(/access is provided by Plano Academy/)).toBeVisible();
     await expect(studentPage.getByRole("link", { name: "Manage Billing" })).not.toBeVisible();
 
@@ -90,7 +96,9 @@ test.describe("School Community (PRD-009) and Profile & Settings (PRD-010)", () 
     await studentPage.goto("/community");
     await expect(studentPage.getByRole("heading", { name: "Plano Academy" })).toBeVisible();
     await expect(studentPage.getByText("Questions Answered", { exact: true })).toBeVisible();
-    await expect(studentPage.getByText(/School Goal: 100,000 Questions Answered/)).toBeVisible();
+    // A goal set now counts from now, so this student's school starts at zero.
+    await expect(studentPage.getByText(/of 100,000 questions/)).toBeVisible();
+    await expect(studentPage.getByText("Pizza party", { exact: true })).toBeVisible();
     // No individual data is ever shown — the community *content* must never
     // mention the student's own name/email (PRD-009; enforced by
     // getSchoolCommunityData's return type, which has no field that could

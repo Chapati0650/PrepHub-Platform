@@ -3,7 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
 import { scheduleSubscriptionNonRenewal } from "@/lib/billing";
 import { SchoolVerificationError } from "./errors";
-import { computeExpectedGraduationYear } from "./graduation-year";
+import { computeExpectedGraduationYear, gradeFromGraduationYear } from "./graduation-year";
+import { domainEnrollmentAllowed } from "@/lib/district/partner";
+import { lookupRosterEntry } from "@/lib/district/enrollment";
 
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours — PRD-002 §8.3 "configurable period"
 
@@ -54,6 +56,7 @@ export async function requestSchoolVerification(studentId: string, rawEmail: str
       "PrepHub access is no longer available through this school or district.",
     );
   }
+  await requireOnRosterIfRosterOnly(domainRecord.organization, email);
 
   const rawToken = randomBytes(32).toString("hex");
   await prisma.schoolVerificationToken.create({
@@ -87,6 +90,26 @@ If the link has expired by the time you get to it, request a new one from the ac
 
 — Prithvi, PrepHub`,
   });
+}
+
+/**
+ * A roster-only organization has said its roster is the whole answer (see
+ * district/partner.ts's `domainEnrollmentAllowed`). Auto-enrollment already
+ * honoured that; this flow didn't, which made "verify a school email" a way
+ * around the district's own list for anyone with an address on its domain.
+ * Checked when the link is requested and again when it is used, since a
+ * district can change its roster or its mode in between.
+ */
+async function requireOnRosterIfRosterOnly(
+  organization: { officialName: string; enrollmentMode?: string | null },
+  email: string,
+) {
+  if (domainEnrollmentAllowed({ enrollmentMode: organization.enrollmentMode ?? undefined })) return;
+  if (await lookupRosterEntry(email)) return;
+  throw new SchoolVerificationError(
+    "NOT_ON_ROSTER",
+    `${organization.officialName} uses PrepHub, but this email isn't on its student list yet. Ask your school counselor to add you, and your access will switch on.`,
+  );
 }
 
 type ResolvedToken = {
@@ -129,6 +152,10 @@ export async function resolveVerificationToken(rawToken: string): Promise<Resolv
   const org = record.matchedOrganization;
   const eligibleSchools =
     org.organizationType === "DISTRICT" ? org.schools.filter((s) => s.status === "ACTIVE") : [];
+  // Rostered students aren't asked for a campus: the roster already says it,
+  // and completeSchoolVerification uses the roster's answer.
+  const roster = await lookupRosterEntry(record.requestedEmail);
+  const rostered = roster?.entry.organizationId === org.id;
 
   return {
     tokenId: record.id,
@@ -138,7 +165,7 @@ export async function resolveVerificationToken(rawToken: string): Promise<Resolv
       officialName: org.officialName,
       organizationType: org.organizationType,
     },
-    requiresSchoolSelection: org.organizationType === "DISTRICT" && eligibleSchools.length > 1,
+    requiresSchoolSelection: !rostered && org.organizationType === "DISTRICT" && eligibleSchools.length > 1,
     schools: eligibleSchools.map((s) => ({ id: s.id, officialName: s.officialName })),
   };
 }
@@ -176,9 +203,18 @@ export async function completeSchoolVerification(
       "PrepHub access is no longer available through this school or district.",
     );
   }
+  await requireOnRosterIfRosterOnly(org, record.requestedEmail);
+
+  // A roster entry names the student's campus, so a district that rostered
+  // this address has already answered the question a multi-campus district
+  // would otherwise ask.
+  const roster = await lookupRosterEntry(record.requestedEmail);
+  const rosterEntry = roster?.entry.organizationId === org.id ? roster.entry : null;
 
   let schoolId: string;
-  if (org.organizationType === "SCHOOL") {
+  if (rosterEntry) {
+    schoolId = rosterEntry.schoolId;
+  } else if (org.organizationType === "SCHOOL") {
     schoolId = org.id;
   } else {
     const eligibleSchools = org.schools.filter((s) => s.status === "ACTIVE");
@@ -201,8 +237,8 @@ export async function completeSchoolVerification(
     }
   }
 
-  const grade = student.grade ?? 9;
-  const expectedGraduationYear = computeExpectedGraduationYear(grade);
+  const grade = student.grade ?? gradeFromGraduationYear(rosterEntry?.graduationYear ?? null) ?? 9;
+  const expectedGraduationYear = rosterEntry?.graduationYear ?? computeExpectedGraduationYear(grade);
 
   await prisma.$transaction([
     prisma.schoolVerificationToken.update({

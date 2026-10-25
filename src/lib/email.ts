@@ -52,6 +52,29 @@ export function emailReplyTo(): string | undefined {
 
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
+/**
+ * Domains reserved so that no mail can ever be delivered to them (RFC 2606,
+ * RFC 6761): `example.com/.net/.org` and anything under `.test`, `.example`,
+ * `.invalid` or `.localhost`.
+ *
+ * Test accounts and the demo district's students (scripts/demo-district.ts)
+ * live on these on purpose, and production can hold both. A real send to one
+ * bounces, and bounces cost the sending domain the reputation every
+ * student's password reset depends on — so these are dropped before Resend
+ * is called, and reported as handled rather than failed, so the email queue
+ * doesn't retry them five times. The dev outbox still records them: e2e
+ * reads what *would* have been sent to its example.com accounts.
+ */
+const RESERVED_DOMAINS = ["example.com", "example.net", "example.org"];
+const RESERVED_TLDS = ["test", "example", "invalid", "localhost"];
+
+export function isUndeliverableAddress(address: string): boolean {
+  const domain = address.trim().toLowerCase().split("@").pop() ?? "";
+  if (RESERVED_DOMAINS.some((d) => domain === d || domain.endsWith(`.${d}`))) return true;
+  const tld = domain.split(".").pop() ?? "";
+  return RESERVED_TLDS.includes(tld);
+}
+
 // Dev-only "outbox" file so E2E tests (which can't receive real email) can read
 // what would have been sent — e.g. to pull a password reset link out of it.
 // Never written in production (gated on resendClient being unconfigured).
@@ -89,6 +112,8 @@ export async function sendEmail({ to, subject, text }: SendEmailInput): Promise<
     });
     return { ok: true };
   }
+
+  if (isUndeliverableAddress(to)) return { ok: true };
 
   // Resend only sends from a domain verified in its dashboard. The site's
   // domain is prephubtp.com; the old hard-coded prephub.app address would
@@ -162,11 +187,14 @@ export async function sendBulkEmail(
 
   const from = emailFromAddress();
   const replyTo = emailReplyTo();
-  let sent = 0;
+  // Reserved test addresses are handled by not sending (see
+  // isUndeliverableAddress), which counts as done, not as a failure.
+  const deliverable = unique.filter((r) => !isUndeliverableAddress(r));
+  let sent = unique.length - deliverable.length;
   let failed = 0;
 
-  for (let i = 0; i < unique.length; i += BATCH_SIZE) {
-    const batch = unique.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < deliverable.length; i += BATCH_SIZE) {
+    const batch = deliverable.slice(i, i + BATCH_SIZE);
     try {
       const { error } = await resendClient.batch.send(
         batch.map((to) => ({
@@ -196,7 +224,7 @@ export async function sendBulkEmail(
       });
     }
 
-    if (i + BATCH_SIZE < unique.length) {
+    if (i + BATCH_SIZE < deliverable.length) {
       await new Promise((resolve) => setTimeout(resolve, BATCH_PAUSE_MS));
     }
   }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { RUSH_JOIN_COOKIE, RUSH_JOIN_COOKIE_MAX_AGE } from "@/lib/rush/join-cookie";
+import { CLASS_JOIN_COOKIE, CLASS_JOIN_COOKIE_MAX_AGE, CLASS_JOIN_CODE_SHAPE } from "@/lib/teacher/join-cookie";
 
 // Deliberately named middleware.ts, not proxy.ts (Next.js 16's renamed
 // convention) — Netlify's Next.js Runtime (OpenNext-based) doesn't yet
@@ -55,10 +56,18 @@ const isAppRoute = (pathname: string) => pathname.startsWith("/home") || pathnam
 // cleared here so /home stops redirecting.
 const joinCodeOf = (pathname: string) => pathname.match(/^\/rush\/join\/([A-Za-z0-9-]{1,12})$/)?.[1] ?? null;
 
+// A teacher's class link (/join/<code>) works the same way: signed out, the
+// visitor signs up with the code parked, and /home brings them back to it.
+const classCodeOf = (pathname: string) => {
+  const code = pathname.match(/^\/join\/([^/]+)$/)?.[1] ?? null;
+  return code && CLASS_JOIN_CODE_SHAPE.test(code) ? code : null;
+};
+
 export default async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const joinCode = joinCodeOf(pathname);
-  if (!isAppRoute(pathname) && !joinCode) return NextResponse.next();
+  const classCode = classCodeOf(pathname);
+  if (!isAppRoute(pathname) && !joinCode && !classCode) return NextResponse.next();
 
   const token = await getToken({
     req,
@@ -74,6 +83,17 @@ export default async function middleware(req: NextRequest) {
     }
     const res = NextResponse.redirect(new URL("/signup", req.url));
     res.cookies.set(RUSH_JOIN_COOKIE, joinCode, { httpOnly: true, sameSite: "lax", path: "/", maxAge: RUSH_JOIN_COOKIE_MAX_AGE });
+    return res;
+  }
+
+  if (classCode) {
+    if (token) {
+      const res = NextResponse.next();
+      if (req.cookies.has(CLASS_JOIN_COOKIE)) res.cookies.delete(CLASS_JOIN_COOKIE);
+      return res;
+    }
+    const res = NextResponse.redirect(new URL("/signup", req.url));
+    res.cookies.set(CLASS_JOIN_COOKIE, classCode, { httpOnly: true, sameSite: "lax", path: "/", maxAge: CLASS_JOIN_COOKIE_MAX_AGE });
     return res;
   }
 
@@ -98,5 +118,5 @@ export const config = {
   // It gates only /home and /settings; every other app page calls `auth()`
   // and redirects on its own (CLAUDE.md: "all authorization is server-side"),
   // which was confirmed route by route before this change.
-  matcher: ["/home/:path*", "/settings/:path*", "/rush/join/:path*"],
+  matcher: ["/home/:path*", "/settings/:path*", "/rush/join/:path*", "/join/:path*"],
 };

@@ -6,11 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { getSchoolCommunityData } from "@/lib/community/school-community-data";
 import { PageHeader } from "@/components/page-header";
-
-function formatMetricValue(metric: string, value: number): string {
-  if (metric === "STUDY_HOURS") return `${value.toLocaleString()} hours`;
-  return value.toLocaleString();
-}
+import { GoalCard } from "@/components/community/goal-card";
 
 // PRD-009 — collaborative, aggregate-only view of a student's school. Only
 // reachable by students with an active school membership; individual/unpaid
@@ -59,6 +55,10 @@ export default async function SchoolCommunityPage() {
       {/* School Identity */}
       <PageHeader eyebrow="School Community" title={data.schoolName} />
 
+      {/* The goal leads when there is one: it's the one thing on this page a
+          student can change, and the prize is the reason to. */}
+      {data.goal && <GoalCard goal={data.goal} />}
+
       {/* School Progress */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Stat label="Questions Answered" value={data.stats.totalQuestionsAnswered.toLocaleString()} />
@@ -68,25 +68,6 @@ export default async function SchoolCommunityPage() {
         <Stat label="Active Students This Week" value={data.stats.activeStudentsThisWeek.toLocaleString()} />
         <Stat label="Study Streak" value={`${data.stats.studyStreak} day${data.stats.studyStreak === 1 ? "" : "s"}`} />
       </div>
-
-      {/* School Goal */}
-      {data.goal && (
-        <div className="rounded-lg border border-border p-4">
-          <p className="mb-2 text-sm font-medium text-muted-foreground">
-            School Goal: {formatMetricValue(data.goal.metric, data.goal.target)} {data.goal.label}
-          </p>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-primary"
-              style={{ width: `${Math.min(100, Math.round((data.goal.current / data.goal.target) * 100))}%` }}
-            />
-          </div>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {formatMetricValue(data.goal.metric, data.goal.current)} of {formatMetricValue(data.goal.metric, data.goal.target)} —{" "}
-            {Math.max(0, data.goal.target - data.goal.current).toLocaleString()} to go.
-          </p>
-        </div>
-      )}
 
       {/* Community Updates */}
       {data.updates.length > 0 && (

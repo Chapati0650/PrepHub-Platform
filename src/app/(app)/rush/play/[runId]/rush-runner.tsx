@@ -269,6 +269,7 @@ export function RushRunner({
           onDraftChange={setDraft}
           onAnswer={(a) => void submitAnswer(a)}
           feedback={answered && result ? (result.points > 0 ? "correct" : "wrong") : null}
+          scratchKey={`${run.id}:${current.position}`}
         />
       </div>
 

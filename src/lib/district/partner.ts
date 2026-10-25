@@ -66,8 +66,17 @@ export type PartnerResolution =
   | { kind: "NOT_ON_ROSTER"; officialName: string }
   /** Unambiguous: exactly one campus this student can belong to. */
   | { kind: "READY"; organizationId: string; schoolId: string; officialName: string }
-  /** A district with several campuses — we can't guess which one. */
-  | { kind: "NEEDS_CAMPUS"; organizationId: string; officialName: string };
+  /**
+   * A district with several campuses: we can't guess which one, so the
+   * student is asked. `campuses` is what they choose from — empty only for a
+   * district whose campuses haven't been set up yet.
+   */
+  | {
+      kind: "NEEDS_CAMPUS";
+      organizationId: string;
+      officialName: string;
+      campuses: { id: string; officialName: string }[];
+    };
 
 /**
  * Decides whether an email's matched organization can be auto-enrolled into.
@@ -106,5 +115,10 @@ export function resolvePartner(
       officialName: org.schools[0].officialName,
     };
   }
-  return { kind: "NEEDS_CAMPUS", organizationId: org.id, officialName: org.officialName };
+  return {
+    kind: "NEEDS_CAMPUS",
+    organizationId: org.id,
+    officialName: org.officialName,
+    campuses: org.schools.map((s) => ({ id: s.id, officialName: s.officialName })),
+  };
 }

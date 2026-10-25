@@ -1016,7 +1016,8 @@ almost every finding was the same: a query whose cost grows with how much
 students have *done* rather than with how many *rows the page shows*.
 
 - **One definition of "answered a question"** —
-  `src/lib/school/student-activity.ts`. Answering is recorded in six tables,
+  `src/lib/school/student-activity.ts`. Answering is recorded in six tables
+  (seven since homework, 2026-10-24),
   because every study mode added after the adaptive core deliberately kept its
   own rows (800 Club, 1v1 Rush, Focused Practice, Daily Challenge — the
   isolation is what keeps a hard-only or speed-only sample out of PRD-014's
@@ -1403,3 +1404,192 @@ them. Next still raises its error overlay with the badge off.
   `migrate deploy`, because `migrate dev` refuses to run non-interactively
   when it wants to confirm a new unique constraint (here on an all-null
   column, so the warning was moot).
+
+## School-email access: the promise, the confirmation, the Premium moment (2026-10-24)
+
+The Owner asked for one line on every sign-up and log-in surface: if your
+school or district provides PrepHub, use your school email and Premium is
+free, automatically. Making that line true took more than the line.
+
+- **The line** is `src/components/school-access-note.tsx`, on `/signup`,
+  `/login` and under the landing hero (static, so `/` stays prerendered — no
+  price in it, per the landing rule). `/pricing` carries a "Connect school
+  email" link to PRD-002's `/access/verify-school` for a student who signed
+  up with a personal address.
+- **Google sign-in enrolls on its own** (`emailVerified` is set by Google).
+  **A password signup does not**: it has only *typed* the address, and
+  enrolling on that would let anyone claim a district seat. Such an account
+  is sent one link to its own address (`src/lib/district/email-verification.ts`,
+  `EmailVerificationToken`, hashed, a week long) — only when a district would
+  actually act on it, decided by `ensureDistrictMembership` returning
+  `NEEDS_EMAIL_VERIFICATION`, so an ordinary signup never gets the email.
+- **`/verify-email/[token]` confirms on a button press, never on page view.**
+  School mail systems (Defender Safe Links, Google) open every link in an
+  inbox to scan it; if opening confirmed, a scanner would confirm an address
+  for whoever typed it into a signup form. It works signed out (the school
+  inbox is often a phone that has never signed in), offers a fresh link from
+  an expired one (sent to the same address, never one the visitor gives), and
+  is idempotent.
+- `findDistrictMatch` (`lib/district/enrollment.ts`) is the one read of what a
+  district says about an address: roster first (it names the campus), then
+  the domain, ignoring archived campuses. `ensureDistrictMembership` checks
+  `emailVerified` **before** the campus question, so an unverified
+  multi-campus student is asked to confirm first and the confirm page asks the
+  campus in the same step; a verified one picks at `/access/campus`.
+- **The district bar** (`src/components/district-bar.tsx`) is the top strip of
+  the app shell for a student one step from their school's access: confirm
+  your email (with Resend), pick your campus, or "your school uses PrepHub but
+  you're not on its list". It replaces the launch-pricing strip, and the
+  sidebar Upgrade row is hidden for the first two — selling someone what
+  their school pays for is the mistake it exists to prevent. It replaced
+  `/home`'s old claim banner, which keyed on `isDistrictCandidateEmail` —
+  true for *every* address once any roster exists, so the moment a district
+  uploaded one, every password student would have been told their school
+  provides PrepHub. That function is a cheap pre-check, never a verdict.
+- **PRD-002's `/access/verify-school` now honours roster-only mode.** It used
+  to check only the domain, which made "verify a school email" a way around
+  a district's own list. It also uses the roster's campus and graduation year
+  instead of asking.
+- **The celebration** (`src/components/premium-unlocked.tsx`): the annual
+  price struck through by hand, FREE stamped beside it, confetti — once per
+  student, driven by `StudentMembership.celebratedAt` (backfilled to
+  `activatedAt` for every membership that existed, so nobody already covered
+  saw it out of the blue). Shown from the app layout only while the
+  entitlement is genuinely live, never on a focus-mode route, and closing it
+  records the date. The displayed price comes from
+  `src/lib/billing/display.ts`, shared with `/pricing` so the two can't
+  disagree. Keyframes `premium-strike`/`premium-stamp` are the one
+  animation outside Rush; the confetti is `src/components/confetti.tsx`,
+  shared with a Rush win. Because a student sees it once, `/preview/premium`
+  (Owner and Administrators, linked from Admin Overview) replays it with a
+  sample student's name and writes nothing — it's what a district is shown.
+- **Reserved addresses never reach the mail provider.** `sendEmail` and
+  `sendBulkEmail` drop `example.com/.net/.org` and `.test/.example/.invalid/
+  .localhost` on the Resend path and report them handled (so the email queue
+  doesn't retry them); the dev outbox still records them for e2e.
+- Verified in a real browser: password signup on a partner domain → bar →
+  Resend → link → confirm → `/home` → celebration → dismissed, gone on
+  reload; the same link confirmed signed-out on a phone, then the
+  celebration on the original device's next page; an ordinary signup gets
+  neither bar nor email.
+
+## Community goal with a prize (2026-10-24)
+
+A school's goal can now be won. `Organization.communityGoalPrize`,
+`communityGoalStartsAt` (counting starts here, so "5,000 questions" means
+from today), `communityGoalEndsAt` (end of that day, Central — the same zone
+as the Rush leaderboard) and `communityGoalReachedAt`.
+
+- `src/lib/community/goal.ts`: `goalStatus` (pure, tested), `saveCommunityGoal`
+  and `parseGoalForm`, shared by the Owner's school page and the
+  **Administrator's own `/admin/goal`** — the school gives the prize, so it
+  names it. Changing what's counted or the target starts a new race (count
+  restarts, any win cleared); changing only the prize or deadline keeps the
+  progress. A goal set before windows existed (`startsAt` null) still counts
+  all-time.
+- Progress inside a window comes from the same `student-activity` fragments
+  as every school figure (with an upper bound at the deadline). **Reached is
+  sticky**: the first time a render sees it reached, `communityGoalReachedAt`
+  is written (guarded on the goal still being that goal), and the win
+  survives the deadline.
+- Students see it as the lead block on School Community
+  (`src/components/community/goal-card.tsx`). Still aggregate-only: nothing
+  on either page can name a student.
+
+## Teachers, classes and homework (2026-10-24)
+
+A `TEACHER` role, added by the Owner or by a school's Administrator (never
+by signup), at one school (`TeacherAssignment`). Teachers make classes,
+students join with a code, and teachers assign a fixed list of published
+questions as homework with a due date. `src/lib/teacher/`,
+`src/app/(app)/teacher/`, student side `src/app/(app)/homework/` and
+`/join/[code]`.
+
+- **Who sees what is the design.** A teacher sees results on the homework
+  *they* assigned — status, score, which questions each student missed — and
+  nothing else from a student's account: no predicted score, no practice.
+  The join screen says exactly that before a student joins. An
+  Administrator's Teachers page shows counts (classes, students) and never a
+  result. This is the one place an adult sees an individual student's
+  answers; don't widen it without the Owner.
+- **Accounts**: `inviteTeacher` creates the account with no password and
+  emails a set-password link (a week-long `PasswordResetToken`, landing on the
+  existing `/reset-password` page) — the person adding a teacher never holds
+  their credentials. Google sign-in with that address works too. A teacher
+  has no student experience; `/home` sends them to `/teacher`. Removing one
+  ends their access and archives their classes there; nothing is deleted, and
+  adding them back restores access.
+- **Classes**: six-character codes from an alphabet with no look-alikes
+  (`join-code.ts`, tested). `/join/<code>` signed out goes to signup with the
+  code in the `prephub_class_join` cookie (middleware, same hand-off as a
+  Rush link) and `/home` brings them back. **Joining is a button press**, so a
+  link previewed in a chat app never puts someone on a roster. The Homework
+  nav item appears only for a student in at least one class (one indexed
+  query in the layout); anyone can join from Settings → Classes.
+- **Homework** is shaped exactly like the 800 Club: `AssignmentQuestion` pins
+  each question's published revision at assignment time (an Owner edit never
+  changes what a class was given); a student's `HomeworkSession` gets one
+  `HomeworkSlot` per question when they start, unique per (assignment,
+  student); answers finalize idempotently in a transaction; the shared
+  `SessionRunner` drives it (`/homework/session/` is a focus-mode prefix).
+  **Outside the adaptive engine** like every mode after it, and **never behind
+  the paywall** — a class where half the students can't open the homework
+  isn't a class. Homework is the seventh table in
+  `lib/school/student-activity.ts`, so it counts toward school totals and
+  goals.
+- Closing stops new starts *and* new answers, including students partway
+  through; deleting is only allowed before anyone starts. Due dates are the
+  end of that day, Central; late work is accepted and marked late.
+- Confirmations for every access-changing action go through
+  `src/components/confirm-button.tsx`, which requires a description of
+  effect, timing and reversibility.
+- Verified in a real browser end to end: admin adds a teacher → invite email
+  → set password → class → builder (filters, answer-key preview, add at
+  random) → assign → a student joins by link → does it with scratch work and
+  a highlight → turns it in → the teacher's results and class page.
+
+## Scratch work and annotation (2026-10-24)
+
+- **Scratch work** (`src/components/session/scratchpad.tsx`): a draggable,
+  resizable whiteboard over the question, one page per question, in the
+  session runner, every Rush runner and the Daily Challenge. Strokes are
+  stored as points (not pixels), so the board redraws at any size and its
+  ink follows the theme; the eraser is `destination-out`, so the dot grid
+  (CSS, not canvas) survives it.
+- **Annotate** (`annotator.tsx`): select text in the passage or question for a
+  three-colour highlighter and notes; click a highlight to recolour, note or
+  remove it; notes list under the question. Painted with the **CSS Custom
+  Highlight API** — no `<mark>` elements, which React would wipe and which
+  would split KaTeX's spans. Highlights are character offsets into each
+  root's text.
+- Both live in **localStorage only** (`local-store.ts`), like scrap paper:
+  nobody else needs them, and a request per pen stroke would be absurd. Every
+  access is wrapped (school Chromebooks may disable storage) and entries over
+  a month old are swept.
+- **Gotcha, confirmed in the dev server: Lightning CSS (Next's CSS pipeline)
+  rejects `::highlight()`.** With those rules in `globals.css` every compile
+  warned, and that dev server went on to 404 every nested dynamic route —
+  `/owner/schools/[id]` included — until restarted with the rules moved out.
+  The highlight colours are a `<style>` element the annotator renders. The
+  annotator also mounts only after hydration (`useSyncExternalStore`, as in
+  the theme toggle), because saved highlights exist only in the browser.
+
+## Demonstration district (2026-10-24)
+
+`scripts/demo-district.ts` builds "PrepHub Demo ISD" / "PrepHub Demo High
+School" for showing a district the administrator's view: ~210 fictional
+students with Diagnostics, Practice Sets and predictions that move
+believably, four fictional teachers with classes and homework, a community
+goal with a prize, two announcements, and a School Administrator account for
+an email given on the command line (`--admin=`; sign in with Google). `check`
+reports and writes nothing; `create` refuses if the demo exists or the email
+belongs to a non-administrator; `remove` deletes every demo row.
+
+It is built to sit inside production without touching anything real: all
+fictional addresses are on `demo-isd.example.com` (undeliverable, and
+excluded from analytics and lifecycle mail), no partner domain and **no
+roster rows** (a roster's existence makes every signup pay for an eligibility
+lookup), hidden from the directory, no Rush or Daily Challenge rows, and no
+usable password on any fictional account. Its answer rows reference real
+published questions, which is harmless because nothing reports per-question
+statistics — and `remove` takes them with it.

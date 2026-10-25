@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Marker } from "@/components/ui/marker";
 import { cn } from "@/lib/utils";
 import { PageViewBeacon } from "@/components/analytics/page-view-beacon";
+import { ANNUAL_PERIOD, ANNUAL_PRICE } from "@/lib/billing/display";
 
 const initialState: ActionState = {};
 
@@ -52,11 +53,11 @@ const PLANS: Record<
   ANNUAL: {
     name: "Annual",
     was: null,
-    price: "$99",
-    period: "/year",
+    price: ANNUAL_PRICE,
+    period: ANNUAL_PERIOD,
     badge: "Best value",
     note: "$8.25 a month, billed once a year.",
-    cta: "Subscribe Annual — $99/year",
+    cta: `Subscribe Annual — ${ANNUAL_PRICE}${ANNUAL_PERIOD}`,
   },
 };
 
@@ -76,6 +77,18 @@ export default function PricingPage() {
         </h1>
         <p className="mt-4 max-w-prose text-lg text-muted-foreground">
           The Diagnostic and your first Practice Set are free. Every set after that is Premium.
+        </p>
+      </div>
+
+      {/* A student who signed up with a personal email can still be covered
+          by their school; this is the one place they'd look before paying. */}
+      <div className="border-l-2 border-marker pl-3 text-sm">
+        <p className="font-medium">Does your school or district provide PrepHub?</p>
+        <p className="mt-0.5 text-muted-foreground">
+          Connect your school email and Premium is free.{" "}
+          <Link href="/access/verify-school" className="font-medium text-foreground underline underline-offset-4">
+            Connect school email
+          </Link>
         </p>
       </div>
 

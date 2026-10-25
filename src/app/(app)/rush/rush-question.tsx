@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { PenLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LatexText } from "@/components/content/latex-text";
 import { QuestionStatement } from "@/components/content/question-statement";
 import { Calculator } from "@/components/session/calculator";
+import { Scratchpad } from "@/components/session/scratchpad";
 import type { StudentQuestionContent } from "@/lib/session/question-content";
 
 /**
@@ -26,6 +28,11 @@ import type { StudentQuestionContent } from "@/lib/session/question-content";
  * a draft until Submit — and to keep a race a race, the keyboard does it in
  * two keystrokes: A–D (or 1–4) to pick, Enter to submit. When the clock runs
  * out, the runner submits whatever is selected (see `draft` in the runners).
+ *
+ * **Scratch work** (2026-10-24): the same whiteboard as the test runner, one
+ * page per question of this run (`scratchKey`). It stays open from one
+ * question to the next once a student opens it — a math-heavy rush is worked
+ * on the board throughout.
  */
 export function RushQuestion({
   content,
@@ -35,6 +42,7 @@ export function RushQuestion({
   onDraftChange,
   onAnswer,
   feedback,
+  scratchKey,
 }: {
   content: StudentQuestionContent;
   draft: string;
@@ -44,7 +52,10 @@ export function RushQuestion({
   onAnswer: (answer: string) => void;
   /** Set for one answer's worth of time: drives the right/wrong flash. */
   feedback?: "correct" | "wrong" | null;
+  /** Unique to this question in this run, so each keeps its own scratch page. */
+  scratchKey: string;
 }) {
+  const [scratchOpen, setScratchOpen] = useState(false);
   const isChoice = content.questionType === "MULTIPLE_CHOICE";
   const hasPassage = (content.passageText ?? "").trim().length > 0;
 
@@ -175,6 +186,10 @@ export function RushQuestion({
           <Button size="cta" onClick={() => draft && onAnswer(draft)} disabled={!draft}>
             Submit
           </Button>
+          <Button variant="ghost" onClick={() => setScratchOpen((v) => !v)} aria-pressed={scratchOpen}>
+            <PenLine className="size-4" aria-hidden />
+            Scratch work
+          </Button>
           {/* Keyboard play is the fast way, so it's said once, quietly. */}
           <p className="hidden text-sm text-muted-foreground sm:block">
             Press <kbd className="rounded border border-border px-1.5 py-0.5 font-sans text-xs">A</kbd>–
@@ -185,6 +200,17 @@ export function RushQuestion({
       )}
     </div>
   );
+
+  const board = scratchOpen ? <Scratchpad key={scratchKey} storageKey={`rush:${scratchKey}`} onClose={() => setScratchOpen(false)} /> : null;
+  // Numeric questions have no Submit row to hang the toggle on, so it sits
+  // under the answer field instead.
+  const numericToggle =
+    !isChoice && !answered ? (
+      <Button variant="ghost" className="mt-3" onClick={() => setScratchOpen((v) => !v)} aria-pressed={scratchOpen}>
+        <PenLine className="size-4" aria-hidden />
+        Scratch work
+      </Button>
+    ) : null;
 
   // The flash is the card's outline, so it reads at a glance without covering
   // the answer being revealed. Colour is never the only signal: the runner
@@ -214,6 +240,8 @@ export function RushQuestion({
       ) : (
         question
       )}
+      {numericToggle}
+      {board}
     </div>
   );
 }

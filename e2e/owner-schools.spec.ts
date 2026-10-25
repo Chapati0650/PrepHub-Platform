@@ -52,9 +52,9 @@ test.describe("Owner schools management (PRD-017 §18)", () => {
     // Administrators
     const adminEmail = uniqueEmail();
     await page.getByRole("button", { name: "Create Administrator" }).click();
-    await page.getByLabel("First name").fill("Pat");
-    await page.getByLabel("Email").fill(adminEmail);
-    await page.getByLabel("Password").fill("adminpass123");
+    await dialog.getByLabel("First name").fill("Pat");
+    await dialog.getByLabel("Email").fill(adminEmail);
+    await dialog.getByLabel("Password").fill("adminpass123");
     await dialog.getByRole("button", { name: "Create Administrator" }).click();
     await expect(page.getByText(adminEmail)).toBeVisible();
 

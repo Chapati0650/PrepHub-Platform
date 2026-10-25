@@ -38,7 +38,15 @@ export function DailyQuestion({
 
   return (
     <div>
-      <RushQuestion content={content} draft={draft} answered={busy} correctChoiceId={null} onDraftChange={setDraft} onAnswer={(a) => void answer(a)} />
+      <RushQuestion
+        content={content}
+        draft={draft}
+        answered={busy}
+        correctChoiceId={null}
+        onDraftChange={setDraft}
+        onAnswer={(a) => void answer(a)}
+        scratchKey={`daily:${challengeId}`}
+      />
       {busy && <p className="mt-4 text-sm text-muted-foreground">Checking…</p>}
       {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
     </div>

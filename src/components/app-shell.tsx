@@ -27,12 +27,19 @@ import {
   GraduationCap,
   Swords,
   Flame,
+  NotebookPen,
+  School,
+  Presentation,
+  Target,
 } from "lucide-react";
 import { Logo, LogoMark } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { COLLEGE_APPS_ENABLED } from "@/lib/features";
+import type { DistrictPrompt } from "@/lib/district/enrollment";
+import { DistrictBar, type ResendState } from "@/components/district-bar";
+import { PremiumUnlocked } from "@/components/premium-unlocked";
 
 type NavItem = { href: string; label: string; icon: ComponentType<{ className?: string }> };
 
@@ -53,11 +60,24 @@ const STUDENT_ITEMS: NavItem[] = [
   { href: "/settings", label: "Profile", icon: UserRound },
 ];
 
+// Only for a student who is in at least one class (the layout decides), right
+// under Home: homework has a due date, so it belongs near the top.
+const HOMEWORK_ITEM: NavItem = { href: "/homework", label: "Homework", icon: NotebookPen };
+
 const ADMIN_ITEMS: NavItem[] = [
   { href: "/admin", label: "Admin Overview", icon: ClipboardList },
   { href: "/admin/students", label: "Student Directory", icon: IdCard },
+  { href: "/admin/teachers", label: "Teachers", icon: Presentation },
+  { href: "/admin/goal", label: "Community Goal", icon: Target },
   { href: "/admin/announcements", label: "Announcements", icon: Megaphone },
   { href: "/admin/access", label: "School Access & Support", icon: ShieldCheck },
+];
+
+// A teacher has no student experience of their own (CLAUDE.md, Teachers):
+// their classes, and their account.
+const TEACHER_ITEMS: NavItem[] = [
+  { href: "/teacher", label: "Classes", icon: School },
+  { href: "/settings", label: "Account", icon: Settings },
 ];
 
 const OWNER_ITEMS: NavItem[] = [
@@ -105,6 +125,7 @@ const FOCUS_MODE_PATHS = new Set(["/diagnostic", "/practice/session", "/onboardi
 // matched by prefix rather than listed.
 const FOCUS_MODE_PREFIXES = [
   "/800-club/session/",
+  "/homework/session/",
   "/practice/focused/session/",
   "/rush/play/",
   "/rush/live/",
@@ -167,6 +188,11 @@ export function AppShell({
   user,
   showUpgrade,
   provider,
+  districtPrompt,
+  resendVerification,
+  celebration,
+  markCelebrated,
+  showHomework = false,
   logoutAction,
   children,
 }: {
@@ -176,6 +202,14 @@ export function AppShell({
   showUpgrade: boolean;
   /** The school or district providing this student's access, when there is one. */
   provider?: { name: string; logoMediaId: string | null } | null;
+  /** The one step left before a student's school access switches on, if any. */
+  districtPrompt?: DistrictPrompt | null;
+  resendVerification?: (prev: ResendState) => Promise<ResendState>;
+  /** Set once, while a new school membership hasn't been celebrated yet. */
+  celebration?: { organizationName: string; logoMediaId: string | null; firstName: string | null } | null;
+  markCelebrated?: () => Promise<void>;
+  /** The student is in at least one class, so Homework belongs in the nav. */
+  showHomework?: boolean;
   logoutAction: () => Promise<void>;
   children: React.ReactNode;
 }) {
@@ -225,15 +259,19 @@ export function AppShell({
 
   const isAdmin = role === "SCHOOL_ADMINISTRATOR";
   const isOwner = role === "OWNER";
+  const isTeacher = role === "TEACHER";
   const isStudentExperience = role === "STUDENT" || isAdmin;
 
+  const studentItems = showHomework ? [STUDENT_ITEMS[0], HOMEWORK_ITEM, ...STUDENT_ITEMS.slice(1)] : STUDENT_ITEMS;
   const sections: NavItem[][] = isOwner
     ? [OWNER_ITEMS]
-    : isStudentExperience
-      ? isAdmin
-        ? [STUDENT_ITEMS, ADMIN_ITEMS]
-        : [STUDENT_ITEMS]
-      : [];
+    : isTeacher
+      ? [TEACHER_ITEMS]
+      : isStudentExperience
+        ? isAdmin
+          ? [studentItems, ADMIN_ITEMS]
+          : [studentItems]
+        : [];
 
   const initials = (user.name || user.email).trim().slice(0, 2).toUpperCase();
 
@@ -347,7 +385,11 @@ export function AppShell({
             real is the one kind of urgency this product must never fake.
             Shown only to students who haven't paid, and it scrolls away
             rather than sticking, so it never crowds a question. */}
-        {showUpgrade && (
+        {/* A student one step from their school's free access sees that
+            step here instead — never a sale on what their school pays for. */}
+        {districtPrompt && resendVerification ? (
+          <DistrictBar prompt={districtPrompt} resend={resendVerification} />
+        ) : showUpgrade && (
           <div className="flex items-center justify-center gap-x-4 gap-y-1 bg-marker px-4 py-2 text-sm text-surface-deep">
             <p>
               <span className="font-semibold">Launch pricing</span>, PrepHub Premium is 50% off
@@ -379,6 +421,9 @@ export function AppShell({
         </header>
         <main className="flex-1">{children}</main>
       </div>
+      {/* Never on a focus-mode route (that branch returns above), so it can't
+          land on top of a question; it waits for the next ordinary page. */}
+      {celebration && markCelebrated && <PremiumUnlocked {...celebration} onSeen={markCelebrated} />}
     </div>
   );
 }

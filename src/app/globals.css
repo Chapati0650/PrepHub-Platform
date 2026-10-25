@@ -250,8 +250,9 @@
 /* 1v1 Rush game feel (2026-10-24). Every use is behind `motion-safe:`, so a
    student who has asked their device for reduced motion gets the same
    information — the points, the streak, the result — without any of it
-   moving. Scoped by name to Rush; nothing else in the app animates like this,
-   on purpose: the rest of the product is a study tool and should stay calm. */
+   moving. Scoped by name to Rush; the only other thing in the app that moves
+   like this is the once-per-student school-access moment below. The rest of
+   the product is a study tool and should stay calm. */
 @theme {
   --animate-rush-pop: rush-pop 1200ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
   --animate-rush-bump: rush-bump 340ms ease-out;
@@ -329,6 +330,42 @@
     }
     50% {
       opacity: 0.45;
+    }
+  }
+}
+
+/* The school-access moment (2026-10-24, src/components/premium-unlocked.tsx):
+   the annual price is struck through by hand, then FREE stamps down beside
+   it. Plays once per student, behind `motion-safe:` like the Rush set. Only
+   scale is keyframed for the stamp: the tilt is the element's own `rotate`,
+   which Tailwind v4 sets as a separate property, so the two compose instead
+   of one overwriting the other. */
+@theme {
+  --animate-premium-strike: premium-strike 1100ms cubic-bezier(0.65, 0, 0.35, 1) both;
+  --animate-premium-stamp: premium-stamp 1500ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+
+  @keyframes premium-strike {
+    0%,
+    35% {
+      stroke-dashoffset: 1;
+    }
+    100% {
+      stroke-dashoffset: 0;
+    }
+  }
+  @keyframes premium-stamp {
+    0%,
+    62% {
+      opacity: 0;
+      transform: scale(2.4);
+    }
+    82% {
+      opacity: 1;
+      transform: scale(0.92);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
     }
   }
 }

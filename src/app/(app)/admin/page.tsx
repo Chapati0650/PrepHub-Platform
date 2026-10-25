@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ClipboardList, BarChart3 } from "lucide-react";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { getAdminOverviewData } from "@/lib/admin/overview";
@@ -199,6 +200,9 @@ export default async function AdminOverviewPage({
             </span>
           </div>
         </div>
+        <Link href="/preview/premium" className="mt-3 inline-block text-sm font-medium underline underline-offset-4">
+          See what a student sees when their access switches on
+        </Link>
       </div>
     </div>
   );

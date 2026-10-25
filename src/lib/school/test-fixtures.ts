@@ -39,6 +39,23 @@ function sinceFrom(values: unknown[]): Date | undefined {
   return values.find((v): v is Date => v instanceof Date);
 }
 
+/**
+ * Every Date bound anywhere in the query, in order. A condition written as a
+ * composed `Prisma.sql` fragment (`answered_at >= ${since}`) arrives as a
+ * nested Sql object whose own `values` hold the Date, so a top-level scan
+ * alone would never see it.
+ */
+function datesIn(values: unknown[]): Date[] {
+  const found: Date[] = [];
+  for (const v of values) {
+    if (v instanceof Date) found.push(v);
+    else if (v && typeof v === "object" && Array.isArray((v as { values?: unknown[] }).values)) {
+      found.push(...datesIn((v as { values: unknown[] }).values));
+    }
+  }
+  return found;
+}
+
 function sqlTextOf(call: unknown[]): string {
   return Array.from(call[0] as ArrayLike<string>).join(" ");
 }
@@ -92,10 +109,21 @@ export function installActivityQueryMock(
       ]);
     }
 
+    if (sql.includes('AS "hoursBetween"')) {
+      const [from, to] = datesIn(values);
+      const inWindow = fixture.sessions.filter((s) => s.completedAt >= from && s.completedAt <= to);
+      return Promise.resolve([{ hoursBetween: inWindow.reduce((sum, s) => sum + cappedHours(s), 0) }]);
+    }
+
     if (sql.includes("FROM answers")) {
-      const since = sinceFrom(values);
+      // since, then an optional until — in that order, as countAnswers binds them.
+      const [since, until] = datesIn(values);
       return Promise.resolve([
-        { total: fixture.answers.filter((a) => !since || a.answeredAt >= since).length },
+        {
+          total: fixture.answers.filter(
+            (a) => (!since || a.answeredAt >= since) && (!until || a.answeredAt <= until),
+          ).length,
+        },
       ]);
     }
 

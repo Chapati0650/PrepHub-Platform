@@ -118,3 +118,17 @@ export async function updateNotificationPrefsAction(_prev: ActionState, formData
   revalidatePath("/settings");
   return { success: true };
 }
+
+/**
+ * Records that this student has seen the "your school covers Premium" moment,
+ * so it never shows again. Guarded on `celebratedAt: null`, so a double close
+ * keeps the first date.
+ */
+export async function markPremiumCelebratedAction(): Promise<void> {
+  const session = await auth();
+  if (!session?.user.id) return;
+  await prisma.studentMembership.updateMany({
+    where: { studentId: session.user.id, celebratedAt: null },
+    data: { celebratedAt: new Date() },
+  });
+}

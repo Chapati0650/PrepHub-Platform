@@ -23,11 +23,6 @@ export const updateOrganizationSchema = z.object({
   internalNotes: z.string().trim().optional(),
 });
 
-export const updateCommunityGoalSchema = z.object({
-  communityGoalMetric: z.enum(["QUESTIONS_ANSWERED", "STUDY_HOURS", "ADAPTIVE_SESSIONS", ""]),
-  communityGoalTarget: z.string().trim().optional(),
-});
-
 export const updateTotalEnrollmentSchema = z.object({
   totalEnrollment: z.string().trim().optional(),
 });

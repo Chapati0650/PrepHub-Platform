@@ -67,7 +67,7 @@ const EMPTY_RESULT: SchoolAggregateResult = {
 // function with a hard execution limit.
 //
 // "Questions answered", "study hours", "active students" and the streak all
-// come from `lib/school/student-activity`, which knows about all six tables a
+// come from `lib/school/student-activity`, which knows about every table a
 // student's answers can land in. Before that they counted adaptive practice
 // and the diagnostic only, so a campus that had taken to the 800 Club, 1v1
 // Rush, Focused Practice or the Daily Challenge was reported as having done

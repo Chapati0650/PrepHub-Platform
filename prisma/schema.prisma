@@ -14,6 +14,10 @@ datasource db {
 enum Role {
   OWNER
   SCHOOL_ADMINISTRATOR
+  /// Created by the Owner or a school's Administrator, never by signup
+  /// (2026-10-24). Runs classes and assigns homework; has no student
+  /// experience of its own and no paid access.
+  TEACHER
   STUDENT
 }
 
@@ -86,24 +90,29 @@ model User {
   performedEvents    MembershipHistoryEvent[]  @relation("PerformedBy")
   verificationTokens SchoolVerificationToken[]
 
-  categoryStates         CategoryState[]
-  practiceSets           PracticeSet[]
-  finalizedAttempts      FinalizedAttempt[]
-  diagnosticSession      DiagnosticSession?
-  predictionHistory      PredictionHistoryEntry[]
-  clubSessions           ClubSession[]
-  focusedSessions        FocusedSession[]
-  lessonProgress         LessonProgress[]
-  collegeAppsProfile     CollegeAppsProfile?
-  collegeApplications    CollegeApplication[]
-  applicationItems       ApplicationItem[]
-  rushChallenges         RushChallenge[]          @relation("RushCreator")
-  rushInvites            RushChallenge[]          @relation("RushInvite")
-  rushRuns               RushRun[]
-  dailyChallengeAttempts DailyChallengeAttempt[]
-  analyticsEvents        AnalyticsEvent[]
-  emailSends             EmailSend[]
-  announcementsCreated   Announcement[]
+  categoryStates          CategoryState[]
+  practiceSets            PracticeSet[]
+  finalizedAttempts       FinalizedAttempt[]
+  diagnosticSession       DiagnosticSession?
+  predictionHistory       PredictionHistoryEntry[]
+  clubSessions            ClubSession[]
+  focusedSessions         FocusedSession[]
+  lessonProgress          LessonProgress[]
+  collegeAppsProfile      CollegeAppsProfile?
+  collegeApplications     CollegeApplication[]
+  applicationItems        ApplicationItem[]
+  rushChallenges          RushChallenge[]          @relation("RushCreator")
+  rushInvites             RushChallenge[]          @relation("RushInvite")
+  rushRuns                RushRun[]
+  dailyChallengeAttempts  DailyChallengeAttempt[]
+  analyticsEvents         AnalyticsEvent[]
+  emailSends              EmailSend[]
+  announcementsCreated    Announcement[]
+  emailVerificationTokens EmailVerificationToken[]
+  teacherAssignments      TeacherAssignment[]
+  classroomsTaught        Classroom[]              @relation("ClassroomTeacher")
+  classroomEnrollments    ClassroomEnrollment[]
+  homeworkSessions        HomeworkSession[]
 
   @@map("users")
 }
@@ -250,8 +259,21 @@ model Organization {
 
   // PRD-009 §7 — Owner-configured, SCHOOL-type orgs only. Null metric means no
   // active goal is set yet (the School Community page shows no goal section).
-  communityGoalMetric CommunityGoalMetric?
-  communityGoalTarget Int?
+  communityGoalMetric    CommunityGoalMetric?
+  communityGoalTarget    Int?
+  /// What the school wins for reaching the goal (2026-10-24) - set by the
+  /// Owner or the school's Administrator, shown to students beside the
+  /// progress bar. Null means a goal with no prize.
+  communityGoalPrize     String?
+  /// The goal counts activity from this moment, reset whenever the goal
+  /// changes. Null on goals set before this existed, which keep counting
+  /// all-time exactly as they did.
+  communityGoalStartsAt  DateTime?
+  /// Optional deadline; activity after it doesn't count toward the goal.
+  communityGoalEndsAt    DateTime?
+  /// First time the goal was seen reached inside its window, kept so the
+  /// "reached on" date never moves.
+  communityGoalReachedAt DateTime?
 
   // PRD-011 §9 — Owner-set eligible student population for this school; not
   // editable by the Administrator. Null until the Owner sets it (Registration
@@ -299,6 +321,8 @@ model Organization {
   historyEventsFrom    MembershipHistoryEvent[]  @relation("PreviousOrganization")
   historyEventsTo      MembershipHistoryEvent[]  @relation("NewOrganization")
   announcements        Announcement[]
+  teacherAssignments   TeacherAssignment[]
+  classrooms           Classroom[]
 
   @@map("organizations")
 }
@@ -381,10 +405,16 @@ model StudentMembership {
   status                 MembershipStatus @default(ACTIVE)
   activationMethod       ActivationMethod
 
-  activatedAt DateTime  @default(now())
-  removedAt   DateTime?
-  graduatedAt DateTime?
-  restoredAt  DateTime?
+  activatedAt  DateTime  @default(now())
+  removedAt    DateTime?
+  graduatedAt  DateTime?
+  restoredAt   DateTime?
+  /// When this student was shown the "Premium is free, from your school"
+  /// moment (2026-10-24). Null means not yet: the app layout shows it once,
+  /// on the first ordinary page after the membership exists. Memberships
+  /// that existed before this were backfilled to `activatedAt`, so nobody
+  /// who already had access sees it out of the blue.
+  celebratedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -593,13 +623,15 @@ model Question {
 
   revisions QuestionRevision[] @relation("QuestionRevisions")
 
-  blueprintSlots     BlueprintSlot[]
-  diagnosticAttempts DiagnosticAttempt[]
-  finalizedAttempts  FinalizedAttempt[]
-  clubSlots          ClubSlot[]
-  focusedSlots       FocusedSlot[]
-  rushSlots          RushSlot[]
-  dailyChallenges    DailyChallenge[]
+  blueprintSlots      BlueprintSlot[]
+  diagnosticAttempts  DiagnosticAttempt[]
+  finalizedAttempts   FinalizedAttempt[]
+  clubSlots           ClubSlot[]
+  focusedSlots        FocusedSlot[]
+  rushSlots           RushSlot[]
+  dailyChallenges     DailyChallenge[]
+  assignmentQuestions AssignmentQuestion[]
+  homeworkSlots       HomeworkSlot[]
 
   @@index([sourceImageHash])
   /// The Questions table filters by family, and publishing a family touches
@@ -664,12 +696,14 @@ model QuestionRevision {
   currentPublishedFor Question? @relation("CurrentPublished")
   currentDraftFor     Question? @relation("CurrentDraft")
 
-  blueprintSlots     BlueprintSlot[]
-  diagnosticAttempts DiagnosticAttempt[]
-  clubSlots          ClubSlot[]
-  focusedSlots       FocusedSlot[]
-  rushSlots          RushSlot[]
-  dailyChallenges    DailyChallenge[]
+  blueprintSlots      BlueprintSlot[]
+  diagnosticAttempts  DiagnosticAttempt[]
+  clubSlots           ClubSlot[]
+  focusedSlots        FocusedSlot[]
+  rushSlots           RushSlot[]
+  dailyChallenges     DailyChallenge[]
+  assignmentQuestions AssignmentQuestion[]
+  homeworkSlots       HomeworkSlot[]
 
   /// The editor lists a question's revision history.
   @@index([questionId])
@@ -1736,4 +1770,190 @@ model QueuedEmail {
   /// The drain query's index: unsent rows, oldest first.
   @@index([sentAt, createdAt])
   @@map("queued_emails")
+}
+
+// ---------------------------------------------------------------------------
+// Account email confirmation (2026-10-24)
+// ---------------------------------------------------------------------------
+
+/// Proof that a password account controls its own email address.
+///
+/// Google sign-in arrives with the address already verified; a password
+/// signup has only typed it. District enrollment acts on a verified address
+/// only (src/lib/district/enrollment.ts), so a password signup whose email
+/// matches a partner district is sent one of these, and confirming it is what
+/// sets `User.emailVerified`. `email` is the address the link went to: a link
+/// for an address the account no longer has proves nothing about the new one.
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  email     String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("email_verification_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Teachers, classes and homework (2026-10-24)
+//
+// A TEACHER account belongs to one school, runs classes there, and assigns
+// homework: a fixed list of published questions. Students join a class with
+// a code. The teacher sees results on the homework they assigned and nothing
+// else about a student (no predicted score, no practice history), which is
+// the line the join screen states to the student.
+// ---------------------------------------------------------------------------
+
+/// Which school a teacher teaches at. Created by the Owner or by that school's
+/// Administrator; `removedAt` ends the teacher's access without deleting
+/// their classes or anyone's work.
+model TeacherAssignment {
+  id        String    @id @default(cuid())
+  userId    String
+  schoolId  String
+  createdAt DateTime  @default(now())
+  removedAt DateTime?
+
+  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school Organization @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, schoolId])
+  @@index([schoolId, removedAt])
+  @@map("teacher_assignments")
+}
+
+model Classroom {
+  id         String    @id @default(cuid())
+  teacherId  String
+  schoolId   String
+  name       String
+  /// What students type (or follow as /join/<code>) to enter the class.
+  joinCode   String    @unique
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  archivedAt DateTime?
+
+  teacher     User                  @relation("ClassroomTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  school      Organization          @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  enrollments ClassroomEnrollment[]
+  assignments Assignment[]
+
+  @@index([teacherId, archivedAt])
+  @@index([schoolId])
+  @@map("classrooms")
+}
+
+model ClassroomEnrollment {
+  id          String    @id @default(cuid())
+  classroomId String
+  studentId   String
+  joinedAt    DateTime  @default(now())
+  /// Removed by the teacher or left by the student. Soft, so homework the
+  /// student already finished still shows in the class's results.
+  removedAt   DateTime?
+
+  classroom Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  student   User      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([classroomId, studentId])
+  @@index([studentId, removedAt])
+  @@map("classroom_enrollments")
+}
+
+/// Homework: a fixed list of questions assigned to one class.
+model Assignment {
+  id           String    @id @default(cuid())
+  classroomId  String
+  title        String
+  instructions String?   @db.Text
+  dueAt        DateTime?
+  /// Closed by the teacher: nothing new can be started or answered. Work
+  /// already done is kept and still counts.
+  closedAt     DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  classroom Classroom            @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  questions AssignmentQuestion[]
+  sessions  HomeworkSession[]
+
+  @@index([classroomId, createdAt])
+  @@map("assignments")
+}
+
+/// One question on an assignment, pinned to the revision that was published
+/// when it was assigned (the same content-stability rule as a practice set's
+/// BlueprintSlot), so an Owner edit afterwards never changes what a class
+/// was given.
+model AssignmentQuestion {
+  id                 String @id @default(cuid())
+  assignmentId       String
+  position           Int
+  questionId         String
+  questionRevisionId String
+
+  assignment       Assignment       @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  question         Question         @relation(fields: [questionId], references: [id])
+  questionRevision QuestionRevision @relation(fields: [questionRevisionId], references: [id])
+
+  @@unique([assignmentId, position])
+  @@index([questionId])
+  @@map("assignment_questions")
+}
+
+enum HomeworkStatus {
+  ACTIVE
+  COMPLETED
+}
+
+/// One student's work on one assignment, created when they start it with one
+/// slot per assignment question. Shaped like an 800 Club session on purpose
+/// (the shared SessionRunner drives both) and, like it, invisible to the
+/// adaptive engine: a teacher-chosen sample says nothing reliable about
+/// ability.
+model HomeworkSession {
+  id              String         @id @default(cuid())
+  assignmentId    String
+  studentId       String
+  status          HomeworkStatus @default(ACTIVE)
+  currentPosition Int            @default(0)
+  createdAt       DateTime       @default(now())
+  completedAt     DateTime?
+
+  assignment Assignment     @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student    User           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  slots      HomeworkSlot[]
+
+  @@unique([assignmentId, studentId])
+  @@index([studentId, status])
+  @@map("homework_sessions")
+}
+
+model HomeworkSlot {
+  id                 String  @id @default(cuid())
+  sessionId          String
+  position           Int
+  questionId         String
+  questionRevisionId String
+  draftAnswer        String?
+  skipped            Boolean @default(false)
+
+  // Inline attempt, as in ClubSlot: answered at most once, and
+  // `finalizedAt IS NULL` inside a transaction is the idempotency check.
+  answer      String?
+  isCorrect   Boolean?
+  finalizedAt DateTime?
+
+  session          HomeworkSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question         Question         @relation(fields: [questionId], references: [id])
+  questionRevision QuestionRevision @relation(fields: [questionRevisionId], references: [id])
+
+  @@unique([sessionId, position])
+  @@index([questionId])
+  @@map("homework_slots")
 }

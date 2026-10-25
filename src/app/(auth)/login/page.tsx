@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { GoogleIcon } from "@/components/google-icon";
+import { SchoolAccessNote } from "@/components/school-access-note";
 
 const initialState: ActionState = {};
 
@@ -23,6 +24,7 @@ export default function LoginPage() {
         <CardDescription className="text-base">Pick up right where you left off.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
+        <SchoolAccessNote variant="login" className="mb-1" />
         {/* A real <a> tag, not next/link's <Link> — three real incidents now,
             see src/app/api/auth/google-sign-in for the full history: (1) a
             Server Action whose response is an external redirect broke on

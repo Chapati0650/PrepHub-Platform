@@ -11,7 +11,16 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusActions } from "./status-actions";
 import { EditOrganizationForm } from "./edit-organization-form";
-import { CommunityGoalForm } from "./community-goal-form";
+import { GoalEditor } from "@/components/community/goal-editor";
+import { localDateInputValue } from "@/lib/community/goal";
+import {
+  inviteTeacherOwnerAction,
+  removeTeacherOwnerAction,
+  resendTeacherInviteOwnerAction,
+  updateCommunityGoalAction,
+} from "../actions";
+import { TeachersPanel } from "@/components/teacher/teachers-panel";
+import { listTeachers } from "@/lib/teacher/accounts";
 import { TotalEnrollmentForm } from "./total-enrollment-form";
 import { AdministratorsPanel } from "./administrators-panel";
 import { AddSchoolForm } from "./add-school-form";
@@ -37,6 +46,7 @@ export default async function OrganizationDetailPage({
   const allSchools = await listAllSchools();
   const roster = await listRoster(id, { search: rosterSearch });
   const invites = await getRosterInviteSummary({ organizationId: id });
+  const teachers = org.organizationType === "SCHOOL" ? await listTeachers(id) : [];
 
   const eligibleSchools =
     org.organizationType === "DISTRICT"
@@ -105,13 +115,21 @@ export default async function OrganizationDetailPage({
         <Card>
           <CardHeader>
             <CardTitle>Community Goal</CardTitle>
-            <CardDescription>Shown on this school&apos;s students&apos; School Community page (PRD-009 §7).</CardDescription>
+            <CardDescription>
+              Shown to this school&apos;s students on School Community, with the prize and deadline if set. The
+              school&apos;s Administrator can edit it too.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <CommunityGoalForm
-              id={org.id}
-              communityGoalMetric={org.communityGoalMetric}
-              communityGoalTarget={org.communityGoalTarget}
+            <GoalEditor
+              action={updateCommunityGoalAction}
+              hidden={{ id: org.id }}
+              initial={{
+                metric: org.communityGoalMetric,
+                target: org.communityGoalTarget,
+                prize: org.communityGoalPrize,
+                endsOn: localDateInputValue(org.communityGoalEndsAt),
+              }}
             />
           </CardContent>
         </Card>
@@ -185,6 +203,27 @@ export default async function OrganizationDetailPage({
           />
         </CardContent>
       </Card>
+
+      {org.organizationType === "SCHOOL" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Teachers</CardTitle>
+            <CardDescription>
+              Each teacher gets their own login, runs classes, and assigns homework. The school&apos;s Administrator
+              can manage these too.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TeachersPanel
+              teachers={teachers}
+              invite={inviteTeacherOwnerAction}
+              resend={resendTeacherInviteOwnerAction.bind(null, org.id)}
+              remove={removeTeacherOwnerAction.bind(null, org.id)}
+              hidden={{ organizationId: org.id }}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <Separator />
 

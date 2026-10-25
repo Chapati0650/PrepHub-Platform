@@ -6,7 +6,6 @@ import { auth } from "@/auth";
 import {
   createOrganization,
   updateOrganizationDetails,
-  updateCommunityGoal,
   updateTotalEnrollment,
   activateOrganization,
   suspendOrganization,
@@ -26,7 +25,6 @@ import { OwnerError } from "@/lib/owner/errors";
 import {
   createOrganizationSchema,
   updateOrganizationSchema,
-  updateCommunityGoalSchema,
   updateTotalEnrollmentSchema,
   renewOrganizationSchema,
   createAdministratorSchema,
@@ -44,6 +42,10 @@ import {
   setEnrollmentMode,
 } from "@/lib/owner/roster";
 import { sendRosterInvitations } from "@/lib/owner/roster-invites";
+import { GoalError, parseGoalForm, saveCommunityGoal } from "@/lib/community/goal";
+import { inviteTeacher, removeTeacher, resendTeacherInvite } from "@/lib/teacher/accounts";
+import { TeacherError } from "@/lib/teacher/errors";
+import type { TeacherPanelState } from "@/components/teacher/teachers-panel";
 
 export type ActionState = { error?: string; success?: boolean };
 
@@ -132,23 +134,20 @@ export async function updateCommunityGoalAction(_prev: ActionState, formData: Fo
   const id = formData.get("id");
   if (typeof id !== "string" || !id) return { error: "Missing organization id." };
 
-  const parsed = updateCommunityGoalSchema.safeParse(formEntries(formData));
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
-
-  const metric = parsed.data.communityGoalMetric === "" ? null : parsed.data.communityGoalMetric;
-  const target = parsed.data.communityGoalTarget ? Number(parsed.data.communityGoalTarget) : null;
-  if (metric && (!Number.isInteger(target) || (target as number) <= 0)) {
-    return { error: "Enter a goal target greater than zero." };
-  }
+  // The same parser and rules the school's own Administrator is held to
+  // (lib/community/goal.ts), so the two editors can't drift.
+  const parsed = parseGoalForm(formData);
+  if ("error" in parsed) return { error: parsed.error };
 
   try {
-    await updateCommunityGoal(id, { communityGoalMetric: metric, communityGoalTarget: target });
+    await saveCommunityGoal(id, parsed);
   } catch (err) {
-    if (err instanceof OwnerError) return { error: err.message };
+    if (err instanceof GoalError) return { error: err.message };
     throw err;
   }
 
   revalidatePath(`/owner/schools/${id}`);
+  revalidatePath("/community");
   return { success: true };
 }
 
@@ -549,4 +548,47 @@ export async function setOrganizationLogoAction(id: string, logoMediaId: string 
   revalidatePath(`/owner/schools/${id}`);
   // Students see it in the app shell, which every authenticated route renders.
   revalidatePath("/", "layout");
+}
+
+// ---- Teachers (2026-10-24) -----------------------------------------------------
+// The same operations a school's Administrator has, for the Owner setting a
+// school up. The organization id comes first so the page can bind it.
+
+export async function inviteTeacherOwnerAction(_prev: TeacherPanelState, formData: FormData): Promise<TeacherPanelState> {
+  await requireOwner();
+  const organizationId = String(formData.get("organizationId") ?? "");
+  try {
+    const { created } = await inviteTeacher({
+      firstName: String(formData.get("firstName") ?? ""),
+      email: String(formData.get("email") ?? ""),
+      schoolId: organizationId,
+      invitedBy: "The PrepHub team",
+    });
+    revalidatePath(`/owner/schools/${organizationId}`);
+    return {
+      success: true,
+      message: created ? "Added. They'll get an email to set their password." : "Added back — their access is restored.",
+    };
+  } catch (err) {
+    if (err instanceof TeacherError) return { error: err.message };
+    throw err;
+  }
+}
+
+export async function resendTeacherInviteOwnerAction(organizationId: string, userId: string): Promise<TeacherPanelState> {
+  await requireOwner();
+  try {
+    await resendTeacherInvite(userId, organizationId, "The PrepHub team");
+    return { message: "Sent a new invite." };
+  } catch (err) {
+    if (err instanceof TeacherError) return { error: err.message };
+    throw err;
+  }
+}
+
+export async function removeTeacherOwnerAction(organizationId: string, userId: string): Promise<TeacherPanelState> {
+  await requireOwner();
+  await removeTeacher(userId, organizationId);
+  revalidatePath(`/owner/schools/${organizationId}`);
+  return { success: true };
 }

@@ -17,11 +17,13 @@ import { NotificationsForm } from "./notifications-form";
 import { ThemeToggle } from "./theme-toggle";
 import { SettingsNav, type SettingsSectionLink } from "./settings-nav";
 import { LeaderboardForm } from "./leaderboard-form";
+import { JoinClassForm } from "../homework/join-class-form";
 
 const PLAN_LABEL: Record<string, string> = { MONTHLY: "Monthly ($25/mo)", ANNUAL: "Annual ($99/yr)" };
 const ROLE_LABEL: Record<string, string> = {
   STUDENT: "Student",
   SCHOOL_ADMINISTRATOR: "School Administrator",
+  TEACHER: "Teacher",
   OWNER: "Owner",
 };
 
@@ -122,6 +124,7 @@ export default async function SettingsPage() {
         ]
       : []),
     ...(showLeaderboardSection ? [{ id: "leaderboard", label: "Leaderboard" }] : []),
+    ...(isStudent && user ? [{ id: "classes", label: "Classes" }] : []),
     { id: "appearance", label: "Appearance" },
     ...(showStudentSections && user && !isAdmin ? [{ id: "subscription", label: "Subscription" }] : []),
     ...(showStudentSections && user ? [{ id: "legal", label: "Legal" }] : []),
@@ -243,6 +246,24 @@ export default async function SettingsPage() {
                 </Section>
               )}
             </>
+          )}
+
+          {/* Where a student with no class yet can type a teacher's code; the
+              Homework nav item only appears once they're in one. */}
+          {isStudent && user && (
+            <Section id="classes" title="Classes" description="Join a teacher's class with the code they give you.">
+              <Card>
+                <div className="flex max-w-sm flex-col gap-3">
+                  <JoinClassForm />
+                  <p className="text-xs text-muted-foreground">
+                    Your teacher sees your results on the homework they assign — nothing else from your account.{" "}
+                    <Link href="/homework" className="underline underline-offset-4">
+                      Your homework
+                    </Link>
+                  </p>
+                </div>
+              </Card>
+            </Section>
           )}
 
           {/* Appearance — a device/browser preference, not a student-specific

@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 
 vi.mock("@/lib/prisma", () => {
   const mockPrisma: Record<string, unknown> = {
-    organization: { findUniqueOrThrow: vi.fn() },
+    organization: { findUniqueOrThrow: vi.fn(), updateMany: vi.fn() },
     studentMembership: { findMany: vi.fn() },
     practiceSet: { count: vi.fn() },
     $queryRaw: vi.fn(),
@@ -164,12 +164,116 @@ describe("getSchoolCommunityData", () => {
 
     const result = await getSchoolCommunityData("school1");
 
-    expect(result.goal).toEqual({
+    expect(result.goal).toMatchObject({
       metric: "QUESTIONS_ANSWERED",
       label: "Questions Answered",
       current: 50,
       target: 100_000,
+      prize: null,
+      status: { state: "IN_PROGRESS", percent: 0, remaining: 99_950, daysLeft: null },
     });
+  });
+
+  // A goal with a window counts only what happened inside it: "5,000
+  // questions" set today means 5,000 from today, not work done before anyone
+  // knew there was a prize.
+  it("counts a windowed goal from its start, not all-time", async () => {
+    const startsAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    mocked.organization.findUniqueOrThrow.mockResolvedValue({
+      officialName: "Lebanon Trail High School",
+      communityGoalMetric: "QUESTIONS_ANSWERED",
+      communityGoalTarget: 100,
+      communityGoalPrize: "Pizza party",
+      communityGoalStartsAt: startsAt,
+      communityGoalEndsAt: null,
+      communityGoalReachedAt: null,
+    });
+    mocked.studentMembership.findMany.mockResolvedValue([{ studentId: "s1" }]);
+    givenAnswers([
+      { studentId: "s1", answeredAt: new Date(startsAt.getTime() - 60_000) }, // before the goal: not counted
+      { studentId: "s1", answeredAt: new Date() },
+      { studentId: "s1", answeredAt: new Date() },
+    ]);
+
+    const result = await getSchoolCommunityData("school1");
+
+    expect(result.stats.totalQuestionsAnswered).toBe(3);
+    expect(result.goal).toMatchObject({ current: 2, prize: "Pizza party", status: { state: "IN_PROGRESS" } });
+  });
+
+  it("stops counting at the deadline, and says the goal ended short", async () => {
+    const startsAt = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+    const endsAt = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    mocked.organization.findUniqueOrThrow.mockResolvedValue({
+      officialName: "Lebanon Trail High School",
+      communityGoalMetric: "QUESTIONS_ANSWERED",
+      communityGoalTarget: 100,
+      communityGoalPrize: null,
+      communityGoalStartsAt: startsAt,
+      communityGoalEndsAt: endsAt,
+      communityGoalReachedAt: null,
+    });
+    mocked.studentMembership.findMany.mockResolvedValue([{ studentId: "s1" }]);
+    givenAnswers([
+      { studentId: "s1", answeredAt: new Date(endsAt.getTime() - 60_000) },
+      { studentId: "s1", answeredAt: new Date() }, // after the deadline: not counted
+    ]);
+
+    const result = await getSchoolCommunityData("school1");
+
+    expect(result.goal).toMatchObject({ current: 1, status: { state: "ENDED", remaining: 99 } });
+    expect(mocked.organization.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("records the moment a goal is first seen reached, guarded on the goal still being this one", async () => {
+    mocked.organization.findUniqueOrThrow.mockResolvedValue({
+      officialName: "Lebanon Trail High School",
+      communityGoalMetric: "QUESTIONS_ANSWERED",
+      communityGoalTarget: 2,
+      communityGoalPrize: "Pizza party",
+      communityGoalStartsAt: new Date(Date.now() - 60 * 60 * 1000),
+      communityGoalEndsAt: null,
+      communityGoalReachedAt: null,
+    });
+    mocked.studentMembership.findMany.mockResolvedValue([{ studentId: "s1" }]);
+    givenAnswers([
+      { studentId: "s1", answeredAt: new Date() },
+      { studentId: "s1", answeredAt: new Date() },
+    ]);
+
+    const result = await getSchoolCommunityData("school1");
+
+    expect(result.goal?.status.state).toBe("REACHED");
+    expect(result.goal?.reachedAt).toBeInstanceOf(Date);
+    expect(mocked.organization.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: "school1",
+          communityGoalReachedAt: null,
+          communityGoalMetric: "QUESTIONS_ANSWERED",
+          communityGoalTarget: 2,
+        }),
+      }),
+    );
+  });
+
+  it("keeps a won goal won after its deadline", async () => {
+    const reachedAt = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    mocked.organization.findUniqueOrThrow.mockResolvedValue({
+      officialName: "Lebanon Trail High School",
+      communityGoalMetric: "QUESTIONS_ANSWERED",
+      communityGoalTarget: 100,
+      communityGoalPrize: "Pizza party",
+      communityGoalStartsAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000),
+      communityGoalEndsAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      communityGoalReachedAt: reachedAt,
+    });
+    mocked.studentMembership.findMany.mockResolvedValue([{ studentId: "s1" }]);
+
+    const result = await getSchoolCommunityData("school1");
+
+    expect(result.goal).toMatchObject({ reachedAt, status: { state: "REACHED" } });
+    expect(mocked.organization.updateMany).not.toHaveBeenCalled();
   });
 
   it("returns no goal when the organization has not configured one", async () => {

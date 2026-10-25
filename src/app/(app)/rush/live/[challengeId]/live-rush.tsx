@@ -360,6 +360,7 @@ export function LiveRush({
               onDraftChange={setDraft}
               onAnswer={(a) => void submitAnswer(a)}
               feedback={mine ? (mine.points > 0 ? "correct" : "wrong") : null}
+              scratchKey={`${id}:${question.position}`}
             />
           </div>
           {mine && (

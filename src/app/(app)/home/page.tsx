@@ -2,11 +2,11 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { readPendingRushCode } from "@/lib/rush/pending-join";
+import { readPendingClassCode } from "@/lib/teacher/pending-join";
 import { TrendingUp, Check, ChevronRight, Pencil, Flame } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { decidePaidAccess, getAccessContext } from "@/lib/entitlements";
-import { isDistrictCandidateEmail } from "@/lib/district/enrollment";
 import { isFreePracticeSet } from "@/lib/practice/free-tier";
 import { getDailyStatus } from "@/lib/daily/challenge";
 import { getDashboardData } from "@/lib/dashboard/dashboard-data";
@@ -66,6 +66,9 @@ export default async function HomePage() {
   // the app layout). The Owner (who never touches the student product) gets
   // this landing page instead — its own entry points into Schools/Content
   // management, since the Owner has no student-nav header to fall back on.
+  // A teacher has no student dashboard: their home is their classes.
+  if (session.user.role === "TEACHER") redirect("/teacher");
+
   if (session.user.role === "OWNER") {
     return (
       <div className="mx-auto flex max-w-3xl flex-col gap-8 p-6 sm:p-10">
@@ -117,20 +120,12 @@ export default async function HomePage() {
   ]);
   const membership = isAdmin ? null : access.membership;
   const subscription = access.subscription;
-  // District auto-enrollment, caught up lazily. Covers accounts that existed
-  // before their district became a partner, and Google sign-ins that never
-  // passed through onboarding's hook. Deliberately costs nothing in the
-  // common case: a student who already has a membership or a subscription
-  // never reaches it, and `isPartnerDomainEmail` answers from an in-process
-  // cache rather than a query, so an individual student adds no round trips.
-  // Enrollment itself happens in the app layout, which runs first and
+  // District auto-enrollment happens in the app layout, which runs first and
   // invalidates the cached context, so the membership read above is already
-  // current. This only decides whether to show the claim prompt.
+  // current. What a student still has to do to claim it — confirm their email,
+  // pick a campus — is the app shell's district bar, on every page rather
+  // than only here.
   const schoolMembership = membership;
-  const districtAccessPending =
-    isStudent && !membership && !subscription && !access.user?.emailVerified
-      ? await isDistrictCandidateEmail(access.user?.email)
-      : false;
 
   const paidAccess = decidePaidAccess(session.user.role ?? null, subscription, schoolMembership);
   const onboarding = isStudent ? profile : null;
@@ -164,6 +159,11 @@ export default async function HomePage() {
   // the same check.)
   const pendingRushCode = await readPendingRushCode();
   if (pendingRushCode) redirect(`/rush/join/${pendingRushCode}`);
+
+  // A teacher's class link opened while signed out: the same hand-off. Joining
+  // still takes a button press on that page; this only brings them back to it.
+  const pendingClassCode = await readPendingClassCode();
+  if (pendingClassCode) redirect(`/join/${pendingClassCode}`);
 
   // PRD-002 §5.1's access chooser (/access) is deliberately no longer in the
   // new-student path: school access is hidden at launch, which made the
@@ -241,7 +241,6 @@ export default async function HomePage() {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-8 p-4 pb-16 sm:p-8">
       <AnnouncementsBanner announcements={announcements} />
-      {districtAccessPending && <ClaimSchoolAccessBanner />}
 
       {/* Greeting row — the reference's "Good late night, <name>" with the
           day's two actions directly under it, and the streak where it keeps
@@ -524,26 +523,6 @@ function OwnerEntry({
       <p className="font-heading text-lg font-semibold">{title}</p>
       <p className="text-sm text-muted-foreground">{description}</p>
     </Link>
-  );
-}
-
-// Shown to a student whose email is on a partner district's domain but whose
-// address was never provider-verified. Their school has already paid, so this
-// is a claim prompt, not an upsell — the one surface-tint band on the page,
-// and no price anywhere on it.
-function ClaimSchoolAccessBanner() {
-  return (
-    <div className="flex w-full flex-col gap-2 rounded-2xl bg-surface-tint p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-      <div>
-        <p className="font-heading font-semibold">Your school provides PrepHub free.</p>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          We sent a confirmation link to your school email. Open it to unlock everything.
-        </p>
-      </div>
-      <LinkButton variant="outline" className="w-fit shrink-0 rounded-full" href="/access/verify-school">
-        Resend the link
-      </LinkButton>
-    </div>
   );
 }
 

@@ -14,6 +14,7 @@ import { Logo } from "@/components/logo";
 import { Marker } from "@/components/ui/marker";
 import { GoogleIcon } from "@/components/google-icon";
 import { DiagnosticVisual } from "@/app/landing-visuals";
+import { SchoolAccessNote } from "@/components/school-access-note";
 
 const initialState: ActionState = {};
 
@@ -66,6 +67,10 @@ export default function SignUpPage() {
             <h1 className="text-display-sm font-semibold">Create your account</h1>
             <p className="text-muted-foreground">Start with a free diagnostic — no card required.</p>
           </div>
+
+          {/* Before the sign-in choice, not after it: which email a student
+              uses is the whole difference between paying and not. */}
+          <SchoolAccessNote variant="signup" />
 
           <div className="flex flex-col gap-4">
             {/* A real <a> tag, not next/link's <Link> — see
