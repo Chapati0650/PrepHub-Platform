@@ -66,8 +66,17 @@ export async function completeDiagnostic(studentId: string) {
   });
 
   return prisma.$transaction(async (tx) => {
-    await tx.categoryState.createMany({ data: categoryStatesData, skipDuplicates: true });
-    return tx.diagnosticSession.update({ where: { id: session.id }, data: { status: "COMPLETED", completedAt: new Date() } });
+    // The status flip is the claim, so two completions racing (a double tap,
+    // two tabs) can't both proceed on the IN_PROGRESS they each read above:
+    // the second waits on the first's row lock and then matches nothing.
+    const claimed = await tx.diagnosticSession.updateMany({
+      where: { id: session.id, status: "IN_PROGRESS" },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    });
+    if (claimed.count === 1) {
+      await tx.categoryState.createMany({ data: categoryStatesData, skipDuplicates: true });
+    }
+    return tx.diagnosticSession.findUniqueOrThrow({ where: { id: session.id } });
   });
 }
 

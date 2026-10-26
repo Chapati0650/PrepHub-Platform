@@ -57,9 +57,15 @@ const PRE_DIAGNOSTIC_LINKS = [
   },
 ];
 
-export default async function HomePage() {
+export default async function HomePage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
+
+  // An administrator signed in to run PrepHub for a school, so that's where
+  // they land: every sign-in path ends at /home, and this sends them on to
+  // their Overview (2026-10-25). The student dashboard is still theirs to try
+  // — the sidebar's "Student dashboard" asks for it with ?view=student.
+  if (session.user.role === "SCHOOL_ADMINISTRATOR" && (await searchParams).view !== "student") redirect("/admin");
 
   // PRD-011 §6/§7 — a School Administrator gets the full student Dashboard,
   // exactly like a student, plus an additional admin-only nav area (added in

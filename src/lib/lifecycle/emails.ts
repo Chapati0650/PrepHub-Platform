@@ -1,11 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { CORE_QUESTION_COUNT, coreAttempts, diagnosticStage } from "@/lib/diagnostic/sequence";
-import { sendEmail, type OutgoingEmail } from "@/lib/email";
+import type { OutgoingEmail } from "@/lib/email";
+import { drainForRequest } from "@/lib/email-queue";
 import { dayKey } from "@/lib/daily/challenge";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
 import { weakestCategories } from "@/lib/session/verdict";
 import { decidePaidAccess } from "@/lib/entitlements";
 import { studentsActiveSince } from "@/lib/school/student-activity";
+import { unsubscribeToken } from "./unsubscribe";
 
 // Lifecycle emails (2026-09-21). Three, deliberately: the ones the funnel
 // numbers asked for. 19 students abandoned the Diagnostic in the fortnight
@@ -28,17 +30,15 @@ import { studentsActiveSince } from "@/lib/school/student-activity";
 const SITE = process.env.NEXTAUTH_URL ?? "https://prephubtp.com";
 const REAL_STUDENT = { role: "STUDENT" as const, email: { not: { contains: "example.com" } }, deletedAt: null };
 
-async function claim(userId: string, kind: string, day: string): Promise<boolean> {
-  try {
-    await prisma.emailSend.create({ data: { userId, kind, day } });
-    return true;
-  } catch {
-    return false; // already sent
-  }
-}
-
 // Immediately after the Diagnostic: the score, what's weak, and that the
-// first set is free. Sent from finalizeDiagnosticCompletion, best-effort.
+// first set is free. Called from finalizeDiagnosticCompletion, best-effort.
+//
+// Queued rather than sent, claim and mail in one transaction like the daily
+// kinds: sent directly, a provider error after the claim was recorded lost
+// the email for good (the claim said it had gone), and the call isn't awaited
+// by its caller, so a serverless host could freeze it before it finished.
+// The drain right after usually delivers it at once; if not, the scheduled
+// drain does within minutes.
 export async function sendDiagnosticResultsEmail(studentId: string): Promise<void> {
   const [user, prediction, states] = await Promise.all([
     prisma.user.findUnique({ where: { id: studentId }, select: { email: true, firstName: true } }),
@@ -46,9 +46,8 @@ export async function sendDiagnosticResultsEmail(studentId: string): Promise<voi
     prisma.categoryState.findMany({ where: { studentId }, select: { category: true, ability: true } }),
   ]);
   if (!user || !prediction) return;
-  if (!(await claim(studentId, "results", "once"))) return;
   const weak = weakestCategories(states.map((s) => ({ category: s.category, currentMastery: s.ability }))).map((c) => CATEGORY_LABELS[c]);
-  await sendEmail({
+  const message: OutgoingEmail = {
     to: user.email,
     subject: `Your predicted SAT score: ${prediction.displayedRangeMinimum}–${prediction.displayedRangeMaximum}`,
     text: `Hi ${user.firstName},
@@ -63,7 +62,9 @@ ${SITE}/practice
 Every set after that updates your prediction, so you can watch it move.
 
 — Prithvi, PrepHub`,
-  });
+  };
+  const queued = await claimAndQueue("results", "once", new Map([[studentId, message]]));
+  if (queued > 0) await drainForRequest();
 }
 
 /** Students read per database round trip when building a day's mail. */
@@ -190,7 +191,11 @@ export async function queueFinishDiagnosticNudges(now = new Date()): Promise<num
  * subscription alone: a student whose district covers them has a practice set
  * waiting too, and used to be pointed at the free Daily Challenge instead.
  */
-export function dailyReminderMessage(u: { email: string; firstName: string }, paid: boolean): OutgoingEmail {
+export function dailyReminderMessage(u: { id: string; email: string; firstName: string }, paid: boolean): OutgoingEmail {
+  const token = unsubscribeToken(u.id);
+  const optOut = token
+    ? `Don't want these? Turn them off in one click:\n${SITE}/unsubscribe/${token}`
+    : "You can turn these off any time in Settings, under Notifications.";
   return {
     to: u.email,
     subject: paid ? "Today's practice set is waiting" : "Today's Daily Challenge is waiting",
@@ -199,22 +204,54 @@ export function dailyReminderMessage(u: { email: string; firstName: string }, pa
 ${paid ? "Half a set today keeps your prediction moving. Your next questions are ready:" : "One hard question, no clock, and your streak stays alive:"}
 ${SITE}${paid ? "/practice" : "/daily"}
 
-You can turn these off any time in Settings, under Notifications.
+— Prithvi, PrepHub
 
-— Prithvi, PrepHub`,
+${optOut}`,
   };
 }
 
-// The Settings toggle. Once a day, only to students who have it on and
-// haven't answered anything today, anywhere in the product. Paid students
-// are pointed at their set; free students at the Daily Challenge. Returns
-// how many were queued.
-export async function queueDailyReminders(now = new Date()): Promise<number> {
+/**
+ * Whether today's reminder goes to a student who hasn't studied today.
+ *
+ * Daily while they're studying (anything in the last week), weekly once
+ * they've drifted (last activity 8–30 days ago), and then nothing. It used to
+ * be every day for as long as the toggle was on, which in October 2026 meant
+ * about seventy emails a day, most of them to students who had stopped months
+ * earlier — 162 of the 194 with reminders on hadn't touched PrepHub in two
+ * weeks. Mail nobody opens is what gets a sending domain filtered, and this
+ * domain also carries password resets and school announcements.
+ */
+export function reminderDue(student: {
+  activeInLastWeek: boolean;
+  activeInLastMonth: boolean;
+  remindedInLastSixDays: boolean;
+}): boolean {
+  if (student.activeInLastWeek) return true;
+  if (student.activeInLastMonth) return !student.remindedInLastSixDays;
+  return false;
+}
+
+const DAY_MS = 86_400_000;
+
+// The Settings toggle. Only to students who have it on and haven't answered
+// anything today, anywhere in the product, on the cadence reminderDue sets.
+// Paid students are pointed at their set; free students at the Daily
+// Challenge. Stops paging at `deadline` (a later run the same evening carries
+// on where this one stopped: today's claims are already recorded). Returns how
+// many were queued and whether every student was reached.
+export async function queueDailyReminders(
+  now = new Date(),
+  deadline = Number.POSITIVE_INFINITY,
+): Promise<{ queued: number; complete: boolean }> {
   const day = dayKey(now);
   const startOfDay = new Date(`${day}T00:00:00Z`);
+  const weekAgo = new Date(now.getTime() - 7 * DAY_MS);
+  const monthAgo = new Date(now.getTime() - 30 * DAY_MS);
+  const sixDaysAgoKey = dayKey(new Date(now.getTime() - 6 * DAY_MS));
   let queued = 0;
   let after = "";
   while (true) {
+    if (Date.now() > deadline) return { queued, complete: false };
     const page = await prisma.user.findMany({
       where: {
         ...REAL_STUDENT,
@@ -235,28 +272,50 @@ export async function queueDailyReminders(now = new Date()): Promise<number> {
       take: PAGE_SIZE,
     });
     if (page.length === 0) break;
-    const studiedToday = await studentsActiveSince(
-      page.map((u) => u.id),
-      startOfDay,
-    );
+    const ids = page.map((u) => u.id);
+    // Activity since a month ago, narrowed in memory: one scan of the answer
+    // tables per page instead of three.
+    const [activeThisMonth, recentReminders] = await Promise.all([
+      studentsActiveSince(ids, monthAgo),
+      prisma.emailSend.findMany({
+        where: { userId: { in: ids }, kind: "daily_reminder", day: { gte: sixDaysAgoKey } },
+        select: { userId: true },
+      }),
+    ]);
+    const [activeThisWeek, studiedToday] = await Promise.all([
+      studentsActiveSince([...activeThisMonth], weekAgo),
+      studentsActiveSince([...activeThisMonth], startOfDay),
+    ]);
+    const reminded = new Set(recentReminders.map((r) => r.userId));
     const messages = new Map(
       page
-        .filter((u) => !studiedToday.has(u.id))
+        .filter(
+          (u) =>
+            !studiedToday.has(u.id) &&
+            reminderDue({
+              activeInLastWeek: activeThisWeek.has(u.id),
+              activeInLastMonth: activeThisMonth.has(u.id),
+              remindedInLastSixDays: reminded.has(u.id),
+            }),
+        )
         .map((u) => [u.id, dailyReminderMessage(u, decidePaidAccess(u.role, u.subscription, u.studentMembership))]),
     );
     queued += await claimAndQueue("daily_reminder", day, messages);
     if (page.length < PAGE_SIZE) break;
     after = page[page.length - 1].id;
   }
-  return queued;
+  return { queued, complete: true };
 }
 
 /**
  * Queues the day's nudges and reminders. Sending is the email queue's job:
  * its scheduled drain picks these up within minutes.
  */
-export async function runDailyLifecycle(now = new Date()): Promise<{ nudges: number; reminders: number }> {
+export async function runDailyLifecycle(
+  now = new Date(),
+  deadline = Number.POSITIVE_INFINITY,
+): Promise<{ nudges: number; reminders: number; complete: boolean }> {
   const nudges = await queueFinishDiagnosticNudges(now);
-  const reminders = await queueDailyReminders(now);
-  return { nudges, reminders };
+  const { queued: reminders, complete } = await queueDailyReminders(now, deadline);
+  return { nudges, reminders, complete };
 }

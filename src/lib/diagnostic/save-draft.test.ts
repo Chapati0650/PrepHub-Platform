@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 
 vi.mock("@/lib/prisma", () => {
   const mockPrisma: Record<string, unknown> = {
-    diagnosticAttempt: { findUnique: vi.fn(), update: vi.fn() },
+    diagnosticAttempt: { findUnique: vi.fn(), updateMany: vi.fn() },
     diagnosticSession: { findUnique: vi.fn(), update: vi.fn() },
   };
   return { prisma: mockPrisma };
@@ -36,17 +36,30 @@ describe("saveDiagnosticDraft", () => {
     const result = await saveDiagnosticDraft("student1", "attempt1", { draftAnswer: "c1" });
 
     expect(result).toBe(submitted);
-    expect(mocked.diagnosticAttempt.update).not.toHaveBeenCalled();
+    expect(mocked.diagnosticAttempt.updateMany).not.toHaveBeenCalled();
   });
 
   it("saves a draft answer for an unsubmitted attempt", async () => {
     mocked.diagnosticAttempt.findUnique.mockResolvedValue({ submittedAt: null, diagnosticSession: { studentId: "student1" } });
-    mocked.diagnosticAttempt.update.mockResolvedValue({ draftAnswer: "c1" });
+    mocked.diagnosticAttempt.updateMany.mockResolvedValue({ count: 1 });
 
     await saveDiagnosticDraft("student1", "attempt1", { draftAnswer: "c1" });
 
-    expect(mocked.diagnosticAttempt.update).toHaveBeenCalledWith({
-      where: { id: "attempt1" },
+    expect(mocked.diagnosticAttempt.updateMany).toHaveBeenCalledWith({
+      where: { id: "attempt1", submittedAt: null, waivedAt: null },
+      data: { draftAnswer: "c1" },
+    });
+  });
+
+  it("never writes a scoring field a forged request slips into the patch", async () => {
+    mocked.diagnosticAttempt.findUnique.mockResolvedValue({ submittedAt: null, diagnosticSession: { studentId: "student1" } });
+    mocked.diagnosticAttempt.updateMany.mockResolvedValue({ count: 1 });
+    const forged = { draftAnswer: "c1", isCorrect: true, answer: "c1", submittedAt: new Date() };
+
+    await saveDiagnosticDraft("student1", "attempt1", forged);
+
+    expect(mocked.diagnosticAttempt.updateMany).toHaveBeenCalledWith({
+      where: { id: "attempt1", submittedAt: null, waivedAt: null },
       data: { draftAnswer: "c1" },
     });
   });

@@ -73,10 +73,10 @@ test.describe("School Community (PRD-009) and Profile & Settings (PRD-010)", () 
     await dialog.getByRole("button", { name: "Activate Student" }).click();
     await expect(page.getByText(studentEmail)).toBeVisible();
 
-    await page.getByLabel("The school is counting").click();
-    await page.getByRole("option", { name: "Questions Answered" }).click();
-    await page.getByLabel("Target", { exact: true }).fill("100000");
-    await page.getByLabel("Prize (optional)").fill("Pizza party");
+    await page.getByLabel("1. What should the school count?").click();
+    await page.getByRole("option", { name: "Questions answered" }).click();
+    await page.getByLabel("2. How many, to reach the goal?").fill("100000");
+    await page.getByLabel(/3\. What's the prize\?/).fill("Pizza party");
     await page.getByRole("button", { name: "Save goal" }).click();
     await expect(page.getByText("Saved. Students see it on School Community now.")).toBeVisible();
 

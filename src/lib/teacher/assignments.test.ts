@@ -106,10 +106,12 @@ describe("getAssignmentResults", () => {
       { position: 0, questionId: "q1", question: { category: "ALGEBRA", difficulty: "EASY", questionType: "MULTIPLE_CHOICE" } },
       { position: 1, questionId: "q2", question: { category: "ALGEBRA", difficulty: "HARD", questionType: "MULTIPLE_CHOICE" } },
     ]);
+    const joined = new Date("2026-10-01");
     mocked.classroomEnrollment.findMany.mockResolvedValue([
-      { student: { id: "ada", firstName: "Ada", email: "ada@x.org" } },
-      { student: { id: "ben", firstName: "Ben", email: "ben@x.org" } },
-      { student: { id: "cy", firstName: "Cy", email: "cy@x.org" } },
+      { joinedAt: joined, removedAt: null, student: { id: "ada", firstName: "Ada", email: "ada@x.org" } },
+      { joinedAt: joined, removedAt: null, student: { id: "ben", firstName: "Ben", email: "ben@x.org" } },
+      { joinedAt: joined, removedAt: null, student: { id: "cy", firstName: "Cy", email: "cy@x.org" } },
+      { joinedAt: joined, removedAt: new Date("2026-11-07"), student: { id: "dee", firstName: "Dee", email: "dee@x.org" } },
     ]);
     const answered = new Date("2026-11-03");
     mocked.homeworkSession.findMany.mockResolvedValue([
@@ -161,7 +163,61 @@ describe("getAssignmentResults", () => {
       [3, 2],
       [2, 1],
     ]);
-    expect(r.summary).toEqual({ roster: 3, completed: 2, inProgress: 1, notStarted: 1, averagePercent: 75 });
+    // "Of the class" is the current roster: Dee's finished work is counted on
+    // its own, never as one of three, and the average is Ada's alone.
+    expect(r.summary).toEqual({
+      roster: 3,
+      completed: 1,
+      inProgress: 1,
+      notStarted: 1,
+      joinedLater: 0,
+      leftCompleted: 1,
+      averagePercent: 100,
+    });
+  });
+
+  it("counts a student who joined after it was due as joined later, never missing or late", async () => {
+    const due = new Date("2026-11-05T05:59:59Z");
+    mocked.assignment.findUnique.mockResolvedValue({
+      id: "a1",
+      title: "HW",
+      instructions: null,
+      dueAt: due,
+      closedAt: null,
+      createdAt: new Date("2026-11-01"),
+      classroomId: "c1",
+      classroom: { id: "c1", name: "3rd period", teacherId: "t1", schoolId: "school1" },
+    });
+    mocked.assignmentQuestion.findMany.mockResolvedValue([
+      { position: 0, questionId: "q1", question: { category: "ALGEBRA", difficulty: "EASY", questionType: "MULTIPLE_CHOICE" } },
+    ]);
+    const before = new Date("2026-10-01");
+    const after = new Date("2026-11-08");
+    mocked.classroomEnrollment.findMany.mockResolvedValue([
+      { joinedAt: before, removedAt: null, student: { id: "ada", firstName: "Ada", email: "ada@x.org" } },
+      { joinedAt: after, removedAt: null, student: { id: "eve", firstName: "Eve", email: "eve@x.org" } },
+      { joinedAt: after, removedAt: null, student: { id: "fay", firstName: "Fay", email: "fay@x.org" } },
+    ]);
+    mocked.homeworkSession.findMany.mockResolvedValue([
+      {
+        // Joined after the due date and did it anyway.
+        studentId: "fay",
+        status: "COMPLETED",
+        completedAt: new Date("2026-11-09"),
+        student: { firstName: "Fay", email: "fay@x.org" },
+        slots: [{ position: 0, isCorrect: true, finalizedAt: new Date("2026-11-09") }],
+      },
+    ]);
+
+    const r = await getAssignmentResults(teacher, "a1");
+
+    expect(r.students.map((s) => [s.firstName, s.status, s.joinedLater])).toEqual([
+      ["Fay", "COMPLETED", true],
+      ["Ada", "NOT_STARTED", false],
+      ["Eve", "NOT_STARTED", true],
+    ]);
+    expect(r.students.find((s) => s.studentId === "fay")!.late).toBe(false);
+    expect(r.summary).toMatchObject({ roster: 3, completed: 1, inProgress: 0, notStarted: 1, joinedLater: 1 });
   });
 
   it("won't show another teacher's assignment", async () => {

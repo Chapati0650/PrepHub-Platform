@@ -28,7 +28,8 @@ function org(overrides: Partial<{ totalEnrollment: number | null; status: string
     totalEnrollment: 2100,
     status: "ACTIVE",
     contractStartDate: new Date("2026-08-01"),
-    contractEndDate: new Date("2027-05-31"),
+    // Far enough out that the access state below never depends on the day the suite runs.
+    contractEndDate: new Date("2099-05-31"),
     ...overrides,
   };
 }
@@ -43,17 +44,32 @@ beforeEach(() => {
 });
 
 describe("getAdminOverviewData", () => {
-  it("computes Registration Percentage from Registered PrepHub Students over Total School Enrollment (PRD-011 §9)", async () => {
+  it("computes Registration Percentage from the students enrolled now over Total School Enrollment (PRD-011 §9)", async () => {
     mocked.organization.findUniqueOrThrow.mockResolvedValue(org({ totalEnrollment: 2100 }));
-    mocked.studentMembership.count.mockResolvedValue(840);
+    // 900 ever registered; 60 of them have since graduated or been removed.
+    mocked.studentMembership.count.mockImplementation(({ where }: { where: { status?: string } }) =>
+      Promise.resolve(where.status === "ACTIVE" ? 840 : 900),
+    );
 
     const result = await getAdminOverviewData("school1");
 
     expect(result.enrollment).toEqual({
       totalSchoolEnrollment: 2100,
-      registeredStudents: 840,
+      registeredStudents: 900,
+      activeStudents: 840,
       registrationPercentage: 40,
     });
+  });
+
+  it("never reports more than the whole school once past cohorts have left", async () => {
+    mocked.organization.findUniqueOrThrow.mockResolvedValue(org({ totalEnrollment: 100 }));
+    mocked.studentMembership.count.mockImplementation(({ where }: { where: { status?: string } }) =>
+      Promise.resolve(where.status === "ACTIVE" ? 95 : 180),
+    );
+
+    const result = await getAdminOverviewData("school1");
+
+    expect(result.enrollment.registrationPercentage).toBe(95);
   });
 
   it("returns a null Registration Percentage when the Owner hasn't set Total School Enrollment yet", async () => {
@@ -81,12 +97,12 @@ describe("getAdminOverviewData", () => {
     expect(result.stats.totalQuestionsAnswered).toBe(1);
   });
 
-  it("exposes access status and contract dates for the School Access section", async () => {
+  it("exposes access state and contract dates for the School Access section", async () => {
     mocked.organization.findUniqueOrThrow.mockResolvedValue(org({ status: "SUSPENDED" }));
 
     const result = await getAdminOverviewData("school1");
 
-    expect(result.access.status).toBe("SUSPENDED");
+    expect(result.access.state).toBe("PAUSED");
   });
 
   it("never leaks a per-student breakdown in the returned shape", async () => {

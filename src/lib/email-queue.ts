@@ -47,7 +47,7 @@ const CLAIM_STALE_MS = 10 * 60 * 1000;
  * otherwise be claimed, fail and be re-claimed forever, crowding out real mail
  * on every scheduled run.
  */
-const MAX_ATTEMPTS = 5;
+export const MAX_ATTEMPTS = 5;
 
 export type EnqueuedEmail = { to: string; subject: string; body: string };
 

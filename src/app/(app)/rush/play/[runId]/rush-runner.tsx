@@ -7,7 +7,7 @@ import { LinkButton } from "@/components/ui/link-button";
 import { RUSH_BASE_POINTS, RUSH_SPEED_POINTS, RUSH_STREAK_MAX_BONUS, RUSH_STREAK_STEP_POINTS } from "@/lib/rush/config";
 import type { RunContext, RushAnswerResult, ServedQuestion } from "@/lib/rush/runs";
 import { RushQuestion, TimeBar, formatSeconds } from "../../rush-question";
-import { GoCountdown, PointsPop, SoundToggle, StreakFlame, useRushSound } from "../../game-fx";
+import { GoCountdown, PointsPop, SoundControls, StreakFlame, useRushMusic, useRushSound } from "../../game-fx";
 
 type Phase = "intro" | "countdown" | "loading" | "question" | "feedback" | "error";
 
@@ -135,7 +135,14 @@ export function RushRunner({
   }, [phase, deadline]);
 
   const eyebrow = `1v1 Rush · ${run.sectionLabel}`;
-  const soundToggle = <SoundToggle muted={sound.muted} onToggle={sound.toggle} />;
+  // Music from the first question to the last; quicker for the last ten
+  // seconds of each one.
+  useRushMusic(
+    sound,
+    phase === "loading" || phase === "question" || phase === "feedback",
+    phase === "question" && remainingMs > 0 && remainingMs <= 10_000,
+  );
+  const soundToggle = <SoundControls controls={sound} />;
 
   if (phase === "intro") {
     const resuming = run.position > 0;

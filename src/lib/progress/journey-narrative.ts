@@ -22,7 +22,7 @@ export function buildJourneyNarrative(input: {
         ? ` and ${input.totalImprovement > 0 ? "improved" : "changed"} your predicted SAT score by ${Math.abs(input.totalImprovement)} points`
         : "";
     sentences.push(
-      `Since then, you've completed ${input.completedSessions} adaptive session${input.completedSessions === 1 ? "" : "s"}, answered ${input.totalQuestionsAnswered} questions${improvementClause}.`,
+      `Since then, you've completed ${input.completedSessions} practice set${input.completedSessions === 1 ? "" : "s"}, answered ${input.totalQuestionsAnswered} questions${improvementClause}.`,
     );
   }
 

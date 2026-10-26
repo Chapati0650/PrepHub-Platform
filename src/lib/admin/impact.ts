@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { cappedHours, schoolSessionActivity } from "@/lib/school/student-activity";
 import {
   TSI_MATH_BENCHMARK,
   TSI_READING_WRITING_BENCHMARK,
@@ -33,7 +34,101 @@ import {
  * version loaded every prediction row and every completed session row for
  * every student in order to compute six numbers; for a 2,000-student district
  * that is six figures of rows for a page that renders a dozen integers.
+ *
+ * Counts and extremes are not enough on their own, though (2026-10-26). With
+ * one measurable student, "1 of 1 improved", the average gain and the biggest
+ * gain are all that student's own score change, and the Students page lists
+ * who has finished a Practice Set — so an administrator could tell exactly
+ * whose prediction moved and by how much (PRD-011 §21). `getCampusImpact`
+ * therefore returns `CampusImpactReport`, where the score figures are withheld
+ * below a minimum group size; the unprotected `measureCampusImpact` is only
+ * ever read through it.
  */
+
+/**
+ * Score growth and college readiness appear only once this many students have
+ * a first and a latest prediction to compare. Below it, an average or a
+ * "biggest gain" is one or two students' own results, and the Students page
+ * says who those students are likely to be.
+ */
+export const MIN_STUDENTS_FOR_SCORE_FIGURES = 10;
+
+/**
+ * Any group smaller than this ("Fell back: 2", "Students improved: 1") is
+ * shown as "fewer than 5" rather than a number, the usual small-cell rule for
+ * student data. Zero is still shown: it describes nobody.
+ */
+export const MIN_GROUP_SIZE = 5;
+
+/** A group's size, or null when it is between 1 and MIN_GROUP_SIZE - 1 and so not shown. */
+export type ProtectedCount = number | null;
+
+export type CampusImpactReport = {
+  /** Students with a measurable before/after: a count of who has practiced, not how well. */
+  measurableStudents: number;
+  /** Null until MIN_STUDENTS_FOR_SCORE_FIGURES students are measurable. */
+  scoreGrowth: {
+    studentsImproved: ProtectedCount;
+    averageScoreGain: number;
+    biggestScoreGain: number;
+  } | null;
+  /** Null until MIN_STUDENTS_FOR_SCORE_FIGURES students can be placed against the benchmark. */
+  benchmark: {
+    /** How many students the four groups below cover. */
+    measured: number;
+    crossed: ProtectedCount;
+    held: ProtectedCount;
+    slipped: ProtectedCount;
+    below: ProtectedCount;
+    shortfall: Record<BelowBenchmarkShape, ProtectedCount>;
+    readingWritingBenchmark: number;
+    mathBenchmark: number;
+  } | null;
+  averageStudyHours: number | null;
+  /** Students who have finished at least one session of any kind. */
+  studentsWhoStudied: number;
+};
+
+export function protectedCount(count: number): ProtectedCount {
+  return count > 0 && count < MIN_GROUP_SIZE ? null : count;
+}
+
+/** Pure: the raw campus figures with everything that could single a student out withheld. */
+export function protectCampusImpact(raw: CampusImpact): CampusImpactReport {
+  const b = raw.benchmark;
+  const measured = b.crossed + b.held + b.slipped + b.below;
+  const enough = (n: number) => n >= MIN_STUDENTS_FOR_SCORE_FIGURES;
+  return {
+    measurableStudents: raw.measurableStudents,
+    scoreGrowth:
+      enough(raw.measurableStudents) && raw.averageScoreGain !== null && raw.biggestScoreGain !== null
+        ? {
+            studentsImproved: protectedCount(raw.studentsImproved),
+            averageScoreGain: raw.averageScoreGain,
+            biggestScoreGain: raw.biggestScoreGain,
+          }
+        : null,
+    benchmark: enough(measured)
+      ? {
+          measured,
+          crossed: protectedCount(b.crossed),
+          held: protectedCount(b.held),
+          slipped: protectedCount(b.slipped),
+          below: protectedCount(b.below),
+          shortfall: {
+            MISSES_MATH_ONLY: protectedCount(b.shortfall.MISSES_MATH_ONLY),
+            MISSES_READING_ONLY: protectedCount(b.shortfall.MISSES_READING_ONLY),
+            MISSES_BOTH: protectedCount(b.shortfall.MISSES_BOTH),
+          },
+          readingWritingBenchmark: b.readingWritingBenchmark,
+          mathBenchmark: b.mathBenchmark,
+        }
+      : null,
+    averageStudyHours: raw.averageStudyHours,
+    studentsWhoStudied: raw.activeStudents,
+  };
+}
+
 export type CampusImpact = {
   /** Students with at least two predictions, i.e. a measurable before/after. */
   measurableStudents: number;
@@ -45,7 +140,7 @@ export type CampusImpact = {
 
   averageStudyHours: number | null;
   topStudentStudyHours: number | null;
-  /** Students who have answered at least one question. */
+  /** Students who have finished at least one session of any kind. */
   activeStudents: number;
 
   benchmark: {
@@ -64,13 +159,6 @@ export type CampusImpact = {
   };
 };
 
-/**
- * A session left open overnight would otherwise report as a 14-hour sitting.
- * Capped rather than discarded, so a long-but-real session still counts for
- * something. Applied in SQL now, so the cap and the sum happen in one pass.
- */
-const SESSION_HOUR_CAP = 3;
-
 /** One row per student with a measurable before/after, both ends in one row. */
 type PredictionEnds = {
   firstMidpoint: number;
@@ -87,7 +175,16 @@ type StudyTimeSummary = {
   topHours: number | null;
 };
 
-export async function getCampusImpact(schoolId: string): Promise<CampusImpact> {
+/** The campus report an administrator sees: `measureCampusImpact` with small groups withheld. */
+export async function getCampusImpact(schoolId: string): Promise<CampusImpactReport> {
+  return protectCampusImpact(await measureCampusImpact(schoolId));
+}
+
+/**
+ * The unprotected figures. Exported for its tests; a page reads
+ * `getCampusImpact`, never this.
+ */
+export async function measureCampusImpact(schoolId: string): Promise<CampusImpact> {
   const [ends, studyTime] = await Promise.all([
     predictionEndsForSchool(schoolId),
     studyTimeForSchool(schoolId),
@@ -201,12 +298,12 @@ async function predictionEndsForSchool(schoolId: string): Promise<PredictionEnds
 /**
  * Average and maximum per-student study hours, plus how many students have any.
  *
- * Study time uses the same session-level derivation the dashboard and School
- * Community already use (CLAUDE.md's "known simplification": start to finish,
- * since per-question timing is deliberately not modeled). Keeping the same
- * derivation means this page cannot disagree with the ones beside it.
- * `PracticeSet` records its start as `createdAt` and `DiagnosticSession` as
- * `startedAt`, which is why the two halves of the union are not symmetrical.
+ * Read from the same session definition as the school's total study hours
+ * (`lib/school/student-activity`: every kind of finished session, each capped
+ * at three hours) over the same students (ACTIVE at this school), so the
+ * Overview's "N hours across M students, about Y each" adds up. It used to
+ * count only Practice Sets and the Diagnostic, beside a total that counted
+ * six kinds of session, and the two figures on one line disagreed.
  *
  * Aggregated all the way down to one row: the average and the maximum are
  * taken over per-student sums, so nothing per-student is returned at all.
@@ -217,33 +314,12 @@ async function studyTimeForSchool(schoolId: string): Promise<StudyTimeSummary> {
   const rows = await prisma.$queryRaw<
     { activeStudents: number; averageHours: number | null; topHours: number | null }[]
   >`
-    WITH per_student AS (
-      SELECT s."studentId", SUM(s.hours) AS hours
-        FROM (
-          SELECT p."studentId",
-                 LEAST(
-                   GREATEST(EXTRACT(EPOCH FROM (p."completedAt" - p."createdAt")) / 3600.0, 0),
-                   ${SESSION_HOUR_CAP}
-                 ) AS hours
-            FROM "practice_sets" p
-            JOIN "student_memberships" m ON m."studentId" = p."studentId"
-           WHERE m."schoolId" = ${schoolId}
-             AND m."status" = 'ACTIVE'
-             AND p."completedAt" IS NOT NULL
-          UNION ALL
-          SELECT d."studentId",
-                 LEAST(
-                   GREATEST(EXTRACT(EPOCH FROM (d."completedAt" - d."startedAt")) / 3600.0, 0),
-                   ${SESSION_HOUR_CAP}
-                 ) AS hours
-            FROM "diagnostic_sessions" d
-            JOIN "student_memberships" m ON m."studentId" = d."studentId"
-           WHERE m."schoolId" = ${schoolId}
-             AND m."status" = 'ACTIVE'
-             AND d."completedAt" IS NOT NULL
-        ) s
-       GROUP BY s."studentId"
-    )
+    WITH sessions AS (${schoolSessionActivity(schoolId, { activeOnly: true })}),
+         per_student AS (
+           SELECT student_id, SUM(${cappedHours("started_at", "completed_at")}) AS hours
+             FROM sessions
+            GROUP BY student_id
+         )
     SELECT COUNT(*)::int                AS "activeStudents",
            AVG(hours)::double precision AS "averageHours",
            MAX(hours)::double precision AS "topHours"

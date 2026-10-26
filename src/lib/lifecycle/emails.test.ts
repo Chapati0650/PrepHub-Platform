@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { finishDiagnosticMessage, queueDailyReminders, queueFinishDiagnosticNudges } from "./emails";
+import { finishDiagnosticMessage, queueDailyReminders, queueFinishDiagnosticNudges, reminderDue } from "./emails";
 import { prisma } from "@/lib/prisma";
 import { studentsActiveSince } from "@/lib/school/student-activity";
 
@@ -11,13 +11,14 @@ const tx = {
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findMany: vi.fn(), findUnique: vi.fn() },
-    emailSend: { create: vi.fn() },
+    emailSend: { create: vi.fn(), findMany: vi.fn() },
     predictionHistoryEntry: { findFirst: vi.fn() },
     categoryState: { findMany: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
 vi.mock("@/lib/email", () => ({ sendEmail: vi.fn() }));
+vi.mock("@/lib/email-queue", () => ({ drainForRequest: vi.fn() }));
 vi.mock("@/lib/school/student-activity", () => ({ studentsActiveSince: vi.fn() }));
 
 const users = prisma.user.findMany as ReturnType<typeof vi.fn>;
@@ -38,6 +39,7 @@ beforeEach(() => {
   );
   tx.queuedEmail.createMany.mockResolvedValue({ count: 0 });
   activeSince.mockResolvedValue(new Set());
+  (prisma.emailSend.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 });
 
 const answered = (category: string, difficulty: string) => ({
@@ -146,19 +148,44 @@ describe("queueFinishDiagnosticNudges", () => {
   });
 });
 
+describe("reminderDue", () => {
+  it("reminds daily while a student is studying", () => {
+    expect(reminderDue({ activeInLastWeek: true, activeInLastMonth: true, remindedInLastSixDays: true })).toBe(true);
+  });
+
+  it("drops to weekly once they've drifted", () => {
+    expect(reminderDue({ activeInLastWeek: false, activeInLastMonth: true, remindedInLastSixDays: false })).toBe(true);
+    expect(reminderDue({ activeInLastWeek: false, activeInLastMonth: true, remindedInLastSixDays: true })).toBe(false);
+  });
+
+  it("stops after a month away", () => {
+    expect(reminderDue({ activeInLastWeek: false, activeInLastMonth: false, remindedInLastSixDays: false })).toBe(false);
+  });
+});
+
 describe("queueDailyReminders", () => {
   // The entitlement rule reads the real clock, so the contract spans it widely.
   const future = new Date("2099-08-01T00:00:00Z");
   const past = new Date("2000-08-01T00:00:00Z");
   const base = { role: "STUDENT", subscription: null, studentMembership: null };
+  const NOW = new Date("2026-09-21T22:00:00Z");
+  const DAY = 86_400_000;
+
+  /** Who was active when, answered the way studentsActiveSince would. */
+  function activity(byStudent: Record<string, Date>) {
+    activeSince.mockImplementation((ids: string[], since: Date) =>
+      Promise.resolve(new Set(ids.filter((id) => byStudent[id] && byStudent[id] >= since))),
+    );
+  }
 
   it("points paid students at practice and free students at the Daily Challenge, keyed by day", async () => {
     users.mockResolvedValueOnce([
       { ...base, id: "p", email: "p@x.com", firstName: "Pat", subscription: { status: "ACTIVE" } },
       { ...base, id: "f", email: "f@x.com", firstName: "Fay" },
     ]);
+    activity({ p: new Date(NOW.getTime() - 2 * DAY), f: new Date(NOW.getTime() - 2 * DAY) });
 
-    expect(await queueDailyReminders(new Date("2026-09-21T22:00:00Z"))).toBe(2);
+    expect(await queueDailyReminders(NOW)).toEqual({ queued: 2, complete: true });
 
     const [paid, free] = queued();
     expect(paid.body).toContain("/practice");
@@ -184,8 +211,9 @@ describe("queueDailyReminders", () => {
         },
       },
     ]);
+    activity({ d: new Date(NOW.getTime() - DAY) });
 
-    await queueDailyReminders(new Date("2026-09-21T22:00:00Z"));
+    await queueDailyReminders(NOW);
 
     expect(queued()[0].body).toContain("/practice");
   });
@@ -195,17 +223,51 @@ describe("queueDailyReminders", () => {
       { ...base, id: "busy", email: "busy@x.com", firstName: "Bo" },
       { ...base, id: "idle", email: "idle@x.com", firstName: "Ida" },
     ]);
-    activeSince.mockResolvedValueOnce(new Set(["busy"]));
+    activity({ busy: new Date("2026-09-21T15:00:00Z"), idle: new Date(NOW.getTime() - 2 * DAY) });
 
-    expect(await queueDailyReminders(new Date("2026-09-21T22:00:00Z"))).toBe(1);
+    expect((await queueDailyReminders(NOW)).queued).toBe(1);
 
-    expect(activeSince).toHaveBeenCalledWith(["busy", "idle"], new Date("2026-09-21T00:00:00Z"));
     expect(queued().map((r) => r.to)).toEqual(["idle@x.com"]);
+  });
+
+  it("tapers to weekly after a week away and stops after a month", async () => {
+    users.mockResolvedValueOnce([
+      { ...base, id: "drifting", email: "drifting@x.com", firstName: "Di" },
+      { ...base, id: "nudged", email: "nudged@x.com", firstName: "Nu" },
+      { ...base, id: "gone", email: "gone@x.com", firstName: "Go" },
+    ]);
+    activity({
+      drifting: new Date(NOW.getTime() - 12 * DAY),
+      nudged: new Date(NOW.getTime() - 12 * DAY),
+      gone: new Date(NOW.getTime() - 45 * DAY),
+    });
+    (prisma.emailSend.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ userId: "nudged" }]);
+
+    await queueDailyReminders(NOW);
+
+    expect(queued().map((r) => r.to)).toEqual(["drifting@x.com"]);
+  });
+
+  it("carries a one-click way out when a signing secret is configured", async () => {
+    const previous = process.env.AUTH_SECRET;
+    process.env.AUTH_SECRET = "test-secret";
+    users.mockResolvedValueOnce([{ ...base, id: "f", email: "f@x.com", firstName: "Fay" }]);
+    activity({ f: new Date(NOW.getTime() - DAY) });
+
+    await queueDailyReminders(NOW);
+
+    expect(queued()[0].body).toMatch(/\/unsubscribe\/f\.[\w-]+/);
+    process.env.AUTH_SECRET = previous;
+  });
+
+  it("stops at its deadline and says it didn't finish", async () => {
+    expect(await queueDailyReminders(NOW, 0)).toEqual({ queued: 0, complete: false });
+    expect(users).not.toHaveBeenCalled();
   });
 
   it("asks for nothing more when there is nobody to remind", async () => {
     users.mockResolvedValueOnce([]);
-    expect(await queueDailyReminders()).toBe(0);
+    expect(await queueDailyReminders()).toEqual({ queued: 0, complete: true });
     expect(transaction).not.toHaveBeenCalled();
   });
 });

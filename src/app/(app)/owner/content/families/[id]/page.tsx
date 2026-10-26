@@ -4,8 +4,10 @@ import { listQuestions } from "@/lib/content/list-questions";
 import { ContentError } from "@/lib/content/errors";
 import { FAMILY_ELIGIBLE_CATEGORIES } from "@/lib/content/constants";
 import { FamilyDetail } from "./family-detail";
+import { requireOwnerPage } from "@/lib/owner/guard";
 
 export default async function FamilyDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  await requireOwnerPage();
   const { id } = await params;
 
   const family = await getFamilyOrThrow(id).catch((err) => {

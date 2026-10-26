@@ -8,7 +8,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     organization: { findUnique: vi.fn() },
     user: { findUnique: vi.fn(), create: vi.fn() },
-    teacherAssignment: { upsert: vi.fn(), updateMany: vi.fn() },
+    teacherAssignment: { upsert: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     classroom: { updateMany: vi.fn() },
     passwordResetToken: { create: vi.fn() },
     $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
@@ -30,7 +30,7 @@ describe("inviteTeacher", () => {
     mocked.user.findUnique.mockResolvedValue(null);
     mocked.user.create.mockResolvedValue({ id: "t1", email: "rosa@nisd.net", firstName: "Rosa" });
 
-    expect(await inviteTeacher(input)).toEqual({ userId: "t1", created: true });
+    expect(await inviteTeacher(input)).toEqual({ userId: "t1", created: true, restoredClasses: 0 });
 
     const created = mocked.user.create.mock.calls[0][0].data;
     expect(created).toMatchObject({ role: "TEACHER", firstName: "Rosa", email: "rosa@nisd.net" });
@@ -47,23 +47,65 @@ describe("inviteTeacher", () => {
     expect(days).toBeGreaterThan(6.9);
   });
 
-  it("never turns a student or administrator account into a teacher", async () => {
+  it("never turns a student or administrator account into a teacher, and says who can", async () => {
     mocked.user.findUnique.mockResolvedValue({ id: "u1", role: "STUDENT", deletedAt: null, teacherAssignments: [] });
-    await expect(inviteTeacher(input)).rejects.toMatchObject({ code: "EMAIL_TAKEN" });
+    const refused = inviteTeacher(input);
+    await expect(refused).rejects.toMatchObject({ code: "EMAIL_TAKEN" });
+    await expect(refused).rejects.toThrow("schools@prephubtp.com");
     expect(mocked.teacherAssignment.upsert).not.toHaveBeenCalled();
     expect(mocked.user.create).not.toHaveBeenCalled();
   });
 
   it("won't add a teacher who teaches at another school", async () => {
-    mocked.user.findUnique.mockResolvedValue({ id: "t1", role: "TEACHER", deletedAt: null, teacherAssignments: [{ schoolId: "other" }] });
+    mocked.user.findUnique.mockResolvedValue({
+      id: "t1",
+      role: "TEACHER",
+      deletedAt: null,
+      teacherAssignments: [{ schoolId: "other", removedAt: null }],
+    });
     await expect(inviteTeacher(input)).rejects.toThrow("another school");
   });
 
-  it("restores a removed teacher at the same school instead of creating a second account", async () => {
+  it("says so, and changes nothing, for someone who is already a teacher here", async () => {
+    mocked.user.findUnique.mockResolvedValue({
+      id: "t1",
+      role: "TEACHER",
+      firstName: "Rosa",
+      deletedAt: null,
+      teacherAssignments: [{ schoolId: "school1", removedAt: null }],
+    });
+    await expect(inviteTeacher(input)).rejects.toMatchObject({ code: "ALREADY_TEACHER" });
+    expect(mocked.teacherAssignment.upsert).not.toHaveBeenCalled();
+    expect(mocked.teacherAssignment.update).not.toHaveBeenCalled();
+    expect(mocked.classroom.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("restores a removed teacher and reopens exactly the classes their removal closed", async () => {
+    const removedAt = new Date("2026-10-20T15:00:00Z");
+    mocked.user.findUnique.mockResolvedValue({
+      id: "t1",
+      role: "TEACHER",
+      deletedAt: null,
+      teacherAssignments: [{ schoolId: "school1", removedAt }],
+    });
+    mocked.classroom.updateMany.mockResolvedValue({ count: 2 });
+
+    expect(await inviteTeacher(input)).toEqual({ userId: "t1", created: false, restoredClasses: 2 });
+    expect(mocked.teacherAssignment.update.mock.calls[0][0]).toMatchObject({ data: { removedAt: null } });
+    // Same instant as the removal: a class the teacher archived themselves stays archived.
+    expect(mocked.classroom.updateMany.mock.calls[0][0]).toEqual({
+      where: { teacherId: "t1", schoolId: "school1", archivedAt: removedAt },
+      data: { archivedAt: null },
+    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(mocked.user.create).not.toHaveBeenCalled();
+  });
+
+  it("adds an existing teacher account with no history at this school, without a second account", async () => {
     mocked.user.findUnique.mockResolvedValue({ id: "t1", role: "TEACHER", deletedAt: null, teacherAssignments: [] });
 
-    expect(await inviteTeacher(input)).toEqual({ userId: "t1", created: false });
-    expect(mocked.teacherAssignment.upsert.mock.calls[0][0]).toMatchObject({ update: { removedAt: null } });
+    expect(await inviteTeacher(input)).toEqual({ userId: "t1", created: false, restoredClasses: 0 });
+    expect(mocked.teacherAssignment.upsert.mock.calls[0][0]).toMatchObject({ create: { userId: "t1", schoolId: "school1" } });
     expect(mocked.user.create).not.toHaveBeenCalled();
   });
 
@@ -84,5 +126,11 @@ describe("removeTeacher", () => {
     expect(mocked.teacherAssignment.updateMany.mock.calls[0][0].where).toEqual({ userId: "t1", schoolId: "school1", removedAt: null });
     expect(mocked.classroom.updateMany.mock.calls[0][0].where).toEqual({ teacherId: "t1", schoolId: "school1", archivedAt: null });
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("stamps the access and the classes with the same instant, which is how adding them back finds those classes", async () => {
+    await removeTeacher("t1", "school1");
+    const removedAt = mocked.teacherAssignment.updateMany.mock.calls[0][0].data.removedAt;
+    expect(mocked.classroom.updateMany.mock.calls[0][0].data.archivedAt).toBe(removedAt);
   });
 });

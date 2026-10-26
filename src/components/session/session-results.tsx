@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
 import { Badge } from "@/components/ui/badge";
 import { LatexText } from "@/components/content/latex-text";
@@ -10,6 +11,7 @@ import { DistractorNote } from "@/components/content/distractor-note";
 import { ScorePrediction } from "@/components/score-prediction";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
 import type { SessionResultsData } from "@/lib/session/session-results-data";
+import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
 import type { LoadedQuestion } from "./session-runner";
 
 function formatTime(seconds: number): string {
@@ -51,23 +53,7 @@ export function SessionResults({
   /** Rendered between the review and the navigation (e.g. the parent summary). */
   extra?: React.ReactNode;
 }) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [detailCache, setDetailCache] = useState<Map<string, LoadedQuestion>>(new Map());
-  const [detailLoading, setDetailLoading] = useState(false);
-
-  async function toggleQuestion(id: string) {
-    if (expandedId === id) {
-      setExpandedId(null);
-      return;
-    }
-    setExpandedId(id);
-    if (!detailCache.has(id)) {
-      setDetailLoading(true);
-      const detail = await loadQuestionDetail(id);
-      setDetailCache((prev) => new Map(prev).set(id, detail));
-      setDetailLoading(false);
-    }
-  }
+  const review = useQuestionReview(loadQuestionDetail);
 
   const targetMessage = targetProgressMessage(data.targetScore, data.currentRange);
   const previousMid = data.previousRange ? (data.previousRange.min + data.previousRange.max) / 2 : null;
@@ -178,9 +164,9 @@ export function SessionResults({
             <div key={q.id}>
               <button
                 type="button"
-                onClick={() => void toggleQuestion(q.id)}
+                onClick={() => review.toggle(q.id)}
                 className="flex w-full items-center justify-between gap-3 py-3 text-left text-sm"
-                aria-expanded={expandedId === q.id}
+                aria-expanded={review.expandedId === q.id}
               >
                 <span className="flex min-w-0 items-center gap-3">
                   <Badge
@@ -197,17 +183,13 @@ export function SessionResults({
                   <span className="truncate text-xs text-muted-foreground">{CATEGORY_LABELS[q.category]}</span>
                 </span>
                 <span className="shrink-0 text-muted-foreground" aria-hidden="true">
-                  {expandedId === q.id ? "−" : "+"}
+                  {review.expandedId === q.id ? "−" : "+"}
                 </span>
               </button>
 
-              {expandedId === q.id && (
+              {review.expandedId === q.id && (
                 <div className="pb-4">
-                  {detailLoading && !detailCache.has(q.id) ? (
-                    <p className="text-sm text-muted-foreground">Loading…</p>
-                  ) : (
-                    <QuestionDetail loaded={detailCache.get(q.id)!} isCorrect={q.isCorrect} />
-                  )}
+                  <ReviewDetail review={review} id={q.id} isCorrect={q.isCorrect} />
                 </div>
               )}
             </div>
@@ -239,6 +221,71 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * The per-question expand on every results page: which row is open, its
+ * loaded detail, and what to show when loading it fails. A failed load used
+ * to leave the row on "Loading…" for good (or, on some pages, render nothing
+ * and throw); it now says so and offers Try again.
+ */
+export type QuestionReview = {
+  expandedId: string | null;
+  toggle: (id: string) => void;
+  details: Map<string, LoadedQuestion>;
+  errors: Map<string, string>;
+  load: (id: string) => void;
+};
+
+export function useQuestionReview(loadQuestionDetail: (id: string) => Promise<LoadedQuestion>): QuestionReview {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [details, setDetails] = useState<Map<string, LoadedQuestion>>(new Map());
+  const [errors, setErrors] = useState<Map<string, string>>(new Map());
+
+  async function load(id: string) {
+    setErrors((prev) => {
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
+    try {
+      const detail = await loadQuestionDetail(id);
+      setDetails((prev) => new Map(prev).set(id, detail));
+    } catch (err) {
+      const message = isStaleServerActionError(err)
+        ? STALE_BUILD_MESSAGE
+        : "We couldn't load this question. Check your connection and try again.";
+      setErrors((prev) => new Map(prev).set(id, message));
+    }
+  }
+
+  function toggle(id: string) {
+    if (expandedId === id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(id);
+    if (!details.has(id) && !errors.has(id)) void load(id);
+  }
+
+  return { expandedId, toggle, details, errors, load: (id) => void load(id) };
+}
+
+/** The open row's body: the question, or loading, or a failure with its retry. */
+export function ReviewDetail({ review, id, isCorrect }: { review: QuestionReview; id: string; isCorrect: boolean }) {
+  const detail = review.details.get(id);
+  if (detail) return <QuestionDetail loaded={detail} isCorrect={isCorrect} />;
+  const error = review.errors.get(id);
+  if (!error) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  const stale = error === STALE_BUILD_MESSAGE;
+  return (
+    <div role="alert" className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+      <p className="text-destructive">{error}</p>
+      <Button variant="outline" onClick={() => (stale ? window.location.reload() : review.load(id))}>
+        {stale ? "Reload page" : "Try again"}
+      </Button>
+    </div>
+  );
+}
+
 export function QuestionDetail({ loaded, isCorrect }: { loaded: LoadedQuestion; isCorrect: boolean }) {
   return (
     <div className="flex flex-col gap-3 text-sm">
@@ -247,11 +294,14 @@ export function QuestionDetail({ loaded, isCorrect }: { loaded: LoadedQuestion; 
         <div className="flex flex-col gap-1.5">
           {loaded.content.answerChoices.map((choice) => {
             const showCorrect = loaded.feedback?.correctChoiceId === choice.id;
-            const showWrongSelection = !showCorrect && loaded.studentAnswer === choice.id;
+            const isYours = loaded.studentAnswer === choice.id;
+            const showWrongSelection = !showCorrect && isYours;
+            // Words as well as colour (WCAG 1.4.1), as in the runner.
+            const tag = isYours && showCorrect ? "Your answer · Correct" : isYours ? "Your answer" : showCorrect ? "Correct answer" : null;
             return (
               <div
                 key={choice.id}
-                className={`rounded-md border p-2 text-sm ${
+                className={`flex items-start justify-between gap-3 rounded-md border p-2 text-sm ${
                   showCorrect
                     ? "border-2 border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50"
                     : showWrongSelection
@@ -259,14 +309,26 @@ export function QuestionDetail({ loaded, isCorrect }: { loaded: LoadedQuestion; 
                       : "border-border"
                 }`}
               >
-                <LatexText text={choice.text} />
+                <span className="min-w-0">
+                  <LatexText text={choice.text} />
+                </span>
+                {tag && (
+                  <span
+                    className={`shrink-0 font-semibold ${showWrongSelection ? "text-destructive" : "text-green-800 dark:text-green-300"}`}
+                  >
+                    {tag}
+                  </span>
+                )}
               </div>
             );
           })}
         </div>
       )}
       {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && loaded.feedback && (
-        <p className="text-muted-foreground">Accepted answer: {loaded.feedback.acceptedAnswers[0]}</p>
+        <p className="text-muted-foreground">
+          {loaded.studentAnswer && <>Your answer: {loaded.studentAnswer} · </>}
+          Accepted answer: {loaded.feedback.acceptedAnswers[0]}
+        </p>
       )}
       <p className={`font-medium ${isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
         {isCorrect ? "Correct" : "Incorrect"}

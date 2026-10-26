@@ -1,183 +1,279 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { Megaphone } from "lucide-react";
 import { publishAnnouncementAction, removeAnnouncementAction, type ActionState } from "./actions";
 import type { AnnouncementEntry } from "@/lib/announcements";
 import { useCloseDialogOnSuccess } from "@/hooks/use-close-dialog-on-success";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { EmptyState } from "@/components/empty-state";
+import { ConfirmButton } from "@/components/confirm-button";
+import { StaffField, StatusChip } from "@/components/staff/staff-ui";
+import { endOfLocalDay, formatLongLocalDate } from "@/lib/community/local-day";
 
 const initialState: ActionState = {};
 
-function formatDate(date: Date): string {
-  return new Date(date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+const TITLE_MAX = 200;
+const MESSAGE_MAX = 5000;
+
+// Every date here is a calendar day in the school's time zone — the zone the
+// end date is stored in (end of that day, Central). Formatting without one
+// rendered "until Nov 4" on the server (UTC) for an announcement that runs
+// through Nov 5, and the browser then disagreed with it.
+const formatDate = formatLongLocalDate;
+
+function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n.toLocaleString()} ${n === 1 ? one : many}`;
 }
 
-export function AnnouncementsPanel({ announcements }: { announcements: AnnouncementEntry[] }) {
+export function AnnouncementsPanel({
+  announcements,
+  schoolName,
+  recipients,
+  readOnly,
+  today,
+}: {
+  announcements: AnnouncementEntry[];
+  schoolName: string;
+  recipients: number;
+  readOnly: boolean;
+  /** Today's date at the school (`YYYY-MM-DD`, Central), the earliest end date allowed. */
+  today: string;
+}) {
   const active = announcements.filter((a) => a.isActive);
   const previous = announcements.filter((a) => !a.isActive);
 
   return (
-    <div className="flex flex-col gap-8">
-      <CreateAnnouncementForm />
+    <div className="flex flex-col gap-10">
+      {readOnly ? (
+        <p className="text-base text-muted-foreground">
+          This is a read-only preview, so announcements can&apos;t be sent from here.
+        </p>
+      ) : (
+        <CreateAnnouncementForm schoolName={schoolName} recipients={recipients} today={today} />
+      )}
 
-      <div>
-        <h2 className="mb-3 text-sm font-semibold">Active Announcements</h2>
+      <section aria-labelledby="active-announcements-heading" className="flex flex-col gap-4">
+        <h2 id="active-announcements-heading" className="text-xl">
+          Showing to students now
+        </h2>
         {active.length === 0 ? (
-          <EmptyState
-            icon={Megaphone}
-            title="No announcements have been published."
-            description="Create an announcement to share an update with your registered students."
-          />
+          <p className="rounded-2xl bg-surface-tint p-6 text-base text-muted-foreground">
+            No announcements are showing right now. Anything you send appears here until it ends or you remove it.
+          </p>
         ) : (
-          <div className="flex flex-col gap-3">
+          <ul className="flex flex-col gap-4">
             {active.map((a) => (
-              <AnnouncementCard key={a.id} announcement={a} removable />
+              <AnnouncementCard key={a.id} announcement={a} removable={!readOnly} />
             ))}
-          </div>
+          </ul>
         )}
-      </div>
+      </section>
 
       {previous.length > 0 && (
-        <div>
-          <h2 className="mb-3 text-sm font-semibold">Previous Announcements</h2>
-          <div className="flex flex-col gap-3">
+        <section aria-labelledby="previous-announcements-heading" className="flex flex-col gap-4">
+          <h2 id="previous-announcements-heading" className="text-xl">
+            Earlier announcements
+          </h2>
+          <ul className="flex flex-col gap-4">
             {previous.map((a) => (
               <AnnouncementCard key={a.id} announcement={a} removable={false} />
             ))}
-          </div>
-        </div>
+          </ul>
+        </section>
       )}
     </div>
   );
 }
 
 function AnnouncementCard({ announcement, removable }: { announcement: AnnouncementEntry; removable: boolean }) {
-  const [state, formAction, pending] = useActionState(removeAnnouncementAction, initialState);
-
   return (
-    <div className="rounded-lg border border-border p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="font-medium">{announcement.title}</p>
-          <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{announcement.message}</p>
-        </div>
-        {!announcement.isActive && (
-          <Badge variant="secondary">{announcement.removedAt ? "Removed" : "Expired"}</Badge>
+    <li className="rounded-2xl border border-border p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="text-lg font-medium">{announcement.title}</p>
+        {announcement.isActive ? (
+          <StatusChip tone="good">Showing</StatusChip>
+        ) : (
+          <StatusChip tone="muted">{announcement.removedAt ? "Removed" : "Ended"}</StatusChip>
         )}
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        <span>Published {formatDate(announcement.publishedAt)}</span>
-        {announcement.expiresAt && <span>Expires {formatDate(announcement.expiresAt)}</span>}
-      </div>
+      <p className="mt-2 whitespace-pre-wrap text-base text-muted-foreground">{announcement.message}</p>
+      <p className="mt-3 text-sm text-muted-foreground">
+        Sent {formatDate(announcement.publishedAt)}
+        {announcement.expiresAt && ` · ${announcement.isActive ? "Showing through" : "Ran until"} ${formatDate(announcement.expiresAt)}`}
+      </p>
       {removable && (
-        <form action={formAction} className="mt-3">
-          <input type="hidden" name="announcementId" value={announcement.id} />
-          {state.error && (
-            <Alert variant="destructive" className="mb-2">
-              <AlertDescription>{state.error}</AlertDescription>
-            </Alert>
-          )}
-          <Button type="submit" variant="outline" size="sm" disabled={pending}>
-            {pending ? "Removing…" : "Remove"}
-          </Button>
-        </form>
+        <ConfirmButton
+          className="mt-4"
+          size="xl"
+          title="Remove this announcement?"
+          description="Students stop seeing it on their PrepHub home page right away. The email that already went out can't be taken back. You'll still see it here, under Earlier announcements."
+          confirmLabel="Remove announcement"
+          destructive
+          onConfirm={async () => {
+            const fd = new FormData();
+            fd.set("announcementId", announcement.id);
+            return removeAnnouncementAction({}, fd);
+          }}
+        >
+          Remove
+        </ConfirmButton>
       )}
-    </div>
+    </li>
   );
 }
 
-function CreateAnnouncementForm() {
+function CreateAnnouncementForm({ schoolName, recipients, today }: { schoolName: string; recipients: number; today: string }) {
   const [state, formAction, pending] = useActionState(publishAnnouncementAction, initialState);
   const [previewing, setPreviewing] = useState(false);
+  const [sent, setSent] = useState(false);
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
 
-  // A successful publish clears the form back to its blank starting point —
+  // A successful send clears the form back to its blank starting point —
   // adjusted during render (per this codebase's set-state-in-effect
   // convention) rather than in a useEffect. `useCloseDialogOnSuccess` only
-  // invokes this callback (with `false`, its "closed" signal) once, exactly
-  // when `state.success` flips to true, so the argument itself is unused.
+  // invokes this callback once, exactly when `state.success` flips to true.
   useCloseDialogOnSuccess(state.success, () => {
     setTitle("");
     setMessage("");
     setExpiresAt("");
     setPreviewing(false);
+    setSent(true);
   });
 
   if (previewing) {
     return (
-      <div className="rounded-lg border border-border p-4">
-        <p className="mb-3 text-sm font-semibold text-muted-foreground">Preview</p>
-        <div className="rounded-md bg-muted p-4">
-          <p className="font-medium">{title}</p>
-          <p className="mt-1 whitespace-pre-wrap text-sm">{message}</p>
+      <section aria-labelledby="preview-heading" className="flex flex-col gap-5 rounded-2xl border-2 border-marker/60 p-5 sm:p-6">
+        <div>
+          <h2 id="preview-heading" className="text-xl">
+            Check it before you send
+          </h2>
+          <p className="mt-1 text-base text-muted-foreground">This is exactly what students will get.</p>
         </div>
-        {expiresAt && <p className="mt-2 text-xs text-muted-foreground">Expires {expiresAt}</p>}
 
-        <form action={formAction} className="mt-4 flex flex-wrap items-center gap-2">
+        <div className="grid gap-5 lg:grid-cols-2">
+          <div className="flex flex-col gap-2">
+            <p className="text-base font-medium">On every student&apos;s PrepHub home page</p>
+            {/* The same box the student dashboard draws (home/page.tsx's AnnouncementsBanner). */}
+            <div className="rounded-lg border border-border bg-muted/50 p-3 text-left text-sm">
+              <p className="font-medium">{title}</p>
+              <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{message}</p>
+            </div>
+            {expiresAt && endOfLocalDay(expiresAt) && (
+              <p className="text-sm text-muted-foreground">Showing through {formatDate(endOfLocalDay(expiresAt)!)}</p>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            <p className="text-base font-medium">In their school email</p>
+            <div className="rounded-lg border border-border p-3 text-sm">
+              <p>
+                <span className="text-muted-foreground">Subject:</span>{" "}
+                <span className="font-medium">
+                  {schoolName}: {title}
+                </span>
+              </p>
+              <p className="mt-2 whitespace-pre-wrap">{message}</p>
+              <p className="mt-2 text-muted-foreground">— Distributed through PrepHub on behalf of {schoolName}.</p>
+            </div>
+          </div>
+        </div>
+
+        <p className="text-base font-medium">
+          This goes to {plural(recipients, "student")} once. An email can&apos;t be unsent.
+        </p>
+
+        <form action={formAction} className="flex flex-wrap items-center gap-3">
           <input type="hidden" name="title" value={title} />
           <input type="hidden" name="message" value={message} />
           <input type="hidden" name="expiresAt" value={expiresAt} />
           {state.error && (
             <Alert variant="destructive" className="w-full">
-              <AlertDescription>{state.error}</AlertDescription>
+              <AlertDescription className="text-base">{state.error}</AlertDescription>
             </Alert>
           )}
-          <Button type="submit" disabled={pending}>
-            {pending ? "Publishing…" : "Publish"}
+          <Button type="submit" size="xl" disabled={pending}>
+            {pending ? "Sending…" : `Send to ${plural(recipients, "student")}`}
           </Button>
-          <Button type="button" variant="ghost" onClick={() => setPreviewing(false)} disabled={pending}>
-            Back to Edit
+          <Button type="button" variant="outline" size="xl" onClick={() => setPreviewing(false)} disabled={pending}>
+            Go back and edit
           </Button>
         </form>
-        <p className="mt-2 text-xs text-muted-foreground">
-          Publishing emails this announcement once to every registered student at their school email.
-        </p>
-      </div>
+      </section>
     );
   }
 
   return (
-    <div className="rounded-lg border border-border p-4">
-      <p className="mb-3 text-sm font-semibold">New Announcement</p>
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="ann-title">Title</Label>
-          <Input id="ann-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required />
-        </div>
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="ann-message">Message</Label>
-          <Textarea
-            id="ann-message"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            maxLength={5000}
-            rows={4}
-            required
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="ann-expires">Expiration Date (optional)</Label>
-          <Input id="ann-expires" type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} className="w-48" />
-        </div>
-        <div>
-          <Button
-            type="button"
-            disabled={!title.trim() || !message.trim()}
-            onClick={() => setPreviewing(true)}
-          >
-            Preview
-          </Button>
-        </div>
+    <section aria-labelledby="new-announcement-heading" className="flex flex-col gap-5 rounded-2xl border border-border p-5 sm:p-6">
+      <div>
+        <h2 id="new-announcement-heading" className="text-xl">
+          Write an announcement
+        </h2>
+        <p className="mt-1 text-base text-muted-foreground">
+          Keep it short: a title and a few sentences. You&apos;ll see exactly what students get before anything is sent.
+        </p>
       </div>
-    </div>
+
+      {sent && (
+        <Alert>
+          <AlertDescription className="text-base">
+            Sent. It&apos;s on students&apos; home pages now, and the emails are on their way.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <StaffField label="Title" htmlFor="ann-title" hint={`${title.length} of ${TITLE_MAX} characters`}>
+        <Input
+          id="ann-title"
+          value={title}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            setSent(false);
+          }}
+          maxLength={TITLE_MAX}
+          placeholder="e.g. School SAT Day is coming up"
+          className="h-11 text-base md:text-base"
+          required
+        />
+      </StaffField>
+      <StaffField label="Message" htmlFor="ann-message" hint={`${message.length.toLocaleString()} of ${MESSAGE_MAX.toLocaleString()} characters`}>
+        <Textarea
+          id="ann-message"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          maxLength={MESSAGE_MAX}
+          rows={6}
+          placeholder="What students need to know, and what to do about it."
+          className="text-base"
+          required
+        />
+      </StaffField>
+      <StaffField
+        label="Stop showing it after"
+        htmlFor="ann-expires"
+        optional
+        hint="It stays on students' home pages through the end of this day, Central time. Leave it empty to keep it up until you remove it."
+      >
+        <Input
+          id="ann-expires"
+          type="date"
+          min={today}
+          value={expiresAt}
+          onChange={(e) => setExpiresAt(e.target.value)}
+          className="h-11 w-fit text-base md:text-base"
+        />
+      </StaffField>
+      <Button
+        type="button"
+        size="xl"
+        className="w-fit"
+        disabled={!title.trim() || !message.trim()}
+        onClick={() => setPreviewing(true)}
+      >
+        Preview before sending
+      </Button>
+    </section>
   );
 }

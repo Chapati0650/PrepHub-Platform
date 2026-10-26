@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
+import { SCHOOLS_CONTACT_EMAIL } from "@/components/marketing/site-chrome";
 import { TeacherError } from "./errors";
 
 /**
@@ -53,14 +54,23 @@ If your school uses Google, you can skip that and choose "Continue with Google" 
 
 /**
  * Adds a teacher at a school, creating the account if there isn't one.
- * An existing teacher at this school whose access was ended is restored.
+ *
+ * A teacher removed from this school is restored, and so are the classes the
+ * removal closed: `removeTeacher` stamps the assignment's `removedAt` and those
+ * classes' `archivedAt` with the same instant, so exactly those reopen — a
+ * class the teacher had archived themselves stays archived. `restoredClasses`
+ * says how many, for the confirmation.
+ *
+ * Someone who is already a teacher here is refused with ALREADY_TEACHER, a
+ * TeacherError rather than a quiet success, so every caller says so instead of
+ * claiming to have added them.
  */
 export async function inviteTeacher(input: {
   firstName: string;
   email: string;
   schoolId: string;
   invitedBy: string;
-}): Promise<{ userId: string; created: boolean }> {
+}): Promise<{ userId: string; created: boolean; restoredClasses: number }> {
   const firstName = input.firstName.trim();
   const email = input.email.trim().toLowerCase();
   if (!firstName) throw new TeacherError("INVALID_INPUT", "Enter the teacher's first name.");
@@ -80,25 +90,46 @@ export async function inviteTeacher(input: {
       firstName: true,
       email: true,
       deletedAt: true,
-      teacherAssignments: { where: { removedAt: null }, select: { schoolId: true } },
+      teacherAssignments: { select: { schoolId: true, removedAt: true } },
     },
   });
 
   if (existing) {
+    // Most often the teacher's own student account, made with the same school
+    // address. Turning an account into a teacher's is a change to someone's
+    // identity that PrepHub makes by hand, never from this form.
     if (existing.deletedAt || existing.role !== "TEACHER") {
       throw new TeacherError(
         "EMAIL_TAKEN",
-        "That email already belongs to a PrepHub account that isn't a teacher's. Use the teacher's school email.",
+        `That email already has a PrepHub account that isn't a teacher's — often a student account made with the same school address. Email ${SCHOOLS_CONTACT_EMAIL} to have it converted to a teacher account.`,
       );
     }
-    const elsewhere = existing.teacherAssignments.find((a) => a.schoolId !== school.id);
+    const elsewhere = existing.teacherAssignments.find((a) => a.schoolId !== school.id && a.removedAt === null);
     if (elsewhere) throw new TeacherError("EMAIL_TAKEN", "That teacher is already set up at another school.");
+
+    const here = existing.teacherAssignments.find((a) => a.schoolId === school.id);
+    if (here && here.removedAt === null) {
+      throw new TeacherError("ALREADY_TEACHER", `${existing.firstName} is already a teacher here.`);
+    }
+    if (here?.removedAt) {
+      const [, reopened] = await prisma.$transaction([
+        prisma.teacherAssignment.update({
+          where: { userId_schoolId: { userId: existing.id, schoolId: school.id } },
+          data: { removedAt: null },
+        }),
+        prisma.classroom.updateMany({
+          where: { teacherId: existing.id, schoolId: school.id, archivedAt: here.removedAt },
+          data: { archivedAt: null },
+        }),
+      ]);
+      return { userId: existing.id, created: false, restoredClasses: reopened.count };
+    }
     await prisma.teacherAssignment.upsert({
       where: { userId_schoolId: { userId: existing.id, schoolId: school.id } },
       update: { removedAt: null },
       create: { userId: existing.id, schoolId: school.id },
     });
-    return { userId: existing.id, created: false };
+    return { userId: existing.id, created: false, restoredClasses: 0 };
   }
 
   const user = await prisma.user.create({
@@ -112,7 +143,7 @@ export async function inviteTeacher(input: {
     select: { id: true, email: true, firstName: true },
   });
   await sendInvite(user, school.officialName, input.invitedBy);
-  return { userId: user.id, created: true };
+  return { userId: user.id, created: true, restoredClasses: 0 };
 }
 
 /** Sends a fresh set-password link to a teacher who hasn't signed in yet. */
@@ -134,8 +165,8 @@ export async function resendTeacherInvite(userId: string, schoolId: string, invi
 /**
  * Ends a teacher's access at a school and closes their classes there.
  * Nothing is deleted: the classes, the assignments and every student's work
- * stay, and adding the teacher back restores their access (the classes can
- * then be reopened).
+ * stay. Both writes carry the same instant, which is how adding the teacher
+ * back (inviteTeacher) knows which classes this closed and reopens them.
  */
 export async function removeTeacher(userId: string, schoolId: string): Promise<void> {
   const now = new Date();

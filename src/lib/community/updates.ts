@@ -14,10 +14,10 @@ export function buildCommunityUpdates(input: {
   if (input.questionsAnsweredToday > 0) {
     updates.push(`${input.schoolName} students answered ${input.questionsAnsweredToday.toLocaleString()} questions today.`);
   }
+  // Counts students who answered any question today, in any mode — not
+  // finished sessions — and "adaptive" is an internal word students never see.
   if (input.studentsActiveToday > 0) {
-    updates.push(
-      `${input.studentsActiveToday} student${input.studentsActiveToday === 1 ? "" : "s"} completed an adaptive session today.`,
-    );
+    updates.push(`${input.studentsActiveToday} student${input.studentsActiveToday === 1 ? "" : "s"} practiced today.`);
   }
   if (input.weeklyEstimatedSatPointsImproved > 0) {
     updates.push(`${input.schoolName} improved by an estimated ${input.weeklyEstimatedSatPointsImproved} SAT points this week.`);

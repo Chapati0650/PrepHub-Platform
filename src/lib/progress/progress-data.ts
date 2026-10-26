@@ -2,6 +2,7 @@ import type { QuestionCategory } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ALL_CATEGORIES } from "@/lib/adaptive/config";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
+import { emptyStudentActivity, getStudentActivity } from "@/lib/school/student-activity";
 import { buildJourneyNarrative } from "./journey-narrative";
 import { computeMilestones } from "./milestones";
 
@@ -37,16 +38,23 @@ export async function getProgressData(studentId: string): Promise<ProgressData> 
     return { diagnosticStatus: diagnostic ? "IN_PROGRESS" : "NOT_STARTED" };
   }
 
-  const [predictions, categoryStates, totalPracticeAnswers, totalDiagnosticAnswers, completedSets] = await Promise.all([
+  // Study Statistics count every study mode — the Daily Challenge, 800 Club,
+  // Rush, Focused Practice and homework as well as the Diagnostic and
+  // Practice Sets. They used to count the last two only, so a student's
+  // homework and rushes never showed here, and "Questions Answered" disagreed
+  // with the dashboard's figure of the same name. `getStudentActivity` is the
+  // same definition the student's school sees, session-length cap included.
+  const [predictions, categoryStates, activityByStudent, completedSets] = await Promise.all([
     prisma.predictionHistoryEntry.findMany({ where: { studentId }, orderBy: { createdAt: "asc" } }),
     prisma.categoryState.findMany({ where: { studentId } }),
-    prisma.finalizedAttempt.count({ where: { studentId } }),
-    prisma.diagnosticAttempt.count({ where: { diagnosticSession: { studentId }, submittedAt: { not: null } } }),
+    getStudentActivity([studentId]),
+    // Only to label each prediction with its set number.
     prisma.practiceSet.findMany({
       where: { studentId, status: "COMPLETED" },
-      select: { id: true, setNumber: true, createdAt: true, completedAt: true },
+      select: { id: true, setNumber: true },
     }),
   ]);
+  const activity = activityByStudent.get(studentId) ?? emptyStudentActivity();
 
   const setById = new Map(completedSets.map((s) => [s.id, s]));
   const history: ProgressHistoryPoint[] = predictions.map((p) => {
@@ -60,18 +68,16 @@ export async function getProgressData(studentId: string): Promise<ProgressData> 
   const startingRange = history[0] ?? { min: 400, max: 480 };
   const latest = predictions[predictions.length - 1];
   const currentRange = { min: latest.displayedRangeMinimum, max: latest.displayedRangeMaximum };
-  const completedSessions = predictions.filter((p) => p.sourceType === "ADAPTIVE_SET").length;
+  // The journey narrative is about the prediction, which only Practice Sets
+  // move, so it counts those alone.
+  const completedPracticeSets = predictions.filter((p) => p.sourceType === "ADAPTIVE_SET").length;
 
-  const totalQuestionsAnswered = totalPracticeAnswers + totalDiagnosticAnswers;
-
-  const diagnosticStudyTime = diagnostic.completedAt
-    ? (diagnostic.completedAt.getTime() - diagnostic.startedAt.getTime()) / 1000
-    : 0;
-  const totalStudyTimeSeconds = Math.round(
-    diagnosticStudyTime + completedSets.reduce((sum, s) => sum + (s.completedAt!.getTime() - s.createdAt.getTime()) / 1000, 0),
-  );
-  const totalSessionsIncludingDiagnostic = completedSessions + 1;
-  const averageSessionLengthSeconds = Math.round(totalStudyTimeSeconds / totalSessionsIncludingDiagnostic);
+  // Every finished session of any kind, the Diagnostic included, so the time
+  // and the count it's averaged over come from the same rows.
+  const completedSessions = activity.sessionsCompleted;
+  const totalQuestionsAnswered = activity.questionsAnswered;
+  const totalStudyTimeSeconds = Math.round(activity.studyHours * 3600);
+  const averageSessionLengthSeconds = completedSessions > 0 ? Math.round(totalStudyTimeSeconds / completedSessions) : 0;
 
   let greatestImprovement: { category: QuestionCategory; deltaPoints: number } | null = null;
   for (const state of categoryStates) {
@@ -108,7 +114,7 @@ export async function getProgressData(studentId: string): Promise<ProgressData> 
     history,
     journeyNarrative: buildJourneyNarrative({
       startingRange: { min: startingRange.min, max: startingRange.max },
-      completedSessions,
+      completedSessions: completedPracticeSets,
       totalQuestionsAnswered,
       totalImprovement: latest.representativeMidpoint - predictions[0].representativeMidpoint,
       greatestImprovement,

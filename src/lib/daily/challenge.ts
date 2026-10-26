@@ -4,6 +4,7 @@ import { isAnswerCorrect } from "@/lib/adaptive/grading";
 import { getStudentQuestionContent, getStudentQuestionFeedback, type StudentQuestionContent, type StudentQuestionFeedback } from "@/lib/session/question-content";
 import { FUNNEL_EVENTS, track } from "@/lib/analytics/track";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
+import { streakFromDays } from "@/lib/dashboard/study-streak";
 import type { QuestionCategory } from "@/generated/prisma/client";
 
 // One hard question a day, the same one for everyone, free for every
@@ -92,25 +93,32 @@ export async function getDailyChallengeView(studentId: string): Promise<DailyCha
   };
 }
 
+// What answering returns. "rolled_over" is an ordinary outcome, not an
+// error: a student who opens /daily just before midnight UTC (early evening
+// in Texas) and answers just after is answering yesterday's question, and
+// has to be told so in words. A thrown message would reach them as Next's
+// generic production error, with nothing to do but guess and reload.
+export type DailyAnswerResult = { ok: true; isCorrect: boolean } | { ok: false; reason: "rolled_over" };
+
 // Idempotent: a second submit for the same day returns the first answer.
-export async function answerDailyChallenge(studentId: string, challengeId: string, answer: string) {
+export async function answerDailyChallenge(studentId: string, challengeId: string, answer: string): Promise<DailyAnswerResult> {
   const challenge = await prisma.dailyChallenge.findUnique({
     where: { id: challengeId },
     include: { question: true, questionRevision: { include: { answerChoices: true } } },
   });
   if (!challenge) throw new Error("Challenge not found.");
-  if (challenge.day !== dayKey()) throw new Error("That challenge is over — today's is waiting.");
+  if (challenge.day !== dayKey()) return { ok: false, reason: "rolled_over" };
   const existing = await prisma.dailyChallengeAttempt.findUnique({ where: { challengeId_studentId: { challengeId, studentId } } });
-  if (existing) return { isCorrect: existing.isCorrect };
+  if (existing) return { ok: true, isCorrect: existing.isCorrect };
   const isCorrect = isAnswerCorrect(challenge.question.questionType, answer, challenge.questionRevision);
   try {
     await prisma.dailyChallengeAttempt.create({ data: { challengeId, studentId, answer, isCorrect } });
   } catch {
     const again = await prisma.dailyChallengeAttempt.findUniqueOrThrow({ where: { challengeId_studentId: { challengeId, studentId } } });
-    return { isCorrect: again.isCorrect };
+    return { ok: true, isCorrect: again.isCorrect };
   }
   void track(FUNNEL_EVENTS.DAILY_CHALLENGE_ANSWERED, { userId: studentId });
-  return { isCorrect };
+  return { ok: true, isCorrect };
 }
 
 // Consecutive days answered, counting back from today (or from yesterday
@@ -124,19 +132,6 @@ export async function getStreak(studentId: string): Promise<number> {
   });
   const days = new Set(attempts.map((a) => a.challenge.day));
   return streakFromDays(days, dayKey());
-}
-
-// Pure, so it's testable: how many consecutive days ending today (or
-// yesterday) appear in the set.
-export function streakFromDays(days: ReadonlySet<string>, today: string): number {
-  const cursor = new Date(`${today}T00:00:00Z`);
-  if (!days.has(today)) cursor.setUTCDate(cursor.getUTCDate() - 1);
-  let n = 0;
-  while (days.has(cursor.toISOString().slice(0, 10))) {
-    n++;
-    cursor.setUTCDate(cursor.getUTCDate() - 1);
-  }
-  return n;
 }
 
 // For the dashboard row: answered today? and the streak. Doesn't create

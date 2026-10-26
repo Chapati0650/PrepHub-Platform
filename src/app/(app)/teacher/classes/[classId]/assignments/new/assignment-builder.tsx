@@ -56,12 +56,18 @@ export function AssignmentBuilder({
   const [dueOn, setDueOn] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
+  // Stays true from the click until the page changes. `saving` alone ends the
+  // moment router.push is called, so during a slow navigation the button came
+  // back and a second press assigned the same homework twice.
+  const [submitted, setSubmitted] = useState(false);
+  const [randomNotice, setRandomNotice] = useState<string | null>(null);
 
   const selectedIds = new Set(selected.map((q) => q.id));
   const full = selected.length >= maxQuestions;
 
   function runSearch(next: BankFilters, page = 1) {
     setFilters(next);
+    setRandomNotice(null);
     startLoading(async () => {
       setResults(await searchQuestionBankAction(next, page));
     });
@@ -97,15 +103,35 @@ export function AssignmentBuilder({
     });
   }
 
+  // Says what actually happened: a small pool or a nearly full homework can
+  // add fewer than asked, or none, which otherwise looks like a broken button.
   function addRandom(count: number) {
+    const wanted = Math.min(count, maxQuestions - selected.length);
+    setRandomNotice(null);
     startLoading(async () => {
-      const picked = await pickRandomQuestionsAction(filters, Math.min(count, maxQuestions - selected.length), [...selectedIds]);
-      setSelected((prev) => [...prev, ...picked.filter((p) => !prev.some((q) => q.id === p.id))].slice(0, maxQuestions));
+      const picked = await pickRandomQuestionsAction(filters, wanted, [...selectedIds]);
+      const fresh = picked.filter((p) => !selectedIds.has(p.id)).slice(0, wanted);
+      setSelected((prev) => [...prev, ...fresh.filter((p) => !prev.some((q) => q.id === p.id))].slice(0, maxQuestions));
+      const filtered = Boolean(filters.category || filters.difficulty || filters.questionType || filters.search);
+      const which = filtered ? "matching these filters" : "in the bank";
+      if (fresh.length === 0) {
+        setRandomNotice(`Every question ${which} is already on this homework.`);
+      } else if (fresh.length < wanted) {
+        setRandomNotice(
+          `Added ${fresh.length} — that's every question ${which} not already on this homework.${filtered ? " Change the filters to add more." : ""}`,
+        );
+      } else if (wanted < count) {
+        setRandomNotice(`Added ${fresh.length}. That fills the homework: it can have up to ${maxQuestions} questions.`);
+      } else {
+        setRandomNotice(`Added ${fresh.length} question${fresh.length === 1 ? "" : "s"}.`);
+      }
     });
   }
 
   function submit() {
+    if (submitted) return;
     setError(null);
+    setSubmitted(true);
     startSaving(async () => {
       const result = await createAssignmentAction(classroomId, {
         title,
@@ -115,6 +141,7 @@ export function AssignmentBuilder({
       });
       if ("error" in result) {
         setError(result.error);
+        setSubmitted(false);
         return;
       }
       router.push(`/teacher/classes/${classroomId}/assignments/${result.assignmentId}`);
@@ -129,7 +156,7 @@ export function AssignmentBuilder({
     .join(" · ");
 
   return (
-    <div className="grid items-start gap-8 lg:grid-cols-[1fr_22rem]">
+    <div className="grid items-start gap-8 lg:grid-cols-[1fr_24rem]">
       {/* ---- The bank ---- */}
       <section className="flex min-w-0 flex-col gap-4" aria-label="Question bank">
         <div className="grid gap-3 sm:grid-cols-3">
@@ -167,13 +194,14 @@ export function AssignmentBuilder({
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             placeholder="Search question text, e.g. “slope” or “transition”"
+            className="h-11 text-base md:text-base"
           />
-          <Button type="submit" variant="outline" disabled={loading}>
+          <Button type="submit" variant="outline" size="xl" disabled={loading}>
             Search
           </Button>
         </form>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-base">
           <p className="text-muted-foreground" aria-live="polite">
             {loading ? "Loading…" : `${results.total.toLocaleString()} question${results.total === 1 ? "" : "s"}`}
             {filterLabel && ` · ${filterLabel}`}
@@ -183,7 +211,7 @@ export function AssignmentBuilder({
               <Button
                 key={n}
                 variant="outline"
-                size="sm"
+                size="lg"
                 disabled={loading || full || results.total === 0}
                 onClick={() => addRandom(n)}
               >
@@ -192,9 +220,14 @@ export function AssignmentBuilder({
             ))}
           </div>
         </div>
+        {randomNotice && (
+          <p role="status" className="text-base text-muted-foreground">
+            {randomNotice}
+          </p>
+        )}
 
         {results.items.length === 0 ? (
-          <p className="rounded-2xl bg-surface-tint p-5 text-sm text-muted-foreground">
+          <p className="rounded-2xl bg-surface-tint p-5 text-base text-muted-foreground">
             No published questions match. Try a different category or difficulty, or clear the search.
           </p>
         ) : (
@@ -206,25 +239,25 @@ export function AssignmentBuilder({
                 <li key={item.id} className="py-3">
                   <div className="flex items-start gap-4">
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-sm text-muted-foreground">
                         {CATEGORY_LABELS[item.category]} · {DIFFICULTY_LABELS[item.difficulty]} ·{" "}
                         {QUESTION_TYPE_LABELS[item.questionType]}
                         {item.hasPassage && " · with passage"}
                       </p>
-                      <div className="mt-1 line-clamp-3 text-sm">
+                      <div className="mt-1 line-clamp-3 text-base">
                         <LatexText text={item.snippet} />
                       </div>
                       <button
                         type="button"
                         onClick={() => togglePreview(item.id)}
                         aria-expanded={openPreview === item.id}
-                        className="mt-1 text-xs font-medium text-primary underline-offset-4 hover:underline"
+                        className="mt-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
                       >
                         {openPreview === item.id ? "Hide answer key" : "Preview with answer key"}
                       </button>
                     </div>
                     <Button
-                      size="sm"
+                      size="lg"
                       variant={added ? "secondary" : "outline"}
                       disabled={!added && full}
                       onClick={() => (added ? remove(item.id) : add(item))}
@@ -246,10 +279,10 @@ export function AssignmentBuilder({
         )}
 
         {results.pageCount > 1 && (
-          <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center justify-between text-base">
             <Button
               variant="outline"
-              size="sm"
+              size="lg"
               disabled={loading || results.page <= 1}
               onClick={() => runSearch(filters, results.page - 1)}
             >
@@ -260,7 +293,7 @@ export function AssignmentBuilder({
             </span>
             <Button
               variant="outline"
-              size="sm"
+              size="lg"
               disabled={loading || results.page >= results.pageCount}
               onClick={() => runSearch(filters, results.page + 1)}
             >
@@ -273,16 +306,16 @@ export function AssignmentBuilder({
       {/* ---- The homework ---- */}
       <aside className="flex flex-col gap-4 rounded-2xl border border-border p-5 lg:sticky lg:top-6" aria-label="This homework">
         <div className="flex flex-col gap-2">
-          <Label htmlFor="hw-title">Title</Label>
-          <Input id="hw-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} placeholder="e.g. Linear equations warm-up" />
+          <Label htmlFor="hw-title" className="text-base">Title</Label>
+          <Input id="hw-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} placeholder="e.g. Linear equations warm-up" className="h-11 text-base md:text-base" />
         </div>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="hw-due">Due (optional)</Label>
-          <Input id="hw-due" type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} className="w-fit" />
-          <p className="text-xs text-muted-foreground">Due at the end of that day, Central time. Late work is still accepted and marked late.</p>
+          <Label htmlFor="hw-due" className="text-base">Due date <span className="font-normal text-muted-foreground">(optional)</span></Label>
+          <Input id="hw-due" type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} className="h-11 w-fit text-base md:text-base" />
+          <p className="text-sm text-muted-foreground">Due at the end of that day, Central time. Late work is still accepted and marked late.</p>
         </div>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="hw-instructions">Instructions (optional)</Label>
+          <Label htmlFor="hw-instructions" className="text-base">Instructions <span className="font-normal text-muted-foreground">(optional)</span></Label>
           <Textarea
             id="hw-instructions"
             value={instructions}
@@ -294,18 +327,18 @@ export function AssignmentBuilder({
         </div>
 
         <div className="flex flex-col gap-2">
-          <p className="text-sm font-medium">
+          <p className="text-base font-medium">
             Questions <span className="text-muted-foreground tabular-nums">· {selected.length}/{maxQuestions}</span>
           </p>
           {selected.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Add questions from the bank.</p>
+            <p className="text-base text-muted-foreground">Add questions from the list on the left with their Add buttons.</p>
           ) : (
             <ol className="flex max-h-[40vh] flex-col divide-y divide-border overflow-y-auto border-y border-border">
               {selected.map((q, i) => (
-                <li key={q.id} className="flex items-start gap-2 py-2 text-sm">
+                <li key={q.id} className="flex items-start gap-2 py-2.5 text-base">
                   <span className="w-6 shrink-0 font-heading font-semibold tabular-nums">{String(i + 1).padStart(2, "0")}</span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-xs text-muted-foreground">
+                    <span className="block text-sm text-muted-foreground">
                       {CATEGORY_LABELS[q.category]} · {DIFFICULTY_LABELS[q.difficulty]}
                     </span>
                     <span className="line-clamp-2">
@@ -313,14 +346,14 @@ export function AssignmentBuilder({
                     </span>
                   </span>
                   <span className="flex shrink-0 flex-col">
-                    <button type="button" aria-label={`Move question ${i + 1} up`} onClick={() => move(i, -1)} disabled={i === 0} className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30">
-                      <ArrowUp className="size-3.5" aria-hidden />
+                    <button type="button" aria-label={`Move question ${i + 1} up`} onClick={() => move(i, -1)} disabled={i === 0} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30">
+                      <ArrowUp className="size-4" aria-hidden />
                     </button>
-                    <button type="button" aria-label={`Move question ${i + 1} down`} onClick={() => move(i, 1)} disabled={i === selected.length - 1} className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30">
-                      <ArrowDown className="size-3.5" aria-hidden />
+                    <button type="button" aria-label={`Move question ${i + 1} down`} onClick={() => move(i, 1)} disabled={i === selected.length - 1} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30">
+                      <ArrowDown className="size-4" aria-hidden />
                     </button>
                   </span>
-                  <button type="button" aria-label={`Remove question ${i + 1}`} onClick={() => remove(q.id)} className="rounded p-0.5 text-muted-foreground hover:text-destructive">
+                  <button type="button" aria-label={`Remove question ${i + 1}`} onClick={() => remove(q.id)} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive">
                     <X className="size-4" aria-hidden />
                   </button>
                 </li>
@@ -334,10 +367,10 @@ export function AssignmentBuilder({
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        <Button size="cta" onClick={submit} disabled={saving || selected.length === 0 || !title.trim()}>
-          {saving ? "Assigning…" : "Assign to class"}
+        <Button size="cta" onClick={submit} disabled={saving || submitted || selected.length === 0 || !title.trim()}>
+          {saving || submitted ? "Assigning…" : "Assign to class"}
         </Button>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Students see it on their Homework page as soon as you assign it.
         </p>
       </aside>
@@ -359,11 +392,11 @@ function FilterSelect({
   const id = `filter-${label.toLowerCase()}`;
   return (
     <div className="flex flex-col gap-1.5">
-      <Label htmlFor={id} className="text-xs text-muted-foreground">
+      <Label htmlFor={id} className="text-sm font-medium">
         {label}
       </Label>
       <Select value={value} onValueChange={(v) => onChange(v ?? ANY)}>
-        <SelectTrigger id={id} className="w-full">
+        <SelectTrigger id={id} className="h-11 w-full text-base md:text-base">
           {/* Base UI shows the raw value unless told the label (the same
               mapping the question editor uses). */}
           <SelectValue>{(v: string) => (v === ANY ? "Any" : (options.find(([key]) => key === v)?.[1] ?? v))}</SelectValue>

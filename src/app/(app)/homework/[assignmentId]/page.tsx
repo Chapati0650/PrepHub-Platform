@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { getHomeworkForStudent } from "@/lib/teacher/homework";
+import { getHomeworkForStudent, type HomeworkBlock } from "@/lib/teacher/homework";
 import { formatGoalDate } from "@/lib/community/goal";
 import { Button } from "@/components/ui/button";
 import { startHomeworkAction } from "../actions";
@@ -10,6 +10,13 @@ const ERRORS: Record<string, string> = {
   ASSIGNMENT_CLOSED: "Your teacher has closed this homework.",
   NOT_IN_CLASS: "You're not in this class any more.",
   NOT_FOUND: "This homework isn't available.",
+};
+
+// Before starting, or coming back to unfinished work: why it can't go on.
+const BLOCKED: Record<HomeworkBlock, string> = {
+  NOT_IN_CLASS: "You're not in this class any more.",
+  CLASS_CLOSED: "Your teacher has closed this class.",
+  ASSIGNMENT_CLOSED: "Your teacher has closed this homework.",
 };
 
 // The page before question 1 — never the runner itself, so opening a link
@@ -32,8 +39,9 @@ export default async function HomeworkStartPage({
   if (homework.session?.status === "COMPLETED") redirect(`/homework/results/${homework.session.id}`);
 
   const inProgress = homework.session?.status === "ACTIVE";
-  const overdue = homework.dueAt && homework.dueAt < new Date();
-  const blocked = homework.closed || !homework.inClass;
+  // Already due when this student joined: theirs to do, never "was due" in red.
+  const overdue = homework.dueAt && homework.dueAt < new Date() && !homework.setBeforeJoining;
+  const { blocked } = homework;
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6 p-4 pb-16 sm:p-8">
@@ -65,12 +73,10 @@ export default async function HomeworkStartPage({
           </div>
         )}
 
-        {error && ERRORS[error] && <p className="mt-5 text-sm text-destructive">{ERRORS[error]}</p>}
+        {error && ERRORS[error] && !blocked && <p className="mt-5 text-sm text-destructive">{ERRORS[error]}</p>}
 
         {blocked ? (
-          <p className="mt-8 font-medium">
-            {homework.closed ? "Your teacher has closed this homework." : "You're not in this class any more."}
-          </p>
+          <p className="mt-8 font-medium">{BLOCKED[blocked]}</p>
         ) : (
           <form action={startHomeworkAction} className="mt-8">
             <input type="hidden" name="assignmentId" value={homework.id} />
@@ -81,8 +87,11 @@ export default async function HomeworkStartPage({
         )}
         {!blocked && (
           <p className="mt-4 text-sm text-muted-foreground">
-            Every question shows its explanation after you answer. Your teacher sees your score when you finish.
+            Every question shows its explanation after you answer. Your teacher sees each answer as you give it, and
+            it&apos;s turned in when you&apos;ve answered them all.
             {overdue && " It's past due, but your teacher still accepts it — it's just marked late."}
+            {homework.setBeforeJoining &&
+              " It was set before you joined the class, so it's up to you — it won't count as missing."}
           </p>
         )}
       </section>

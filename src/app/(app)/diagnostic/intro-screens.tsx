@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Marker } from "@/components/ui/marker";
+import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
 
 const WELCOME_ITEMS = [
   {
@@ -26,10 +27,24 @@ const WELCOME_ITEMS = [
 export function IntroScreens({ onBegin }: { onBegin: () => Promise<void> }) {
   const router = useRouter();
   const [beginning, setBeginning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
+  // A failure used to leave the button on "Preparing your diagnostic…" for
+  // good, on the screen where students decide whether to start at all.
   async function handleBegin() {
     setBeginning(true);
-    await onBegin();
+    setError(null);
+    try {
+      await onBegin();
+    } catch (err) {
+      setBeginning(false);
+      setError(
+        isStaleServerActionError(err)
+          ? STALE_BUILD_MESSAGE
+          : "We couldn't start your Diagnostic. Check your connection and try again.",
+      );
+      return;
+    }
     router.refresh();
   }
 
@@ -69,6 +84,11 @@ export function IntroScreens({ onBegin }: { onBegin: () => Promise<void> }) {
           <Button size="cta" onClick={() => void handleBegin()} disabled={beginning}>
             {beginning ? "Preparing your diagnostic…" : "Begin Diagnostic"}
           </Button>
+          {error && (
+            <p role="alert" className="mt-4 max-w-prose text-sm text-destructive">
+              {error}
+            </p>
+          )}
           <p className="mt-4 text-sm text-muted-foreground">
             Talent may affect where you begin. Consistent effort determines how far you go.
           </p>

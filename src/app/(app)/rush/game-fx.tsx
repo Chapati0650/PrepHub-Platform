@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Flame, Volume2, VolumeX } from "lucide-react";
+import { Flame, Music, Volume2, VolumeX } from "lucide-react";
+import { createRushMusic, type RushMusic } from "./rush-music";
 
 /**
  * The game feel shared by the recorded runner and the live room
@@ -30,15 +31,47 @@ import { Flame, Volume2, VolumeX } from "lucide-react";
 export type RushSound = "correct" | "wrong" | "streak" | "tick" | "count" | "go" | "win" | "lose";
 
 const SOUND_KEY = "prephub-rush-sound";
+const MUSIC_KEY = "prephub-rush-music";
 const SOUND_EVENT = "prephub-rush-sound-change";
 
-function readMuted(): boolean {
+function readOff(key: string): boolean {
   try {
-    return window.localStorage.getItem(SOUND_KEY) === "off";
+    return window.localStorage.getItem(key) === "off";
   } catch {
-    // Private windows and blocked storage: fall back to sound on.
+    // Private windows and blocked storage: fall back to on.
     return false;
   }
+}
+
+const readMuted = () => readOff(SOUND_KEY);
+const readMusicOff = () => readOff(MUSIC_KEY);
+
+/**
+ * One AudioContext for every Rush screen, made on first use (always after a
+ * click or key press, which browsers require) and kept across client-side
+ * navigation. Everything Rush plays goes through one gentle limiter: effects
+ * are loud enough to hear on a Chromebook speaker (2026-10-25: they were too
+ * quiet), and no combination of them can spike into anything startling.
+ */
+let shared: { ctx: AudioContext; out: AudioNode } | null = null;
+
+function audio(): { ctx: AudioContext; out: AudioNode } | null {
+  if (shared) return shared;
+  if (typeof window === "undefined") return null;
+  const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctx) return null;
+  const ctx = new Ctx();
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -6;
+  limiter.knee.value = 6;
+  limiter.ratio.value = 12;
+  limiter.attack.value = 0.003;
+  limiter.release.value = 0.2;
+  const master = ctx.createGain();
+  master.gain.value = 0.9;
+  limiter.connect(master).connect(ctx.destination);
+  shared = { ctx, out: limiter };
+  return shared;
 }
 
 function subscribeMuted(callback: () => void): () => void {
@@ -55,45 +88,60 @@ type Note = { f: number; at: number; dur: number; type?: OscillatorType; gain?: 
 
 const PATTERNS: Record<RushSound, Note[]> = {
   correct: [
-    { f: 784, at: 0, dur: 0.09 },
-    { f: 1175, at: 0.08, dur: 0.14 },
+    { f: 784, at: 0, dur: 0.1 },
+    { f: 1175, at: 0.08, dur: 0.18 },
   ],
-  wrong: [{ f: 220, at: 0, dur: 0.24, type: "triangle", gain: 0.16, to: 150 }],
+  // Two falling notes ("uh-oh") rather than one low sweep: a 220Hz tone all
+  // but vanishes on a laptop speaker, and the limiter flattened the sweep.
+  wrong: [
+    { f: 330, at: 0, dur: 0.14, gain: 0.4 },
+    { f: 247, at: 0.13, dur: 0.24, gain: 0.4, to: 220 },
+  ],
   streak: [
-    { f: 880, at: 0, dur: 0.07 },
-    { f: 1109, at: 0.06, dur: 0.07 },
-    { f: 1319, at: 0.12, dur: 0.16 },
+    { f: 880, at: 0, dur: 0.08 },
+    { f: 1109, at: 0.06, dur: 0.08 },
+    { f: 1319, at: 0.12, dur: 0.2 },
   ],
-  tick: [{ f: 1400, at: 0, dur: 0.035, type: "square", gain: 0.05 }],
-  count: [{ f: 660, at: 0, dur: 0.12 }],
-  go: [{ f: 523, at: 0, dur: 0.22, to: 1047 }],
+  tick: [{ f: 1400, at: 0, dur: 0.04, type: "square", gain: 0.12 }],
+  count: [{ f: 660, at: 0, dur: 0.14 }],
+  go: [{ f: 523, at: 0, dur: 0.26, to: 1047 }],
   win: [
     { f: 523, at: 0, dur: 0.12 },
     { f: 659, at: 0.11, dur: 0.12 },
     { f: 784, at: 0.22, dur: 0.12 },
-    { f: 1047, at: 0.33, dur: 0.32 },
+    { f: 1047, at: 0.33, dur: 0.4 },
   ],
   lose: [
-    { f: 392, at: 0, dur: 0.16, type: "triangle", gain: 0.14 },
-    { f: 330, at: 0.15, dur: 0.16, type: "triangle", gain: 0.14 },
-    { f: 262, at: 0.3, dur: 0.3, type: "triangle", gain: 0.14 },
+    { f: 392, at: 0, dur: 0.16, gain: 0.34 },
+    { f: 330, at: 0.15, dur: 0.16, gain: 0.34 },
+    { f: 262, at: 0.3, dur: 0.32, gain: 0.34 },
   ],
 };
 
-export function useRushSound(): { play: (sound: RushSound) => void; muted: boolean; toggle: () => void } {
+export type RushSoundControls = {
+  play: (sound: RushSound) => void;
+  /** All Rush sound, effects and music. */
+  muted: boolean;
+  toggle: () => void;
+  /** Just the music; effects stay on. */
+  musicOff: boolean;
+  toggleMusic: () => void;
+};
+
+export function useRushSound(): RushSoundControls {
   // useSyncExternalStore rather than reading localStorage in a useState
   // initializer: the server always renders "sound on", and a stored "off"
   // must not make the first client render disagree with it (CLAUDE.md's
   // next-themes gotcha is the same shape of problem).
   const muted = useSyncExternalStore(subscribeMuted, readMuted, () => false);
-  const context = useRef<AudioContext | null>(null);
+  const musicOff = useSyncExternalStore(subscribeMuted, readMusicOff, () => false);
 
   // Browsers only let audio start after a user gesture. Creating the context
   // lazily on the first play — which always follows a click or a key press —
   // and resuming it on any later gesture keeps the first sound from being
   // swallowed.
   useEffect(() => {
-    const wake = () => void context.current?.resume();
+    const wake = () => void shared?.ctx.resume();
     window.addEventListener("pointerdown", wake);
     window.addEventListener("keydown", wake);
     return () => {
@@ -104,26 +152,25 @@ export function useRushSound(): { play: (sound: RushSound) => void; muted: boole
 
   const play = useCallback(
     (sound: RushSound) => {
-      if (muted || typeof window === "undefined") return;
+      if (muted) return;
       try {
-        const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (!Ctx) return;
-        context.current ??= new Ctx();
-        const ctx = context.current;
+        const engine = audio();
+        if (!engine) return;
+        const { ctx, out } = engine;
         if (ctx.state === "suspended") void ctx.resume();
         const start = ctx.currentTime + 0.01;
         for (const note of PATTERNS[sound]) {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
-          osc.type = note.type ?? "sine";
+          osc.type = note.type ?? "triangle";
           osc.frequency.setValueAtTime(note.f, start + note.at);
           if (note.to) osc.frequency.exponentialRampToValueAtTime(note.to, start + note.at + note.dur);
           // A fast attack and an exponential release, so notes don't click.
-          const peak = note.gain ?? 0.12;
+          const peak = note.gain ?? 0.38;
           gain.gain.setValueAtTime(0.0001, start + note.at);
           gain.gain.exponentialRampToValueAtTime(peak, start + note.at + 0.01);
           gain.gain.exponentialRampToValueAtTime(0.0001, start + note.at + note.dur);
-          osc.connect(gain).connect(ctx.destination);
+          osc.connect(gain).connect(out);
           osc.start(start + note.at);
           osc.stop(start + note.at + note.dur + 0.02);
         }
@@ -134,16 +181,45 @@ export function useRushSound(): { play: (sound: RushSound) => void; muted: boole
     [muted],
   );
 
-  const toggle = useCallback(() => {
-    try {
-      window.localStorage.setItem(SOUND_KEY, readMuted() ? "on" : "off");
-    } catch {
-      // Storage unavailable: the toggle simply won't persist.
-    }
-    window.dispatchEvent(new Event(SOUND_EVENT));
-  }, []);
+  const toggle = useCallback(() => flip(SOUND_KEY), []);
+  const toggleMusic = useCallback(() => flip(MUSIC_KEY), []);
 
-  return { play, muted, toggle };
+  return { play, muted, toggle, musicOff, toggleMusic };
+}
+
+function flip(key: string) {
+  try {
+    window.localStorage.setItem(key, readOff(key) ? "on" : "off");
+  } catch {
+    // Storage unavailable: the toggle simply won't persist.
+  }
+  window.dispatchEvent(new Event(SOUND_EVENT));
+}
+
+/**
+ * Plays the round music (./rush-music.ts) while `active` — only while
+ * questions are being played, never in a lobby or on results — and speeds it
+ * up while `intense`. Stops with a short fade when the round ends, when the
+ * student turns music or sound off, or when the screen goes away.
+ */
+export function useRushMusic(controls: RushSoundControls, active: boolean, intense: boolean) {
+  const music = useRef<RushMusic | null>(null);
+  const on = active && !controls.muted && !controls.musicOff;
+
+  useEffect(() => {
+    if (!on) return;
+    const sound = audio();
+    if (!sound) return;
+    if (sound.ctx.state === "suspended") void sound.ctx.resume();
+    music.current ??= createRushMusic(sound.ctx, sound.out);
+    const player = music.current;
+    player.start();
+    return () => player.stop();
+  }, [on]);
+
+  useEffect(() => {
+    music.current?.setIntense(intense);
+  }, [intense]);
 }
 
 export function SoundToggle({ muted, onToggle }: { muted: boolean; onToggle: () => void }) {
@@ -157,6 +233,32 @@ export function SoundToggle({ muted, onToggle }: { muted: boolean; onToggle: () 
     >
       {muted ? <VolumeX className="size-4" aria-hidden /> : <Volume2 className="size-4" aria-hidden />}
     </button>
+  );
+}
+
+/**
+ * Sound and music, side by side in the corner of every Rush screen. Music
+ * has its own switch, labelled in words, so a student who finds it
+ * distracting can turn it off and keep the answer sounds.
+ */
+export function SoundControls({ controls }: { controls: RushSoundControls }) {
+  return (
+    <span className="flex items-center gap-1">
+      {!controls.muted && (
+        <button
+          type="button"
+          onClick={controls.toggleMusic}
+          aria-pressed={!controls.musicOff}
+          className={`flex h-8 items-center gap-1.5 rounded-full px-2.5 text-sm transition-colors hover:bg-muted ${
+            controls.musicOff ? "text-muted-foreground line-through decoration-1" : "text-foreground"
+          }`}
+        >
+          <Music className="size-4" aria-hidden />
+          Music
+        </button>
+      )}
+      <SoundToggle muted={controls.muted} onToggle={controls.toggle} />
+    </span>
   );
 }
 

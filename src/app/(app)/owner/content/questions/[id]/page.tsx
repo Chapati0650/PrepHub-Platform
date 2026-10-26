@@ -3,6 +3,7 @@ import { getQuestionOrThrow } from "@/lib/content/questions";
 import { ContentError } from "@/lib/content/errors";
 import { listQuestionIds, parseQuestionListFilters } from "@/lib/content/list-questions";
 import { QuestionEditor } from "./question-editor";
+import { requireOwnerPage } from "@/lib/owner/guard";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -22,6 +23,7 @@ export default async function QuestionEditorPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<SearchParams>;
 }) {
+  await requireOwnerPage();
   const { id } = await params;
   const rawSearchParams = await searchParams;
 

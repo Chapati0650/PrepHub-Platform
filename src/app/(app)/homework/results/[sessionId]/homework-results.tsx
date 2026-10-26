@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { LinkButton } from "@/components/ui/link-button";
 import { Badge } from "@/components/ui/badge";
-import { QuestionDetail } from "@/components/session/session-results";
+import { ReviewDetail, useQuestionReview } from "@/components/session/session-results";
 import type { LoadedQuestion } from "@/components/session/session-runner";
 import type { HomeworkResults as HomeworkResultsData } from "@/lib/teacher/homework";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
@@ -20,22 +19,10 @@ export function HomeworkResults({
   data: HomeworkResultsData;
   loadQuestionDetail: (slotId: string) => Promise<LoadedQuestion>;
 }) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [cache, setCache] = useState<Map<string, LoadedQuestion>>(new Map());
-  const [loading, setLoading] = useState(false);
+  // The shared review state: a failed load shows a retry in the row instead
+  // of leaving it on "Loading…" for good.
+  const review = useQuestionReview(loadQuestionDetail);
 
-  async function toggle(id: string) {
-    if (expandedId === id) return setExpandedId(null);
-    setExpandedId(id);
-    if (!cache.has(id)) {
-      setLoading(true);
-      const detail = await loadQuestionDetail(id);
-      setCache((prev) => new Map(prev).set(id, detail));
-      setLoading(false);
-    }
-  }
-
-  const late = Boolean(data.dueAt && data.completedAt && data.completedAt > data.dueAt);
   const percent = data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0;
 
   return (
@@ -50,7 +37,7 @@ export function HomeworkResults({
           <span className="text-muted-foreground">/{data.total}</span>
         </p>
         <p className="mt-2 text-muted-foreground">
-          {percent}% correct · turned in{late ? " late" : ""}. Your teacher can see this score.
+          {percent}% correct · turned in{data.late ? " late" : ""}. Your teacher can see this score.
         </p>
       </section>
 
@@ -61,9 +48,9 @@ export function HomeworkResults({
             <div key={q.slotId}>
               <button
                 type="button"
-                onClick={() => void toggle(q.slotId)}
+                onClick={() => review.toggle(q.slotId)}
                 className="flex w-full items-center justify-between gap-3 py-3 text-left text-sm"
-                aria-expanded={expandedId === q.slotId}
+                aria-expanded={review.expandedId === q.slotId}
               >
                 <span className="flex min-w-0 items-center gap-3">
                   <Badge
@@ -80,16 +67,12 @@ export function HomeworkResults({
                   <span className="truncate text-xs text-muted-foreground">{CATEGORY_LABELS[q.category as QuestionCategory]}</span>
                 </span>
                 <span className="shrink-0 text-muted-foreground" aria-hidden="true">
-                  {expandedId === q.slotId ? "−" : "+"}
+                  {review.expandedId === q.slotId ? "−" : "+"}
                 </span>
               </button>
-              {expandedId === q.slotId && (
+              {review.expandedId === q.slotId && (
                 <div className="pb-4">
-                  {loading && !cache.has(q.slotId) ? (
-                    <p className="text-sm text-muted-foreground">Loading…</p>
-                  ) : (
-                    <QuestionDetail loaded={cache.get(q.slotId)!} isCorrect={q.isCorrect} />
-                  )}
+                  <ReviewDetail review={review} id={q.slotId} isCorrect={q.isCorrect} />
                 </div>
               )}
             </div>
@@ -97,11 +80,12 @@ export function HomeworkResults({
         </div>
       </section>
 
-      <div className="flex flex-col gap-3 border-t border-border pt-8 sm:flex-row-reverse sm:justify-end">
+      <div className="flex flex-col gap-3 border-t border-border pt-8 sm:flex-row-reverse sm:items-center sm:justify-end">
         <LinkButton size="cta" href="/homework">
           Back to Homework
         </LinkButton>
-        <LinkButton size="cta" variant="outline" href="/home">
+        {/* One pill per screen (CLAUDE.md), so the way to the dashboard is a quiet one. */}
+        <LinkButton size="lg" variant="ghost" href="/home" className="text-base">
           Dashboard
         </LinkButton>
       </div>

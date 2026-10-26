@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import {
+  GOAL_TARGET_MAX,
   endOfLocalDay,
   formatGoalDate,
   goalStatus,
   localDateInputValue,
   parseGoalForm,
   saveCommunityGoal,
+  startOfLocalDay,
 } from "@/lib/community/goal";
 
 vi.mock("@/lib/prisma", () => ({
@@ -84,6 +86,13 @@ describe("deadline dates", () => {
     expect(localDateInputValue(end)).toBe("2026-12-15");
     expect(formatGoalDate(end)).toBe("Dec 15");
   });
+
+  it("starts a day at midnight in Texas, including the day the clocks change", () => {
+    expect(startOfLocalDay("2026-12-15")?.toISOString()).toBe("2026-12-15T06:00:00.000Z");
+    // Nov 1 2026: midnight is still daylight time (CDT, UTC-5).
+    expect(startOfLocalDay("2026-11-01")?.toISOString()).toBe("2026-11-01T05:00:00.000Z");
+    expect(startOfLocalDay("not a date")).toBeNull();
+  });
 });
 
 describe("parseGoalForm", () => {
@@ -113,6 +122,12 @@ describe("parseGoalForm", () => {
   it("refuses a goal without a positive whole target", () => {
     expect(parseGoalForm(form({ communityGoalMetric: "STUDY_HOURS", communityGoalTarget: "0" }))).toHaveProperty("error");
     expect(parseGoalForm(form({ communityGoalMetric: "STUDY_HOURS", communityGoalTarget: "2.5" }))).toHaveProperty("error");
+  });
+
+  it("refuses a target larger than a school could ever count", () => {
+    expect(parseGoalForm(form({ communityGoalMetric: "QUESTIONS_ANSWERED", communityGoalTarget: "50000000000" }))).toEqual({
+      error: "Keep the target at 10,000,000 or less.",
+    });
   });
 
   it("refuses an unknown metric rather than silently clearing the goal", () => {
@@ -166,6 +181,34 @@ describe("saveCommunityGoal", () => {
     await expect(
       saveCommunityGoal("school1", { metric: "QUESTIONS_ANSWERED", target: 5000, prize: null, endsAt: new Date(NOW.getTime() - DAY) }, NOW),
     ).rejects.toThrow("hasn't passed");
+  });
+
+  it("refuses a new goal that would start already ended, even when the old deadline was left as it was", async () => {
+    // The deadline passed; the administrator changes only the target, and the
+    // date field still holds the old deadline.
+    const passed = new Date(NOW.getTime() - DAY);
+    mocked.organization.findUnique.mockResolvedValue({ ...school, communityGoalEndsAt: passed });
+
+    await expect(
+      saveCommunityGoal("school1", { metric: "QUESTIONS_ANSWERED", target: 8000, prize: null, endsAt: passed }, NOW),
+    ).rejects.toThrow("already passed");
+    expect(mocked.organization.update).not.toHaveBeenCalled();
+  });
+
+  it("still lets a finished goal's prize be edited without reopening it", async () => {
+    const passed = new Date(NOW.getTime() - DAY);
+    mocked.organization.findUnique.mockResolvedValue({ ...school, communityGoalEndsAt: passed });
+
+    await saveCommunityGoal("school1", { metric: "QUESTIONS_ANSWERED", target: 5000, prize: "Pizza", endsAt: passed }, NOW);
+
+    expect(mocked.organization.update).toHaveBeenCalled();
+  });
+
+  it("refuses a target the database column can't hold, in words", async () => {
+    mocked.organization.findUnique.mockResolvedValue(school);
+    await expect(
+      saveCommunityGoal("school1", { metric: "QUESTIONS_ANSWERED", target: GOAL_TARGET_MAX + 1, prize: null, endsAt: null }, NOW),
+    ).rejects.toThrow("10,000,000 or less");
   });
 
   it("only applies to schools", async () => {

@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Bookmark, ChevronUp, Calculator as CalcIcon, Highlighter, PenLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LinkButton } from "@/components/ui/link-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LatexText } from "@/components/content/latex-text";
 import { QuestionStatement } from "@/components/content/question-statement";
@@ -11,12 +12,16 @@ import { ExplanationSteps } from "@/components/content/explanation-steps";
 import { DistractorNote } from "@/components/content/distractor-note";
 import { CALCULATOR_LABELS } from "@/lib/content/labels";
 import type { StudentQuestionContent, StudentQuestionFeedback } from "@/lib/session/question-content";
+import type { DraftPatch } from "@/lib/session/draft";
+import { isSessionBlocked, type SessionBlocked } from "@/lib/session/blocked";
+import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
 import { Calculator } from "./calculator";
 import { TimerBadge } from "./timer-badge";
 import { SessionNavGrid, type NavItemState } from "./session-nav-grid";
 import { SplitPane } from "./split-pane";
 import { Scratchpad } from "./scratchpad";
 import { Annotator, highlightsSupported } from "./annotator";
+import { hasSeenTip, markTipSeen, subscribeTips } from "./local-store";
 
 // False during the server render and hydration, true straight after — the
 // same idiom as the theme toggle (CLAUDE.md, next-themes gotcha). Saved
@@ -51,6 +56,9 @@ export type LoadedQuestion = {
   studentAnswer?: string | null;
 };
 
+type SubmitResult = { isCorrect: boolean; feedback: StudentQuestionFeedback; studentAnswer: string };
+type CompleteResult = { ok: true; redirectTo: string } | { ok: false; unansweredCount: number };
+
 export type SessionRunnerProps = {
   title: string;
   /** What the footer pill calls each item: "Question 3 of 14", "Bonus question 1 of 4". */
@@ -63,12 +71,26 @@ export type SessionRunnerProps = {
   initialPosition: number;
   initialQuestion: LoadedQuestion;
   allowBlankConfirmation: boolean;
-  loadQuestion: (itemId: string) => Promise<LoadedQuestion>;
-  saveDraft: (itemId: string, patch: { draftAnswer?: string | null; skipped?: boolean }) => Promise<void>;
+  // Any of the three that can be refused for a reason the student should be
+  // told (Premium ended, the teacher closed the homework, the Diagnostic was
+  // finished in another tab) returns a SessionBlocked instead of throwing.
+  loadQuestion: (itemId: string) => Promise<LoadedQuestion | SessionBlocked>;
+  saveDraft: (itemId: string, patch: DraftPatch) => Promise<void>;
   savePosition: (position: number) => Promise<void>;
-  submitAnswer: (itemId: string, answer: string) => Promise<{ isCorrect: boolean; feedback: StudentQuestionFeedback; studentAnswer: string }>;
-  complete: (options: { confirmBlanks: boolean }) => Promise<{ ok: true; redirectTo: string } | { ok: false; unansweredCount: number }>;
+  submitAnswer: (itemId: string, answer: string) => Promise<SubmitResult | SessionBlocked>;
+  complete: (options: { confirmBlanks: boolean }) => Promise<CompleteResult | SessionBlocked>;
 };
+
+/** Long enough to cover a burst of typing, short enough that a reload rarely loses anything. */
+const DRAFT_SAVE_DELAY_MS = 500;
+const DRAFT_RETRY_DELAY_MS = 1500;
+
+const SUBMIT_FAILED = "We couldn't save that answer. Check your connection and try again.";
+const LOAD_FAILED = "We couldn't load this question. Check your connection and try again.";
+const FINISH_FAILED = "We couldn't finish up just now. Your answers are saved — check your connection and try again.";
+
+/** A request that failed in a way the student can do something about, with the one thing to do. */
+type Failure = { message: string; actionLabel: string; action: () => void };
 
 export function SessionRunner(props: SessionRunnerProps) {
   const router = useRouter();
@@ -78,11 +100,18 @@ export function SessionRunner(props: SessionRunnerProps) {
     new Map([[props.initialItems[props.initialPosition].id, props.initialQuestion]]),
   );
   const [draft, setDraft] = useState(props.initialItems[props.initialPosition].draftAnswer ?? "");
-  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [blankWarning, setBlankWarning] = useState<number | null>(null);
   const [completeError, setCompleteError] = useState<string | null>(null);
+
+  // Every request this runner makes can fail, and each used to leave its
+  // button stuck on "Submitting…" or "Loading question…" for good. A failure
+  // now says what happened and offers the retry; a block (see
+  // lib/session/blocked.ts) says why the session can't go on and where to go.
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const [loadFailedId, setLoadFailedId] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState<SessionBlocked["blocked"] | null>(null);
 
   // Bluebook's test-taking aids. Elimination, the timer toggle and the
   // navigator are view state only and reset on reload, which matches how
@@ -101,12 +130,134 @@ export function SessionRunner(props: SessionRunnerProps) {
   const [scratchOpen, setScratchOpen] = useState(false);
   const [annotateHint, setAnnotateHint] = useState(false);
   const mounted = useHasMounted();
+  // Selecting text to highlight is invisible until you try it, so the first
+  // questions a student sees say so in one line, until they dismiss it or
+  // make their first highlight. Read through useSyncExternalStore (as the
+  // theme toggle does) because the "seen" mark lives in the browser only; the
+  // server snapshot says "seen", so nothing appears and then vanishes on load.
+  const annotateTipSeen = useSyncExternalStore(subscribeTips, () => hasSeenTip("annotate"), () => true);
   const passageRef = useRef<HTMLDivElement | null>(null);
   const questionRef = useRef<HTMLDivElement | null>(null);
   const annotationRoots = useMemo(() => ({ passage: passageRef, question: questionRef }), []);
 
+  // The question on screen, for requests that resolve after the student has
+  // moved on: their result still lands on the right question, but only the
+  // current one gets the visible follow-up (focus, an error message).
+  const currentId = useRef(props.initialItems[props.initialPosition].id);
+  const focusResultNext = useRef(false);
+
+  // Draft autosave. Next runs one client's server actions one at a time, so a
+  // save fired on every keystroke and every tap queued up in front of Submit
+  // and of the next question's load. Now a draft waits until the typing stops,
+  // only the latest value is sent, and a value the server already has isn't
+  // sent again. A draft still waiting is sent straight away when the student
+  // moves to another question, marks one for review, or leaves the page, so a
+  // reload still finds it; Submit drops it, because the answer is about to be
+  // sent as itself.
+  const pendingDraft = useRef<{ itemId: string; value: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const sentDrafts = useRef(
+    new Map<string, DraftPatch>(props.initialItems.map((it) => [it.id, { draftAnswer: it.draftAnswer, skipped: it.skipped }])),
+  );
+  const draftVersions = useRef(new Map<string, number>());
+
   const currentItem = items[position];
   const loaded = cache.get(currentItem.id);
+
+  function reportStale() {
+    // After a deploy every request from this page fails the same way, so a
+    // retry can't help; a reload can. Nothing from the failed request was
+    // written, so there is nothing to lose.
+    setFailure({ message: STALE_BUILD_MESSAGE, actionLabel: "Reload page", action: () => window.location.reload() });
+  }
+
+  function reportFailure(err: unknown, message: string, retry: () => void) {
+    if (isStaleServerActionError(err)) reportStale();
+    else setFailure({ message, actionLabel: "Try again", action: retry });
+  }
+
+  function stop(result: SessionBlocked) {
+    cancelDraftSave();
+    setFailure(null);
+    setBlankWarning(null);
+    setBlocked(result.blocked);
+  }
+
+  // Sends one draft patch in the background. A failure is retried once after
+  // a pause, unless a newer save for the same question has gone out since;
+  // after that it's let go, because the answer is what counts and Submit
+  // reports its own failures.
+  function persistDraft(itemId: string, patch: DraftPatch) {
+    const version = (draftVersions.current.get(itemId) ?? 0) + 1;
+    draftVersions.current.set(itemId, version);
+    sentDrafts.current.set(itemId, { ...sentDrafts.current.get(itemId), ...patch });
+    const send = (isRetry: boolean) => {
+      props.saveDraft(itemId, patch).catch((err: unknown) => {
+        if (isStaleServerActionError(err)) return reportStale();
+        if (draftVersions.current.get(itemId) !== version) return;
+        if (!isRetry) {
+          setTimeout(() => {
+            if (draftVersions.current.get(itemId) === version) send(true);
+          }, DRAFT_RETRY_DELAY_MS);
+          return;
+        }
+        // Forget what we thought was saved, so the next change sends it again.
+        sentDrafts.current.delete(itemId);
+      });
+    };
+    send(false);
+  }
+
+  // Where a reload resumes. Only worth mentioning to the student when the
+  // page is stale; otherwise the next move saves it again.
+  function persistPosition(nextPosition: number) {
+    props.savePosition(nextPosition).catch((err: unknown) => {
+      if (isStaleServerActionError(err)) reportStale();
+    });
+  }
+
+  function cancelDraftSave() {
+    if (pendingDraft.current) clearTimeout(pendingDraft.current.timer);
+    pendingDraft.current = null;
+  }
+
+  function flushDraftSave() {
+    const pending = pendingDraft.current;
+    if (!pending) return;
+    cancelDraftSave();
+    const sent = sentDrafts.current.get(pending.itemId);
+    if (sent?.draftAnswer === pending.value && sent.skipped === false) return;
+    persistDraft(pending.itemId, { draftAnswer: pending.value, skipped: false });
+  }
+
+  function scheduleDraftSave(itemId: string, value: string) {
+    if (pendingDraft.current && pendingDraft.current.itemId !== itemId) flushDraftSave();
+    else cancelDraftSave();
+    pendingDraft.current = { itemId, value, timer: setTimeout(flushDraftSave, DRAFT_SAVE_DELAY_MS) };
+  }
+
+  // Leaving the page (a tab switch or close on a phone, the focus bar's Exit)
+  // sends a draft still waiting rather than dropping it.
+  const flushOnLeave = useEffectEvent(() => flushDraftSave());
+  useEffect(() => {
+    function onVisibilityChange() {
+      if (document.visibilityState === "hidden") flushOnLeave();
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      flushOnLeave();
+    };
+  }, []);
+
+  // After Submit the button that had focus is gone, and focus fell to the
+  // page. It goes to the result line instead, which a screen reader then
+  // reads, and Tab continues from there to the explanation and Next.
+  const focusResult = useCallback((el: HTMLParagraphElement | null) => {
+    if (el && focusResultNext.current) {
+      focusResultNext.current = false;
+      el.focus();
+    }
+  }, []);
 
   function toggleEliminated(choiceId: string) {
     setEliminated((prev) => {
@@ -124,60 +275,136 @@ export function SessionRunner(props: SessionRunnerProps) {
   function toggleMarked() {
     const next = !currentItem.skipped;
     setItems((prev) => prev.map((it) => (it.id === currentItem.id ? { ...it, skipped: next } : it)));
-    void props.saveDraft(currentItem.id, { skipped: next });
+    // A draft still waiting carries `skipped: false`; sent after this, it
+    // would quietly un-mark the question.
+    flushDraftSave();
+    persistDraft(currentItem.id, { skipped: next });
+  }
+
+  async function fetchQuestion(itemId: string) {
+    setLoadFailedId((id) => (id === itemId ? null : id));
+    let result: LoadedQuestion | SessionBlocked;
+    try {
+      result = await props.loadQuestion(itemId);
+    } catch (err) {
+      setLoadFailedId(itemId);
+      if (currentId.current === itemId) {
+        reportFailure(err, LOAD_FAILED, () => {
+          setFailure(null);
+          void fetchQuestion(itemId);
+        });
+      }
+      return;
+    }
+    if (isSessionBlocked(result)) {
+      setLoadFailedId(itemId);
+      stop(result);
+      return;
+    }
+    const question = result;
+    setCache((prev) => new Map(prev).set(itemId, question));
   }
 
   async function goToPosition(nextPosition: number) {
     if (nextPosition === position) return;
+    // Sent before the position below (actions run in the order they're sent),
+    // so a reload lands on this question with its draft in place.
+    flushDraftSave();
+    const nextItem = items[nextPosition];
+    currentId.current = nextItem.id;
     setPosition(nextPosition);
-    setDraft(items[nextPosition].draftAnswer ?? "");
+    setDraft(nextItem.draftAnswer ?? "");
     setBlankWarning(null);
     setCompleteError(null);
-    const nextItem = items[nextPosition];
-    if (!cache.has(nextItem.id)) {
-      setLoading(true);
-      const question = await props.loadQuestion(nextItem.id);
-      setCache((prev) => new Map(prev).set(nextItem.id, question));
-      setLoading(false);
-    }
-    void props.savePosition(nextPosition);
+    setFailure(null);
+    if (!cache.has(nextItem.id)) await fetchQuestion(nextItem.id);
+    persistPosition(nextPosition);
   }
 
   function updateDraft(value: string) {
     setDraft(value);
     setItems((prev) => prev.map((it) => (it.id === currentItem.id ? { ...it, draftAnswer: value, skipped: false } : it)));
-    void props.saveDraft(currentItem.id, { draftAnswer: value, skipped: false });
+    scheduleDraftSave(currentItem.id, value);
   }
 
   async function handleSkip() {
     setItems((prev) => prev.map((it) => (it.id === currentItem.id ? { ...it, skipped: true } : it)));
-    await props.saveDraft(currentItem.id, { skipped: true });
+    flushDraftSave();
+    persistDraft(currentItem.id, { skipped: true });
     if (position < items.length - 1) await goToPosition(position + 1);
   }
 
-  // A multiple-choice tap submits directly (the way the SAT's own Bluebook
-  // does not, but the way every student expects a phone to): choose →
-  // feedback → Next is two taps per question instead of three. Numeric
-  // answers keep an explicit Submit, since typing has no natural "done".
+  // Both question types take an explicit Submit (a tap on a choice is only a
+  // draft; see the comment above the Submit button). Enter submits a numeric
+  // answer.
   async function handleSubmit(answer: string = draft) {
-    if (!answer || submitting) return;
+    if (!answer || submitting || blocked || !loaded) return;
+    const item = currentItem;
+    const content = loaded.content;
+    if (pendingDraft.current?.itemId === item.id) cancelDraftSave();
     setSubmitting(true);
-    const result = await props.submitAnswer(currentItem.id, answer);
+    setFailure(null);
+    let result: SubmitResult | SessionBlocked;
+    try {
+      result = await props.submitAnswer(item.id, answer);
+    } catch (err) {
+      setSubmitting(false);
+      // Kept as a draft, so a reload before the retry still has it.
+      scheduleDraftSave(item.id, answer);
+      reportFailure(err, SUBMIT_FAILED, () => void handleSubmit(answer));
+      return;
+    }
+    setSubmitting(false);
+    if (isSessionBlocked(result)) {
+      stop(result);
+      return;
+    }
+    // What the server recorded, not this tab's draft. If the question was
+    // answered in another tab first, the server returns that answer, and the
+    // verdict, the highlight and the distractor note must all describe it.
+    // Highlighting this tab's pick beside the other answer's verdict could
+    // mark a choice "Correct!" that was never the one graded.
+    const saved = result;
     setItems((prev) =>
       prev.map((it) =>
-        it.id === currentItem.id
-          ? { ...it, submitted: true, studentAnswer: result.studentAnswer, isCorrect: result.isCorrect, skipped: false }
+        it.id === item.id
+          ? {
+              ...it,
+              submitted: true,
+              studentAnswer: saved.studentAnswer,
+              draftAnswer: saved.studentAnswer,
+              isCorrect: saved.isCorrect,
+              skipped: false,
+            }
           : it,
       ),
     );
-    setCache((prev) => new Map(prev).set(currentItem.id, { content: loaded!.content, feedback: result.feedback }));
-    setSubmitting(false);
+    setCache((prev) => new Map(prev).set(item.id, { content, feedback: saved.feedback }));
+    if (currentId.current === item.id) {
+      setDraft(saved.studentAnswer);
+      focusResultNext.current = true;
+    }
   }
 
   async function handleFinish(confirmBlanks: boolean) {
+    if (completing || blocked) return;
     setCompleting(true);
     setCompleteError(null);
-    const result = await props.complete({ confirmBlanks });
+    setFailure(null);
+    let result: CompleteResult | SessionBlocked;
+    try {
+      result = await props.complete({ confirmBlanks });
+    } catch (err) {
+      setCompleting(false);
+      setBlankWarning(null);
+      reportFailure(err, FINISH_FAILED, () => void handleFinish(confirmBlanks));
+      return;
+    }
+    if (isSessionBlocked(result)) {
+      setCompleting(false);
+      stop(result);
+      return;
+    }
     if (result.ok) {
       router.push(result.redirectTo);
       return;
@@ -202,6 +429,8 @@ export function SessionRunner(props: SessionRunnerProps) {
 
   const marked = currentItem.skipped;
   const eliminatedHere = eliminated.get(currentItem.id) ?? new Set<string>();
+  // Once submitted, the answer on screen is the one the server graded.
+  const shownAnswer = currentItem.submitted ? (currentItem.studentAnswer ?? draft) : draft;
 
   // Truthiness, not `!== null`: a stale client or an older payload makes this
   // undefined, and `undefined !== null` is true, which split the screen and
@@ -260,7 +489,7 @@ export function SessionRunner(props: SessionRunnerProps) {
                 type="button"
                 onClick={() => setAnnotateHint((v) => !v)}
                 aria-expanded={annotateHint}
-                className="flex flex-col items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+                className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground"
               >
                 <Highlighter className="size-5" aria-hidden />
                 Annotate
@@ -270,7 +499,7 @@ export function SessionRunner(props: SessionRunnerProps) {
               type="button"
               onClick={() => setScratchOpen((v) => !v)}
               aria-pressed={scratchOpen}
-              className={`flex flex-col items-center gap-0.5 text-[11px] hover:text-foreground ${scratchOpen ? "text-foreground" : "text-muted-foreground"}`}
+              className={`flex flex-col items-center gap-0.5 text-xs hover:text-foreground ${scratchOpen ? "text-foreground" : "text-muted-foreground"}`}
             >
               <PenLine className="size-5" aria-hidden />
               Scratch work
@@ -280,7 +509,7 @@ export function SessionRunner(props: SessionRunnerProps) {
                 type="button"
                 onClick={() => setCalculatorOpen((v) => !v)}
                 aria-pressed={calculatorOpen}
-                className="flex flex-col items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+                className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground"
               >
                 <CalcIcon className="size-5" aria-hidden />
                 Calculator
@@ -297,8 +526,12 @@ export function SessionRunner(props: SessionRunnerProps) {
           </Alert>
         )}
 
-        {loading || !loaded ? (
-          <div className="py-16 text-sm text-muted-foreground">Loading question…</div>
+        {!loaded ? (
+          // A failed load says so in the footer, with Try again; this space
+          // stays empty rather than claiming it's still loading.
+          loadFailedId === currentItem.id || blocked ? null : (
+            <div className="py-16 text-sm text-muted-foreground">Loading question…</div>
+          )
         ) : (
           <>
             {/* Bluebook's question strip: a filled number badge, Mark for
@@ -322,11 +555,32 @@ export function SessionRunner(props: SessionRunnerProps) {
               </div>
             </div>
 
-            {annotateHint && (
+            {annotateHint ? (
               <p role="status" className="mt-3 border-l-2 border-marker pl-3 text-sm text-muted-foreground">
                 Select any words in the passage or the question to highlight them or add a note. Click a highlight to
                 change or remove it.
               </p>
+            ) : (
+              mounted &&
+              highlightsSupported() &&
+              !annotateTipSeen && (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg bg-surface-tint px-4 py-2.5 text-sm">
+                  <p className="flex items-center gap-2">
+                    <Highlighter className="size-4 shrink-0 text-primary" aria-hidden />
+                    <span>
+                      <span className="font-medium">Tip:</span> select any words in the passage or the question to
+                      highlight them or add a note.
+                    </span>
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => markTipSeen("annotate")}
+                    className="-my-1 px-1 py-1 font-medium text-primary hover:underline"
+                  >
+                    Got it
+                  </button>
+                </div>
+              )
             )}
 
             <div className="pt-5">
@@ -367,16 +621,29 @@ export function SessionRunner(props: SessionRunnerProps) {
                 {loaded.content.questionType === "MULTIPLE_CHOICE" ? (
                   loaded.content.answerChoices.map((choice, choiceIndex) => {
                     const letter = String.fromCharCode(65 + choiceIndex);
-                    const isSelected = draft === choice.id;
+                    const isSelected = shownAnswer === choice.id;
                     const showCorrect = currentItem.submitted && loaded.feedback?.correctChoiceId === choice.id;
                     const showWrongSelection =
                       currentItem.submitted && isSelected && loaded.feedback?.correctChoiceId !== choice.id;
                     const isOut = eliminatedHere.has(choice.id) && !currentItem.submitted;
+                    // Said in words as well as colour (WCAG 1.4.1): green and
+                    // red borders alone are the same border to a student who
+                    // can't tell those colours apart. Part of the button's
+                    // accessible name, so a screen reader hears it too.
+                    const tag = !currentItem.submitted
+                      ? null
+                      : isSelected && showCorrect
+                        ? "Your answer · Correct"
+                        : isSelected
+                          ? "Your answer"
+                          : showCorrect
+                            ? "Correct answer"
+                            : null;
                     return (
                       <div key={choice.id} className="flex items-center gap-3">
                         <button
                           type="button"
-                          disabled={currentItem.submitted || submitting}
+                          disabled={currentItem.submitted || submitting || !!blocked}
                           onClick={() => {
                             if (isOut) return;
                             updateDraft(choice.id);
@@ -416,6 +683,16 @@ export function SessionRunner(props: SessionRunnerProps) {
                               <img src={`/api/media/${choice.imageId}`} alt="" className="mt-2 max-w-full rounded" />
                             )}
                           </span>
+                          {tag && (
+                            <>
+                              {" "}
+                              <span
+                                className={`shrink-0 self-center text-sm font-semibold ${showWrongSelection ? "text-destructive" : "text-green-800 dark:text-green-300"}`}
+                              >
+                                {tag}
+                              </span>
+                            </>
+                          )}
                         </button>
 
                         {/* Bluebook puts the cross-out control outside the
@@ -439,25 +716,25 @@ export function SessionRunner(props: SessionRunnerProps) {
                   <div>
                     <input
                       type="text"
-                      value={draft}
+                      value={shownAnswer}
                       onChange={(e) => updateDraft(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") void handleSubmit();
                       }}
-                      disabled={currentItem.submitted}
+                      disabled={currentItem.submitted || !!blocked}
                       aria-label="Your answer"
                       className="w-44 rounded-lg border-2 border-foreground/40 px-3 py-2 text-lg disabled:bg-muted"
                     />
                     {/* Bluebook echoes what has been typed under the box, so a
                         student can check a fraction or a decimal before moving on. */}
                     <p className="mt-4 font-heading text-lg font-semibold">
-                      Answer Preview <span className="font-normal text-muted-foreground">{draft || "—"}</span>
+                      Answer Preview <span className="font-normal text-muted-foreground">{shownAnswer || "—"}</span>
                     </p>
                   </div>
                 )}
               </div>
 
-              {!currentItem.submitted ? (
+              {blocked && !currentItem.submitted ? null : !currentItem.submitted ? (
                 // Selecting no longer grades. A tap used to submit on the
                 // spot, which made trying a choice indistinguishable from
                 // committing to one — a student comparing options had
@@ -475,7 +752,10 @@ export function SessionRunner(props: SessionRunnerProps) {
               ) : (
                 <div className="mt-6 flex flex-col gap-3">
                   <p
-                    className={`font-heading text-lg font-semibold ${currentItem.isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}
+                    ref={focusResult}
+                    role="status"
+                    tabIndex={-1}
+                    className={`font-heading text-lg font-semibold focus:outline-none ${currentItem.isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}
                   >
                     {currentItem.isCorrect ? "Correct!" : "Incorrect."}
                   </p>
@@ -539,6 +819,31 @@ export function SessionRunner(props: SessionRunnerProps) {
           on a laptop — the runner was min-h-screen beneath the focus bar, so it
           always overflowed by at least that bar's height. */}
       <footer className="sticky bottom-0 z-10 border-t border-dashed border-foreground/40 bg-background px-4 py-3 sm:px-8">
+        {/* In the pinned footer, so it's on screen wherever the student has
+            scrolled to when a request fails, beside the controls it's about. */}
+        {(blocked || failure) && (
+          <div className="mx-auto mb-3 w-full max-w-screen-2xl">
+            {blocked ? (
+              <Alert>
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                  <p className="text-sm">{blocked.message}</p>
+                  <LinkButton href={blocked.href}>{blocked.linkLabel}</LinkButton>
+                </div>
+              </Alert>
+            ) : (
+              failure && (
+                <Alert variant="destructive">
+                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                    <p className="text-sm">{failure.message}</p>
+                    <Button variant="outline" onClick={failure.action}>
+                      {failure.actionLabel}
+                    </Button>
+                  </div>
+                </Alert>
+              )
+            )}
+          </div>
+        )}
         <div className="mx-auto flex w-full max-w-screen-2xl items-center justify-between gap-3">
           <span className="hidden min-w-0 flex-1 truncate font-heading font-semibold sm:block">
             {props.studentName ?? ""}
@@ -567,7 +872,7 @@ export function SessionRunner(props: SessionRunnerProps) {
               Back
             </Button>
             {unansweredCount === 0 ? (
-              <Button className="rounded-full" onClick={() => void handleFinish(false)} disabled={completing}>
+              <Button className="rounded-full" onClick={() => void handleFinish(false)} disabled={completing || !!blocked}>
                 {completing ? "One moment…" : (props.finishLabel ?? "Finish")}
               </Button>
             ) : position === items.length - 1 ? (

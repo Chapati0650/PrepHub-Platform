@@ -6,6 +6,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { logUnauthorizedAccess } from "@/lib/logger";
 import { getStudentQuestionContent, getStudentQuestionFeedback } from "@/lib/session/question-content";
+import { sanitizeDraftPatch, type DraftPatch } from "@/lib/session/draft";
+import { sessionBlocked, type SessionBlocked } from "@/lib/session/blocked";
 import { TeacherError } from "@/lib/teacher/errors";
 import {
   completeHomeworkSession,
@@ -90,18 +92,21 @@ export async function loadHomeworkQuestionAction(slotId: string) {
 export async function loadHomeworkQuestionDetailAction(slotId: string) {
   const studentId = await requireStudentId();
   const slot = await requireOwnedSlot(studentId, slotId);
+  // The answer key only once this question is answered or the session is
+  // over: the review screen calls this, but so could a hand-made request for a
+  // question still waiting to be answered.
+  const reviewable = slot.finalizedAt !== null || slot.session.status === "COMPLETED";
   const [content, feedback] = await Promise.all([
     getStudentQuestionContent(slot.questionRevisionId),
-    getStudentQuestionFeedback(slot.questionRevisionId),
+    reviewable ? getStudentQuestionFeedback(slot.questionRevisionId) : null,
   ]);
   return { content, feedback, studentAnswer: slot.answer };
 }
 
-export async function saveHomeworkDraftAction(slotId: string, patch: { draftAnswer?: string | null; skipped?: boolean }) {
+export async function saveHomeworkDraftAction(slotId: string, patch: DraftPatch) {
   const studentId = await requireStudentId();
-  const slot = await requireOwnedSlot(studentId, slotId);
-  if (slot.finalizedAt) return;
-  await prisma.homeworkSlot.update({ where: { id: slotId }, data: patch });
+  await requireOwnedSlot(studentId, slotId);
+  await prisma.homeworkSlot.updateMany({ where: { id: slotId, finalizedAt: null }, data: sanitizeDraftPatch(patch) });
 }
 
 export async function saveHomeworkPositionAction(sessionId: string, position: number) {
@@ -112,17 +117,42 @@ export async function saveHomeworkPositionAction(sessionId: string, position: nu
   await prisma.homeworkSession.update({ where: { id: sessionId }, data: { currentPosition: position } });
 }
 
+// The teacher closed the homework or the class, or took the student off the
+// roster, while they were partway through. Returned rather than thrown: in
+// production a thrown message never reaches the runner, which would just stop
+// taking answers with nothing said (src/lib/session/blocked.ts).
+function blockedBy(err: unknown): SessionBlocked | null {
+  if (!(err instanceof TeacherError)) return null;
+  if (err.code === "ASSIGNMENT_CLOSED") {
+    const href = err.details.assignmentId ? `/homework/${err.details.assignmentId}` : "/homework";
+    return sessionBlocked(err.message, href, "Back to this homework");
+  }
+  if (err.code === "NOT_IN_CLASS" || err.code === "CLASS_CLOSED") {
+    return sessionBlocked(err.message, "/homework", "Back to Homework");
+  }
+  return null;
+}
+
 export async function submitHomeworkAnswerAction(slotId: string, answer: string) {
   const studentId = await requireStudentId();
   const slot = await requireOwnedSlot(studentId, slotId);
-  const result = await finalizeHomeworkAnswer({ studentId, slotId, answer });
+  let result;
+  try {
+    result = await finalizeHomeworkAnswer({ studentId, slotId, answer });
+  } catch (err) {
+    const blocked = blockedBy(err);
+    if (blocked) return blocked;
+    throw err;
+  }
   const feedback = await getStudentQuestionFeedback(slot.questionRevisionId);
   return { isCorrect: result.isCorrect, studentAnswer: result.answer, feedback };
 }
 
+// The last answer has usually turned the homework in already
+// (finalizeHomeworkAnswer), in which case this just goes to the results.
 export async function completeHomeworkSessionAction(
   sessionId: string,
-): Promise<{ ok: true; redirectTo: string } | { ok: false; unansweredCount: number }> {
+): Promise<{ ok: true; redirectTo: string } | { ok: false; unansweredCount: number } | SessionBlocked> {
   const studentId = await requireStudentId();
   try {
     await completeHomeworkSession(studentId, sessionId);
@@ -132,6 +162,8 @@ export async function completeHomeworkSessionAction(
     if (err instanceof TeacherError && err.code === "BLANKS_REMAIN") {
       return { ok: false, unansweredCount: err.details.unanswered ?? 0 };
     }
+    const blocked = blockedBy(err);
+    if (blocked) return blocked;
     throw err;
   }
 }

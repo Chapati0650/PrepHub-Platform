@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getCampusImpact } from "@/lib/admin/impact";
+import {
+  MIN_STUDENTS_FOR_SCORE_FIGURES,
+  getCampusImpact,
+  measureCampusImpact,
+  protectCampusImpact,
+  type CampusImpact,
+} from "@/lib/admin/impact";
+import { flattenSql } from "@/lib/school/test-fixtures";
 import { prisma } from "@/lib/prisma";
 
 vi.mock("@/lib/prisma", () => ({
@@ -120,7 +127,9 @@ beforeEach(() => {
   mocked.$queryRaw.mockImplementation((...call: unknown[]) => {
     const sql = sqlTextOf(call);
     if (sql.includes("prediction_history_entries")) return Promise.resolve(predictionEndRows());
-    if (sql.includes("practice_sets")) return Promise.resolve(studyTimeRows());
+    // Study time reads the shared session fragment, so the table names are
+    // inside a nested fragment; the outer query is recognised by its columns.
+    if (sql.includes('AS "averageHours"')) return Promise.resolve(studyTimeRows());
     throw new Error(`unexpected query: ${sql}`);
   });
 });
@@ -133,9 +142,9 @@ function givenSessions(rows: Session[]) {
   sessions = rows;
 }
 
-describe("getCampusImpact", () => {
+describe("measureCampusImpact", () => {
   it("returns a zeroed report for a school with no active students", async () => {
-    const impact = await getCampusImpact("school-1");
+    const impact = await measureCampusImpact("school-1");
     expect(impact.measurableStudents).toBe(0);
     expect(impact.averageScoreGain).toBeNull();
     expect(impact.biggestScoreGain).toBeNull();
@@ -145,21 +154,32 @@ describe("getCampusImpact", () => {
   });
 
   it("scopes every query to ACTIVE memberships at the requested school", async () => {
-    await getCampusImpact("school-1");
+    await measureCampusImpact("school-1");
 
     expect(mocked.$queryRaw).toHaveBeenCalledTimes(2);
     for (const call of mocked.$queryRaw.mock.calls) {
-      const sql = sqlTextOf(call);
+      const { text, values } = flattenSql(call);
       // The school filter is a bound parameter, never interpolated text.
-      expect(sql).toContain('m."schoolId" =');
-      expect(sql).toContain(`m."status" = 'ACTIVE'`);
-      expect(call).toContain("school-1");
+      expect(text).toContain('m."schoolId" =');
+      expect(text).toContain(`m."status" = 'ACTIVE'`);
+      expect(values).toContain("school-1");
+    }
+  });
+
+  it("counts study time from every kind of finished session, the same definition as the school's total hours", async () => {
+    await measureCampusImpact("school-1");
+
+    const studyQuery = mocked.$queryRaw.mock.calls
+      .map((call) => flattenSql(call).text)
+      .find((text) => text.includes('AS "averageHours"'));
+    for (const table of ["practice_sets", "diagnostic_sessions", "focused_sessions", "club_sessions", "rush_runs", "homework_sessions"]) {
+      expect(studyQuery).toContain(table);
     }
   });
 
   it("ignores a student with only one prediction - there is no before/after", async () => {
     givenPredictions([prediction("s1", 1000, LOW, LOW)]);
-    const impact = await getCampusImpact("school-1");
+    const impact = await measureCampusImpact("school-1");
     expect(impact.measurableStudents).toBe(0);
     expect(impact.averageScoreGain).toBeNull();
   });
@@ -171,7 +191,7 @@ describe("getCampusImpact", () => {
       prediction("s2", 1200, LOW, LOW),
       prediction("s2", 1400, LOW, LOW), // +200
     ]);
-    const impact = await getCampusImpact("school-1");
+    const impact = await measureCampusImpact("school-1");
     expect(impact.measurableStudents).toBe(2);
     expect(impact.averageScoreGain).toBe(150);
     expect(impact.biggestScoreGain).toBe(200);
@@ -180,14 +200,14 @@ describe("getCampusImpact", () => {
 
   it("counts a decline without letting it masquerade as improvement", async () => {
     givenPredictions([prediction("s1", 1200, LOW, LOW), prediction("s1", 1100, LOW, LOW)]);
-    const impact = await getCampusImpact("school-1");
+    const impact = await measureCampusImpact("school-1");
     expect(impact.averageScoreGain).toBe(-100);
     expect(impact.studentsImproved).toBe(0);
   });
 
   it("counts a student who started below both criteria and now meets both as CROSSED", async () => {
     givenPredictions([prediction("s1", 900, LOW, LOW), prediction("s1", 1200, HIGH, HIGH)]);
-    const impact = await getCampusImpact("school-1");
+    const impact = await measureCampusImpact("school-1");
     expect(impact.benchmark.crossed).toBe(1);
     expect(impact.benchmark.held).toBe(0);
   });
@@ -196,7 +216,7 @@ describe("getCampusImpact", () => {
     // Reading clears, math does not — the common shape, and worth nothing
     // to the district until the math criterion is also met.
     givenPredictions([prediction("s1", 900, LOW, LOW), prediction("s1", 1100, HIGH, LOW)]);
-    const impact = await getCampusImpact("school-1");
+    const impact = await measureCampusImpact("school-1");
     expect(impact.benchmark.crossed).toBe(0);
     expect(impact.benchmark.below).toBe(1);
     expect(impact.benchmark.shortfall.MISSES_MATH_ONLY).toBe(1);
@@ -211,7 +231,7 @@ describe("getCampusImpact", () => {
       prediction("below", 900, LOW, LOW),
       prediction("below", 950, LOW, LOW),
     ]);
-    const impact = await getCampusImpact("school-1");
+    const impact = await measureCampusImpact("school-1");
     expect(impact.benchmark.held).toBe(1);
     expect(impact.benchmark.slipped).toBe(1);
     expect(impact.benchmark.below).toBe(1);
@@ -219,7 +239,7 @@ describe("getCampusImpact", () => {
 
   it("skips benchmark classification when section abilities were never recorded", async () => {
     givenPredictions([prediction("s1", 900, null, null), prediction("s1", 1200, null, null)]);
-    const impact = await getCampusImpact("school-1");
+    const impact = await measureCampusImpact("school-1");
     // The gain is still measurable even though TSI status is not.
     expect(impact.averageScoreGain).toBe(300);
     expect(impact.benchmark.crossed + impact.benchmark.held + impact.benchmark.below).toBe(0);
@@ -231,7 +251,7 @@ describe("getCampusImpact", () => {
       practiceSetSession("s1", 30),
       diagnosticSession("s2", 60),
     ]);
-    const impact = await getCampusImpact("school-1");
+    const impact = await measureCampusImpact("school-1");
     expect(impact.activeStudents).toBe(2);
     expect(impact.topStudentStudyHours).toBe(1);
     expect(impact.averageStudyHours).toBe(1);
@@ -239,16 +259,73 @@ describe("getCampusImpact", () => {
 
   it("caps an abandoned session rather than reporting it as a day of study", async () => {
     givenSessions([practiceSetSession("s1", 14 * 60)]);
-    const impact = await getCampusImpact("school-1");
+    const impact = await measureCampusImpact("school-1");
     expect(impact.topStudentStudyHours).toBe(3);
   });
 
   it("exposes no field that could identify an individual student", async () => {
     givenPredictions([prediction("s1", 900, LOW, LOW), prediction("s1", 1200, HIGH, HIGH)]);
     givenSessions([practiceSetSession("s1", 30)]);
-    const impact = await getCampusImpact("school-1");
+    const impact = await measureCampusImpact("school-1");
     const serialized = JSON.stringify(impact);
     expect(serialized).not.toContain("s1");
     expect(serialized).not.toContain("studentId");
+  });
+});
+
+describe("getCampusImpact (what an administrator sees)", () => {
+  /** `n` students who each gained `gain` points, at section scores that cross the benchmark. */
+  function cohort(prefix: string, n: number, gain: number, [fromRw, fromMath, toRw, toMath] = [LOW, LOW, HIGH, HIGH]) {
+    return Array.from({ length: n }, (_, i) => [
+      prediction(`${prefix}${i}`, 1000, fromRw, fromMath, new Date("2026-01-01")),
+      prediction(`${prefix}${i}`, 1000 + gain, toRw, toMath, new Date("2026-02-01")),
+    ]).flat();
+  }
+
+  it("withholds score growth and readiness until enough students can be measured", async () => {
+    // One student: "1 of 1 improved" and the average would both be their own score change.
+    givenPredictions(cohort("s", 1, 120));
+    const impact = await getCampusImpact("school-1");
+    expect(impact.measurableStudents).toBe(1);
+    expect(impact.scoreGrowth).toBeNull();
+    expect(impact.benchmark).toBeNull();
+    expect(JSON.stringify(impact)).not.toContain("120");
+  });
+
+  it("shows them once the threshold is met, with any group under five withheld", async () => {
+    givenPredictions([
+      ...cohort("up", MIN_STUDENTS_FOR_SCORE_FIGURES - 2, 100),
+      // Two who fell back: a group small enough to point at someone.
+      ...cohort("down", 2, -50, [HIGH, HIGH, LOW, LOW]),
+    ]);
+    const impact = await getCampusImpact("school-1");
+
+    expect(impact.scoreGrowth).toEqual({ studentsImproved: 8, averageScoreGain: 70, biggestScoreGain: 100 });
+    expect(impact.benchmark).toMatchObject({ measured: 10, crossed: 8, held: 0, slipped: null, below: 0 });
+  });
+
+  it("withholds a small count of students who improved", () => {
+    const raw: CampusImpact = {
+      measurableStudents: 12,
+      averageScoreGain: -5,
+      biggestScoreGain: 40,
+      studentsImproved: 3,
+      averageStudyHours: 2,
+      topStudentStudyHours: 3,
+      activeStudents: 12,
+      benchmark: {
+        crossed: 0,
+        held: 0,
+        slipped: 0,
+        below: 0,
+        shortfall: { MISSES_MATH_ONLY: 0, MISSES_READING_ONLY: 0, MISSES_BOTH: 0 },
+        readingWritingBenchmark: 480,
+        mathBenchmark: 530,
+      },
+    };
+    const report = protectCampusImpact(raw);
+    expect(report.scoreGrowth?.studentsImproved).toBeNull();
+    // Nobody placed against the benchmark: the section is withheld, not shown as zeros.
+    expect(report.benchmark).toBeNull();
   });
 });

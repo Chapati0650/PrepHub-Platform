@@ -232,6 +232,19 @@ describe("catchUpDistrictEnrollment", () => {
     expect(mocked.user.findUnique).not.toHaveBeenCalled();
   });
 
+  it("once any roster exists, looks a non-district address up once, not on every render", async () => {
+    mocked.schoolRosterEntry.count.mockResolvedValue(1);
+    getContext.mockResolvedValue({ user: { email: "kid@gmail.com" }, subscription: null, membership: null });
+    mocked.user.findUnique.mockResolvedValue(student({ email: "kid@gmail.com" }));
+    mocked.schoolRosterEntry.findFirst.mockResolvedValue(null);
+    mocked.organizationDomain.findFirst.mockResolvedValue(null);
+
+    expect(await catchUpDistrictEnrollment("s1")).toEqual({ outcome: "NO_PARTNER", prompt: null });
+    expect(await catchUpDistrictEnrollment("s1")).toEqual({ outcome: "NO_PARTNER", prompt: null });
+
+    expect(mocked.schoolRosterEntry.findFirst).toHaveBeenCalledTimes(1);
+  });
+
   it("asks an unverified district student to confirm their email, naming the school", async () => {
     getContext.mockResolvedValue({ user: { email: "kid@nisd.net" }, subscription: null, membership: null });
     mocked.user.findUnique.mockResolvedValue(student({ emailVerified: null }));

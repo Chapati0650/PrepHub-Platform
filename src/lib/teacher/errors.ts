@@ -10,9 +10,10 @@ export class TeacherError extends Error {
       | "HAS_WORK"
       | "LIMIT"
       | "EMAIL_TAKEN"
+      | "ALREADY_TEACHER"
       | "BLANKS_REMAIN",
     message: string,
-    public details: { unanswered?: number } = {},
+    public details: { unanswered?: number; assignmentId?: string } = {},
   ) {
     super(message);
     this.name = "TeacherError";

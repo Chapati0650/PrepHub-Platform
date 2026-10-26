@@ -2,9 +2,11 @@
 
 import { useState, useTransition } from "react";
 import type { ReactNode } from "react";
+import { unstable_rethrow } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Marker } from "@/components/ui/marker";
 import { STUDY_COMMITMENT_OPTIONS, getRecommendedPace } from "@/lib/onboarding/study-commitment";
+import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
 import { GoalScorePicker } from "./goal-score-picker";
 import { completeOnboardingAction } from "./actions";
 import type { StudyCommitment } from "@/generated/prisma/client";
@@ -104,11 +106,27 @@ export function OnboardingWizard() {
   const [targetScoreMidpoint, setTargetScoreMidpoint] = useState<number | null | undefined>(undefined);
   const [studyCommitment, setStudyCommitment] = useState<StudyCommitment | null>(null);
   const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
+  // The first screen every new student sees. An error thrown inside the
+  // transition went to the nearest error boundary, which is the whole app, so
+  // it's caught here and said beside the button instead. The action's success
+  // path is a redirect, which also arrives as a thrown error; unstable_rethrow
+  // passes that one on so the navigation still happens.
   function handleFinish() {
     if (grade === null || targetScoreMidpoint === undefined || studyCommitment === null) return;
+    setError(null);
     startTransition(async () => {
-      await completeOnboardingAction({ grade, targetScoreMidpoint, studyCommitment });
+      try {
+        await completeOnboardingAction({ grade, targetScoreMidpoint, studyCommitment });
+      } catch (err) {
+        unstable_rethrow(err);
+        setError(
+          isStaleServerActionError(err)
+            ? STALE_BUILD_MESSAGE
+            : "We couldn't save your answers. Check your connection and try again.",
+        );
+      }
     });
   }
 
@@ -245,6 +263,11 @@ export function OnboardingWizard() {
           </Button>
         )}
       </div>
+      {error && (
+        <p role="alert" className="-mt-6 max-w-prose text-sm text-destructive">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

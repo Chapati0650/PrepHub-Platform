@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { StickyNote, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { readWork, sweepOldWork, writeWork } from "./local-store";
+import { markTipSeen, readWork, sweepOldWork, writeWork } from "./local-store";
 
 /**
  * Highlighting and notes on a reading passage or a question (2026-10-24) —
@@ -239,6 +239,8 @@ export function Annotator({
       text: popover.text.slice(0, 300),
     };
     persist([...kept, created]);
+    // They've found it: the question screen's one-time tip has done its job.
+    markTipSeen("annotate");
     window.getSelection()?.removeAllRanges();
     if (then === "note") {
       setNoteDraft("");

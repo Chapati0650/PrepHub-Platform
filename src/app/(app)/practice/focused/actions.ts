@@ -10,6 +10,7 @@ import {
   getStudentQuestionContent,
   getStudentQuestionFeedback,
 } from "@/lib/session/question-content";
+import { sanitizeDraftPatch, type DraftPatch } from "@/lib/session/draft";
 import { isFocusedDifficulty, isQuestionCategory, parseFocusedLength } from "@/lib/focused/config";
 import { FocusedError } from "@/lib/focused/errors";
 import {
@@ -17,6 +18,7 @@ import {
   finalizeFocusedAnswer,
   openFocusedSession,
 } from "@/lib/focused/sessions";
+import { sessionBlocked } from "@/lib/session/blocked";
 
 async function requireStudentId(): Promise<string> {
   const session = await auth();
@@ -50,6 +52,24 @@ async function requireOwnedSlot(studentId: string, slotId: string) {
   return slot;
 }
 
+// Returned as data, not thrown, so the runner can tell the student why it
+// stopped and where to go (see lib/session/blocked.ts). Premium can end
+// partway through a session — a cancelled plan reaching its period end, a
+// school's access ending — and a session can be finished in another tab.
+const PREMIUM_NEEDED = sessionBlocked(
+  "Focused Practice is part of Premium, and your Premium access has ended. Every answer you submitted is saved.",
+  "/pricing",
+  "Unlock with Premium",
+);
+
+function alreadyFinished(sessionId: string) {
+  return sessionBlocked(
+    "You've already finished this session, so this answer wasn't recorded.",
+    `/practice/focused/results/${sessionId}`,
+    "See your results",
+  );
+}
+
 // "Start" on the picker. The paid-access check is here as well as on the
 // page, because a disabled button is not access control.
 export async function startFocusedSessionAction(formData: FormData): Promise<void> {
@@ -78,6 +98,7 @@ export async function startFocusedSessionAction(formData: FormData): Promise<voi
 export async function loadFocusedQuestionAction(slotId: string) {
   const studentId = await requireStudentId();
   const slot = await requireOwnedSlot(studentId, slotId);
+  if (!(await hasPaidAccess(studentId))) return PREMIUM_NEEDED;
   const content = await getStudentQuestionContent(slot.questionRevisionId);
   const feedback = slot.finalizedAt
     ? await getStudentQuestionFeedback(slot.questionRevisionId)
@@ -89,18 +110,18 @@ export async function loadFocusedQuestionDetailAction(slotId: string) {
   const studentId = await requireStudentId();
   const slot = await requireOwnedSlot(studentId, slotId);
   const content = await getStudentQuestionContent(slot.questionRevisionId);
-  const feedback = await getStudentQuestionFeedback(slot.questionRevisionId);
+  // The answer key only once this question is answered or the session is
+  // over: the review screen calls this, but so could a hand-made request for a
+  // question still waiting to be answered.
+  const reviewable = slot.finalizedAt !== null || slot.session.status === "COMPLETED";
+  const feedback = reviewable ? await getStudentQuestionFeedback(slot.questionRevisionId) : null;
   return { content, feedback, studentAnswer: slot.answer };
 }
 
-export async function saveFocusedDraftAction(
-  slotId: string,
-  patch: { draftAnswer?: string | null; skipped?: boolean },
-) {
+export async function saveFocusedDraftAction(slotId: string, patch: DraftPatch) {
   const studentId = await requireStudentId();
-  const slot = await requireOwnedSlot(studentId, slotId);
-  if (slot.finalizedAt) return;
-  await prisma.focusedSlot.update({ where: { id: slotId }, data: patch });
+  await requireOwnedSlot(studentId, slotId);
+  await prisma.focusedSlot.updateMany({ where: { id: slotId, finalizedAt: null }, data: sanitizeDraftPatch(patch) });
 }
 
 export async function saveFocusedPositionAction(sessionId: string, position: number) {
@@ -114,7 +135,17 @@ export async function saveFocusedPositionAction(sessionId: string, position: num
 export async function submitFocusedAnswerAction(slotId: string, answer: string) {
   const studentId = await requireStudentId();
   const slot = await requireOwnedSlot(studentId, slotId);
-  const result = await finalizeFocusedAnswer({ studentId, slotId, answer });
+  // The picker checks Premium when the session starts; this checks it for
+  // every answer, because a hidden button is not access control and access
+  // can end while the session is open.
+  if (!(await hasPaidAccess(studentId))) return PREMIUM_NEEDED;
+  let result;
+  try {
+    result = await finalizeFocusedAnswer({ studentId, slotId, answer });
+  } catch (err) {
+    if (err instanceof FocusedError && err.code === "SESSION_COMPLETED") return alreadyFinished(slot.sessionId);
+    throw err;
+  }
   const feedback = await getStudentQuestionFeedback(slot.questionRevisionId);
   return { isCorrect: result.isCorrect, studentAnswer: result.answer, feedback };
 }

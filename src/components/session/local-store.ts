@@ -75,3 +75,45 @@ export function sweepOldWork(): void {
     // ignore
   }
 }
+
+// ---- One-time tips ------------------------------------------------------------
+//
+// "Has this student seen the tip for X" (2026-10-25: the highlighter went
+// unnoticed until someone tried selecting text by accident). Kept apart from
+// the work entries above — a different prefix, so the month-old sweep never
+// brings a dismissed tip back — and mirrored in memory, so on a Chromebook
+// with storage switched off "Got it" still holds for the rest of the visit.
+
+const TIP_PREFIX = "prephub:tip:";
+const TIP_EVENT = "prephub:tip";
+const seenThisVisit = new Set<string>();
+
+export function hasSeenTip(name: string): boolean {
+  if (seenThisVisit.has(name)) return true;
+  try {
+    return window.localStorage.getItem(TIP_PREFIX + name) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function markTipSeen(name: string): void {
+  if (hasSeenTip(name)) return;
+  seenThisVisit.add(name);
+  try {
+    window.localStorage.setItem(TIP_PREFIX + name, "1");
+  } catch {
+    // Storage blocked: the in-memory mark above is all there is.
+  }
+  window.dispatchEvent(new Event(TIP_EVENT));
+}
+
+/** For useSyncExternalStore: re-read when a tip is marked here or in another tab. */
+export function subscribeTips(onChange: () => void): () => void {
+  window.addEventListener(TIP_EVENT, onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    window.removeEventListener(TIP_EVENT, onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}

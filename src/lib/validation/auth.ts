@@ -33,7 +33,11 @@ export const confirmPasswordResetSchema = z.object({
 });
 export type ConfirmPasswordResetInput = z.infer<typeof confirmPasswordResetSchema>;
 
+// Which of the two is required depends on the account (a password account
+// re-enters it; a Google-only one types the confirmation word), so both are
+// optional here and deleteAccount decides.
 export const deleteAccountSchema = z.object({
-  password: z.string().min(1, "Enter your password to confirm"),
+  password: z.string().optional(),
+  confirmation: z.string().optional(),
 });
 export type DeleteAccountInput = z.infer<typeof deleteAccountSchema>;

@@ -77,24 +77,21 @@ test.describe("School Administrator (PRD-011)", () => {
     await adminPage.getByLabel("Email").fill(adminEmail);
     await adminPage.getByLabel("Password").fill(adminPassword);
     await adminPage.getByRole("button", { name: "Log in", exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/home$/);
+    // An administrator signs in to their school's Overview, not the student dashboard.
+    await expect(adminPage).toHaveURL(/\/admin$/);
 
     // The administrator-only nav is visible; a plain student never sees it.
-    await expect(adminPage.getByRole("link", { name: "Admin Overview" })).toBeVisible();
-    await expect(adminPage.getByRole("link", { name: "Student Directory" })).toBeVisible();
-    await expect(adminPage.getByRole("link", { name: "Announcements" })).toBeVisible();
-    await expect(adminPage.getByRole("link", { name: "School Access & Support" })).toBeVisible();
-    await expect(studentPage.getByRole("link", { name: "Admin Overview" })).not.toBeVisible();
+    const adminNav = adminPage.getByRole("navigation");
+    await expect(adminNav.getByRole("link", { name: "Overview", exact: true })).toBeVisible();
+    await expect(adminNav.getByRole("link", { name: "Students", exact: true })).toBeVisible();
+    await expect(adminNav.getByRole("link", { name: "Announcements", exact: true })).toBeVisible();
+    await expect(adminNav.getByRole("link", { name: "Access & support", exact: true })).toBeVisible();
+    await expect(studentPage.getByRole("link", { name: "Access & support" })).not.toBeVisible();
 
-    // Admin Overview: enrollment/registration math and all-time activity totals.
-    await adminPage.goto("/admin");
+    // Overview: registration against enrollment, and an honest empty state for score growth.
     await expect(adminPage.getByRole("heading", { name: schoolName })).toBeVisible();
-    await expect(adminPage.getByText("10", { exact: true })).toBeVisible(); // Total School Enrollment
-    await expect(adminPage.getByText("1", { exact: true })).toBeVisible(); // Registered PrepHub Students
-    await expect(adminPage.getByText("10%", { exact: true })).toBeVisible(); // Registration Percentage
-    await expect(
-      adminPage.getByText("Your students have not completed any practice activity yet."),
-    ).toBeVisible();
+    await expect(adminPage.getByText("10% of 10 enrolled")).toBeVisible();
+    await expect(adminPage.getByText(/^Nothing to compare yet\./)).toBeVisible();
 
     // Student Directory: search, filter, and edit first name/graduation year.
     await adminPage.goto("/admin/students");
@@ -102,18 +99,18 @@ test.describe("School Administrator (PRD-011)", () => {
     await expect(studentRow).toBeVisible();
     await expect(studentRow.getByText(String(graduationYear))).toBeVisible();
 
-    await adminPage.getByLabel("Search").fill("Ada");
+    await adminPage.getByLabel("Find a student").fill("Ada");
     await expect(studentRow).toBeVisible();
-    await adminPage.getByLabel("Search").fill("no-such-student-xyz");
-    await expect(adminPage.getByText("No students match these filters.")).toBeVisible();
-    await adminPage.getByLabel("Search").fill("");
+    await adminPage.getByLabel("Find a student").fill("no-such-student-xyz");
+    await expect(adminPage.getByText("No students match these filters. Try clearing them.")).toBeVisible();
+    await adminPage.getByLabel("Find a student").fill("");
 
     await studentRow.getByRole("button", { name: "Edit" }).click();
-    await adminPage.getByLabel("First Name").fill("Beatrice");
+    await adminPage.getByLabel("First name").fill("Beatrice");
     const newGraduationYear = graduationYear + 1;
     // Scoped to the spinbutton, not a bare label match — the filter panel's
-    // "Graduation Year" <Select> shares the same accessible name.
-    await adminPage.getByRole("spinbutton", { name: "Graduation Year" }).fill(String(newGraduationYear));
+    // "Class of" <Select> shares the same accessible name.
+    await adminPage.getByRole("spinbutton", { name: "Class of" }).fill(String(newGraduationYear));
     await adminPage.getByRole("button", { name: "Save" }).click();
     await expect(adminPage.getByRole("cell", { name: "Beatrice" })).toBeVisible();
     // Scoped to the row: on a phone the same student also appears in a
@@ -126,15 +123,15 @@ test.describe("School Administrator (PRD-011)", () => {
     await adminPage.goto("/admin/announcements");
     await adminPage.getByLabel("Title").fill("Welcome Back!");
     await adminPage.getByLabel("Message").fill("Good luck on your practice this week.");
-    await adminPage.getByRole("button", { name: "Preview" }).click();
-    await expect(adminPage.getByText("Welcome Back!")).toBeVisible();
-    await adminPage.getByRole("button", { name: "Publish" }).click();
-    // The create form reverting from Preview back to "New Announcement" only
-    // happens once the publish action (including email delivery) has fully
-    // resolved — a stronger signal than the announcement text being visible,
-    // which the still-rendering Preview box would satisfy immediately.
-    await expect(adminPage.getByText("New Announcement")).toBeVisible();
-    await expect(adminPage.getByRole("heading", { name: "Active Announcements" })).toBeVisible();
+    await adminPage.getByRole("button", { name: "Preview before sending" }).click();
+    // The preview shows both places it lands: the home-page banner and the email.
+    await expect(adminPage.getByText("Welcome Back!").first()).toBeVisible();
+    await adminPage.getByRole("button", { name: "Send to 1 student" }).click();
+    // The form coming back as "Write an announcement" only happens once the
+    // send (including email delivery) has fully resolved — a stronger signal
+    // than the announcement text, which the preview satisfies immediately.
+    await expect(adminPage.getByRole("heading", { name: "Write an announcement" })).toBeVisible();
+    await expect(adminPage.getByRole("heading", { name: "Showing to students now" })).toBeVisible();
     await expect(adminPage.getByText("Welcome Back!").first()).toBeVisible();
 
     const email = await getLatestEmailTo(verifiedSchoolEmail);
@@ -147,15 +144,17 @@ test.describe("School Administrator (PRD-011)", () => {
     await expect(studentPage.getByText("Good luck on your practice this week.")).toBeVisible();
 
     // Administrator removes it; it moves out of Active and off the student's Dashboard.
+    // Removing asks first, saying what it does and what it can't undo.
     await adminPage.getByRole("button", { name: "Remove" }).click();
-    await expect(adminPage.getByText("No announcements have been published.")).toBeVisible();
+    await adminPage.getByRole("dialog").getByRole("button", { name: "Remove announcement" }).click();
+    await expect(adminPage.getByText(/^No announcements are showing right now\./)).toBeVisible();
     await studentPage.goto("/home");
     await expect(studentPage.getByText("Welcome Back!")).not.toBeVisible();
 
     // School Access & Support.
     await adminPage.goto("/admin/access");
     await expect(adminPage.getByText("Active", { exact: true })).toBeVisible();
-    await expect(adminPage.getByRole("link", { name: /support@/ })).toBeVisible();
+    await expect(adminPage.getByRole("link", { name: /schools@prephubtp\.com/ })).toBeVisible();
 
     // The administrator can also use the full student product for evaluation.
     await adminPage.goto("/diagnostic");

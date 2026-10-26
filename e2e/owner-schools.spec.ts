@@ -46,7 +46,9 @@ test.describe("Owner schools management (PRD-017 §18)", () => {
     await page.getByRole("button", { name: "Activate", exact: true }).click();
     await expect(page.getByText("ACTIVE", { exact: true })).toBeVisible();
 
+    // Suspending, archiving and removing someone each ask first, saying what they do.
     await page.getByRole("button", { name: "Suspend" }).click();
+    await dialog.getByRole("button", { name: "Suspend" }).click();
     await expect(page.getByText("SUSPENDED")).toBeVisible();
 
     // Administrators
@@ -59,6 +61,11 @@ test.describe("Owner schools management (PRD-017 §18)", () => {
     await expect(page.getByText(adminEmail)).toBeVisible();
 
     await page.getByRole("button", { name: "Remove" }).click();
+    await dialog.getByRole("button", { name: "Remove administrator" }).click();
+    // The confirmation stays open ("Working…") until the removal and the
+    // page refresh finish, which on a cold dev server can take several
+    // seconds; the dialog quotes the email too, so wait for it to close first.
+    await expect(dialog).toBeHidden({ timeout: 20_000 });
     await expect(page.getByText(adminEmail)).not.toBeVisible();
 
     // Add a school under this district
@@ -70,7 +77,11 @@ test.describe("Owner schools management (PRD-017 §18)", () => {
 
     // Archive
     await page.getByRole("button", { name: "Archive" }).click();
-    await expect(page.getByText("ARCHIVED")).toBeVisible();
+    await dialog.getByRole("button", { name: "Archive" }).click();
+    // The confirmation explains what archiving does, in words that also match
+    // "archived", so the status is checked once it has closed.
+    await expect(dialog).toBeHidden({ timeout: 20_000 });
+    await expect(page.getByText("ARCHIVED", { exact: true })).toBeVisible();
   });
 
   test("student membership management: manual activation, remove, restore, and transfer", async ({
@@ -106,6 +117,7 @@ test.describe("Owner schools management (PRD-017 §18)", () => {
 
     // Remove, then restore
     await row.getByRole("button", { name: "Remove" }).click();
+    await dialog.getByRole("button", { name: "Remove student" }).click();
     await expect(row.getByText("REMOVED")).toBeVisible();
     await row.getByRole("button", { name: "Restore" }).click();
     await expect(row.getByText("ACTIVE", { exact: true })).toBeVisible();

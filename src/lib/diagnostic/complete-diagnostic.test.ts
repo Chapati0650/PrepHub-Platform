@@ -7,7 +7,7 @@ import { generateDiagnosticPrediction } from "@/lib/score/generate-diagnostic-pr
 
 vi.mock("@/lib/prisma", () => {
   const mockPrisma: Record<string, unknown> = {
-    diagnosticSession: { findUnique: vi.fn(), update: vi.fn() },
+    diagnosticSession: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     categoryState: { createMany: vi.fn() },
     $transaction: vi.fn(),
   };
@@ -47,11 +47,9 @@ function fullyAnsweredAttempts(isCorrect: boolean) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.diagnosticSession.update.mockImplementation(({ data }: { data: Record<string, unknown> }) => ({
-    id: "session1",
-    status: "COMPLETED",
-    ...data,
-  }));
+  // This request wins the claim unless a test says otherwise.
+  mocked.diagnosticSession.updateMany.mockResolvedValue({ count: 1 });
+  mocked.diagnosticSession.findUniqueOrThrow.mockResolvedValue({ id: "session1", status: "COMPLETED", completedAt: new Date() });
 });
 
 describe("completeDiagnostic", () => {
@@ -97,6 +95,24 @@ describe("completeDiagnostic", () => {
     );
     const createdStates = mocked.categoryState.createMany.mock.calls[0][0].data;
     expect(createdStates).toHaveLength(7);
+    expect(mocked.diagnosticSession.updateMany).toHaveBeenCalledWith({
+      where: { id: "session1", status: "IN_PROGRESS" },
+      data: expect.objectContaining({ status: "COMPLETED", completedAt: expect.any(Date) }),
+    });
+    expect(result.status).toBe("COMPLETED");
+  });
+
+  it("does nothing more when a concurrent completion already claimed the session", async () => {
+    mocked.diagnosticSession.findUnique.mockResolvedValue({
+      id: "session1",
+      status: "IN_PROGRESS",
+      attempts: fullyAnsweredAttempts(true),
+    });
+    mocked.diagnosticSession.updateMany.mockResolvedValue({ count: 0 });
+
+    const result = (await completeDiagnostic("student1")) as { status: string };
+
+    expect(mocked.categoryState.createMany).not.toHaveBeenCalled();
     expect(result.status).toBe("COMPLETED");
   });
 });

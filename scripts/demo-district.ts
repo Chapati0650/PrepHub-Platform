@@ -6,13 +6,18 @@
  *   npx tsx scripts/demo-district.ts create --admin=<email>   builds the demo
  *       [--convert-student]  the email belongs to a student account: make it
  *                            the administrator (remove turns it back)
+ *   npx tsx scripts/demo-district.ts teacher --teacher=<email> gives that real
+ *       account a teacher's view of the demo: Maria Alvarez's two classes,
+ *       their fictional students and five homework assignments with results
+ *       [--convert-student]  the email belongs to a student account: make it
+ *                            the teacher (remove turns it back)
  *   npx tsx scripts/demo-district.ts remove                   deletes every demo row
  *
- * The administrator account is the one real account involved, so the script
- * records how it got it — created, already an administrator, or converted
- * from a student — and `remove` undoes exactly that: deletes an account it
- * created, turns a converted one back into a student with its history intact,
- * and leaves any other account alone.
+ * The administrator account (and, if added, the demo teacher's) are the only
+ * real accounts involved, so the script records how it got each — created,
+ * already in that role, or converted from a student — and `remove` undoes
+ * exactly that: deletes an account it created, turns a converted one back into
+ * a student with its history intact, and leaves any other account alone.
  *
  * Against production, with the Neon URL from the gitignored .env.neon (see the
  * production-status notes): DATABASE_URL="$NEON" npx tsx scripts/demo-district.ts check --admin=...
@@ -100,6 +105,7 @@ const LAST_INITIALS = "ABCDEFGHJKLMNOPRSTVWY";
 const command = process.argv[2];
 const adminEmail = process.argv.find((a) => a.startsWith("--admin="))?.slice("--admin=".length).trim().toLowerCase();
 const convertStudent = process.argv.includes("--convert-student");
+const teacherEmail = process.argv.find((a) => a.startsWith("--teacher="))?.slice("--teacher=".length).trim().toLowerCase();
 
 type AdminOrigin = "created" | "existing-admin" | "converted-student";
 
@@ -111,6 +117,17 @@ function adminNote(email: string, origin: AdminOrigin): string {
 function readAdminNote(notes: string | null): { email: string; origin: AdminOrigin } | null {
   const email = notes?.match(/^admin=(.+)$/m)?.[1]?.trim();
   const origin = notes?.match(/^origin=(created|existing-admin|converted-student)$/m)?.[1] as AdminOrigin | undefined;
+  return email && origin ? { email, origin } : null;
+}
+
+type TeacherOrigin = "created" | "existing-teacher" | "converted-student";
+
+/** The fictional teacher whose classes a real demo teacher takes over. */
+const DEMO_TEACHER_SEAT = `m.alvarez@${DEMO_DOMAIN}`;
+
+function readTeacherNote(notes: string | null): { email: string; origin: TeacherOrigin } | null {
+  const email = notes?.match(/^teacher=(.+)$/m)?.[1]?.trim();
+  const origin = notes?.match(/^teacherOrigin=(created|existing-teacher|converted-student)$/m)?.[1] as TeacherOrigin | undefined;
   return email && origin ? { email, origin } : null;
 }
 
@@ -126,6 +143,8 @@ async function findDemo() {
 async function check() {
   const demo = await findDemo();
   console.log(demo ? `Demo district exists (${demo.schools.length} campus).` : "No demo district yet.");
+  const teacherNote = readTeacherNote(demo?.internalNotes ?? null);
+  if (teacherNote) console.log(`Demo teacher: ${teacherNote.email} (${teacherNote.origin}).`);
   if (adminEmail) {
     const user = await prisma.user.findUnique({
       where: { email: adminEmail },
@@ -162,8 +181,14 @@ async function remove() {
   const admin = note ? await prisma.user.findUnique({ where: { email: note.email }, select: { id: true } }) : null;
   const deleteAdmin = admin && note?.origin === "created" ? [admin.id] : [];
 
+  // The demo teacher, the same way. Their classes are the demo's and go with
+  // it below; their teacher assignment goes with the campus.
+  const teacherNote = readTeacherNote(demo?.internalNotes ?? null);
+  const teacher = teacherNote ? await prisma.user.findUnique({ where: { email: teacherNote.email }, select: { id: true } }) : null;
+  const deleteTeacher = teacher && teacherNote?.origin === "created" ? [teacher.id] : [];
+
   const fictional = await prisma.user.findMany({ where: { email: { endsWith: `@${DEMO_DOMAIN}` } }, select: { id: true } });
-  const userIds = [...fictional.map((u) => u.id), ...deleteAdmin];
+  const userIds = [...fictional.map((u) => u.id), ...deleteAdmin, ...deleteTeacher];
 
   if (orgIds.length === 0 && userIds.length === 0) {
     console.log("Nothing to remove.");
@@ -179,6 +204,10 @@ async function remove() {
       // with everything it had.
       if (admin && note?.origin === "converted-student") {
         await tx.user.update({ where: { id: admin.id }, data: { role: "STUDENT" } });
+      }
+      if (teacher && teacherNote?.origin === "converted-student") {
+        await tx.teacherAssignment.deleteMany({ where: { userId: teacher.id, schoolId: { in: schoolIds } } });
+        await tx.user.update({ where: { id: teacher.id }, data: { role: "STUDENT" } });
       }
       // Fictional people: hard-deleted, not anonymized. Anonymizing exists to
       // keep a real student's history; there is no one here to keep.
@@ -197,7 +226,15 @@ async function remove() {
         : note
           ? `removed ${note.email}'s access to the demo`
           : "found no administrator record";
-  console.log(`Removed the demo district and ${fictional.length} fictional accounts; ${adminOutcome}.`);
+  const teacherOutcome =
+    teacherNote?.origin === "created"
+      ? `; deleted the teacher account it created (${teacherNote.email})`
+      : teacherNote?.origin === "converted-student"
+        ? `; turned ${teacherNote.email} back into a student account`
+        : teacherNote
+          ? `; removed ${teacherNote.email}'s demo classes`
+          : "";
+  console.log(`Removed the demo district and ${fictional.length} fictional accounts; ${adminOutcome}${teacherOutcome}.`);
 }
 
 // ---- create --------------------------------------------------------------------
@@ -748,11 +785,95 @@ async function create() {
   );
 }
 
+// ---- teacher -------------------------------------------------------------------
+
+/**
+ * Gives a real account a teacher's view of the demo by handing it the seat of
+ * one fictional teacher: her classes (with their fictional students and the
+ * homework she set, results included) move to the real account, and her own
+ * access at the campus ends, so the administrator's Teachers page shows the
+ * real teacher in her place. Sign in as it with Google.
+ */
+async function addTeacher() {
+  if (!teacherEmail || !teacherEmail.includes("@")) throw new Error("Pass the teacher's email: --teacher=you@example.org");
+  const demo = await findDemo();
+  const schoolId = demo?.schools[0]?.id;
+  if (!demo || !schoolId) throw new Error("There's no demo district. Run `create` first.");
+  const recorded = readTeacherNote(demo.internalNotes);
+  if (recorded) throw new Error(`The demo already has a teacher (${recorded.email}). Run \`remove\` and \`create\` to change it.`);
+
+  const seat = await prisma.user.findUnique({ where: { email: DEMO_TEACHER_SEAT }, select: { id: true } });
+  if (!seat) throw new Error(`The fictional teacher ${DEMO_TEACHER_SEAT} isn't there to hand over.`);
+
+  const existing = await prisma.user.findUnique({
+    where: { email: teacherEmail },
+    select: {
+      id: true,
+      role: true,
+      deletedAt: true,
+      studentMembership: { select: { id: true } },
+      subscription: { select: { status: true } },
+      classroomEnrollments: { where: { removedAt: null }, select: { id: true } },
+      teacherAssignments: { where: { removedAt: null }, select: { schoolId: true } },
+    },
+  });
+  let origin: TeacherOrigin = "created";
+  if (existing) {
+    if (existing.deletedAt) throw new Error(`${teacherEmail} belongs to a deleted account.`);
+    if (existing.role === "TEACHER") {
+      if (existing.teacherAssignments.some((a) => a.schoolId !== schoolId)) {
+        throw new Error(`${teacherEmail} already teaches at another school.`);
+      }
+      origin = "existing-teacher";
+    } else if (existing.role === "STUDENT" && convertStudent) {
+      // A teacher has no student experience: a school membership would put
+      // them in a school's totals, a class enrollment would put them on a
+      // roster, and a live subscription would keep billing them.
+      if (existing.studentMembership) throw new Error(`${teacherEmail} has a school membership; it can't become a teacher.`);
+      if (existing.classroomEnrollments.length) throw new Error(`${teacherEmail} is enrolled in a class; it can't become a teacher.`);
+      if (existing.subscription && existing.subscription.status === "ACTIVE") {
+        throw new Error(`${teacherEmail} has an active subscription; cancel it first.`);
+      }
+      origin = "converted-student";
+    } else {
+      throw new Error(
+        `${teacherEmail} already has a ${existing.role} account.` +
+          (existing.role === "STUDENT" ? " Pass --convert-student to make it the teacher (remove turns it back)." : ""),
+      );
+    }
+  }
+
+  const classes = await prisma.$transaction(async (tx) => {
+    const user = existing
+      ? await tx.user.update({ where: { id: existing.id }, data: { role: "TEACHER" }, select: { id: true } })
+      : await tx.user.create({ data: { role: "TEACHER", firstName: "Demo", email: teacherEmail, ageConfirmed: true }, select: { id: true } });
+    await tx.teacherAssignment.upsert({
+      where: { userId_schoolId: { userId: user.id, schoolId } },
+      update: { removedAt: null },
+      create: { userId: user.id, schoolId },
+    });
+    const moved = await tx.classroom.updateMany({ where: { teacherId: seat.id, schoolId }, data: { teacherId: user.id } });
+    await tx.teacherAssignment.updateMany({ where: { userId: seat.id, schoolId }, data: { removedAt: new Date() } });
+    await tx.organization.update({
+      where: { id: demo.id },
+      data: { internalNotes: `${demo.internalNotes ?? MARKER}\nteacher=${teacherEmail}\nteacherOrigin=${origin}` },
+    });
+    return moved.count;
+  });
+
+  console.log(
+    `${teacherEmail} is now a teacher at ${SCHOOL_NAME} with ${classes} classes (` +
+      (origin === "converted-student" ? "converted from a student account; remove turns it back" : origin === "created" ? "new account" : "existing teacher") +
+      "). Sign in with Google using that address; /home goes straight to the teacher pages.",
+  );
+}
+
 async function main() {
   if (command === "check") return check();
   if (command === "create") return create();
   if (command === "remove") return remove();
-  console.log("Usage: npx tsx scripts/demo-district.ts <check|create|remove> [--admin=email]");
+  if (command === "teacher") return addTeacher();
+  console.log("Usage: npx tsx scripts/demo-district.ts <check|create|teacher|remove> [--admin=email] [--teacher=email]");
   process.exitCode = 1;
 }
 

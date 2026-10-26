@@ -29,13 +29,16 @@ export async function deleteAccountAction(
   const session = await auth();
   if (!session?.user.id) redirect("/login");
 
-  const parsed = deleteAccountSchema.safeParse({ password: formData.get("password") });
+  const parsed = deleteAccountSchema.safeParse({
+    password: formData.get("password") ?? undefined,
+    confirmation: formData.get("confirmation") ?? undefined,
+  });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
   try {
-    await deleteAccount(session.user.id, parsed.data.password);
+    await deleteAccount(session.user.id, parsed.data);
   } catch (err) {
     if (err instanceof AuthError) return { error: err.message };
     throw err;
@@ -82,6 +85,11 @@ export async function updateFirstNameAction(_prev: ActionState, formData: FormDa
   const firstName = formData.get("firstName");
   if (typeof firstName !== "string" || !firstName.trim()) {
     return { error: "First name is required." };
+  }
+  // The same cap signup applies. The name is shown to teachers, on the Rush
+  // leaderboard and at the top of every email, so it can't be unbounded here.
+  if (firstName.trim().length > 100) {
+    return { error: "First name must be 100 characters or fewer." };
   }
 
   await prisma.user.update({ where: { id: session.user.id }, data: { firstName: firstName.trim() } });

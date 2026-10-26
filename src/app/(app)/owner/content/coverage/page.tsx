@@ -3,6 +3,7 @@ import { getContentCoverage } from "@/lib/content/coverage";
 import { CATEGORY_ORDER, DIFFICULTY_ORDER } from "@/lib/content/constants";
 import { CATEGORY_LABELS, DIFFICULTY_LABELS } from "@/lib/content/labels";
 import { PageHeader } from "@/components/page-header";
+import { requireOwnerPage } from "@/lib/owner/guard";
 
 // Graduated coverage-strength tint — same idea as the coverage matrix always
 // had (a color signal on hasNoPublished), extended to more than one step so
@@ -18,6 +19,7 @@ function coverageTint(publishedCount: number): string {
 
 // PRD-015 §11: Category × Difficulty matrix.
 export default async function ContentCoveragePage() {
+  await requireOwnerPage();
   const cells = await getContentCoverage();
   const cellFor = (category: (typeof CATEGORY_ORDER)[number], difficulty: (typeof DIFFICULTY_ORDER)[number]) =>
     cells.find((c) => c.category === category && c.difficulty === difficulty)!;

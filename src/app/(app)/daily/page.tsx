@@ -82,7 +82,7 @@ export default async function DailyChallengePage() {
       ) : (
         <>
           <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">{view.categoryLabel}</span> · No clock, one attempt. Choosing an answer locks it in.
+            <span className="font-medium text-foreground">{view.categoryLabel}</span> · No clock, one attempt. Your answer is final once you submit it.
           </p>
           <DailyQuestion challengeId={view.challengeId} content={view.content} submit={answerDailyChallengeAction} />
         </>

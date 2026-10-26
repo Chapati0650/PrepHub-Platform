@@ -42,6 +42,9 @@ test.describe("district verification (PRD-002)", () => {
     const email = uniqueEmail();
     await signUpNewStudent(page, { email, password: "hunter2222", grade: "9th" });
 
+    // Signup lands on /home since 2026-09-21; the access chooser is still
+    // reachable directly, which is what this covers.
+    await page.goto("/access");
     await page.getByRole("link", { name: "Pay for PrepHub Myself" }).click();
     await expect(page).toHaveURL(/\/pricing$/);
   });
@@ -57,10 +60,18 @@ test.describe("district verification (PRD-002)", () => {
 
     await expect(page).toHaveURL(/\/access\/success$/);
     await expect(page.getByText(/at no cost/i)).toBeVisible();
+    // The shell is refreshed with the new membership, so the one-time Premium
+    // celebration opens over the success page; dismissing it is a student's
+    // first step.
+    await page.getByRole("button", { name: "Start practicing" }).click();
 
     await page.getByRole("link", { name: "Go to Dashboard" }).click();
     await expect(page).toHaveURL(/\/home$/);
-    await expect(page.getByRole("heading", { name: "Welcome back, Ada" })).toBeVisible();
+    // Before the Diagnostic, the dashboard leads with its invitation.
+    await expect(page.getByRole("heading", { name: /Welcome, Ada/ })).toBeVisible();
+    // The school covers Premium, so the shell must not offer to sell it — the
+    // sidebar used to keep its "Upgrade" row until a full reload.
+    await expect(page.getByRole("link", { name: /Upgrade/ })).toHaveCount(0);
   });
 
   test("multi-school district requires selecting a school before completing", async ({ page }) => {

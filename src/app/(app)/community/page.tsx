@@ -63,7 +63,7 @@ export default async function SchoolCommunityPage() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Stat label="Questions Answered" value={data.stats.totalQuestionsAnswered.toLocaleString()} />
         <Stat label="Study Hours" value={data.stats.totalStudyHours.toLocaleString()} />
-        <Stat label="Adaptive Sessions" value={data.stats.totalAdaptiveSessionsCompleted.toLocaleString()} />
+        <Stat label="Practice Sets" value={data.stats.totalAdaptiveSessionsCompleted.toLocaleString()} />
         <Stat label="Est. SAT Points Improved" value={data.stats.totalEstimatedSatPointsImproved.toLocaleString()} />
         <Stat label="Active Students This Week" value={data.stats.activeStudentsThisWeek.toLocaleString()} />
         <Stat label="Study Streak" value={`${data.stats.studyStreak} day${data.stats.studyStreak === 1 ? "" : "s"}`} />

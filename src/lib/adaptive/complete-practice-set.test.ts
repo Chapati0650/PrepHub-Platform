@@ -5,10 +5,11 @@ import { prisma } from "@/lib/prisma";
 
 vi.mock("@/lib/prisma", () => {
   const mockPrisma: Record<string, unknown> = {
-    practiceSet: { findUnique: vi.fn(), update: vi.fn() },
+    practiceSet: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     categoryState: { findUnique: vi.fn(), update: vi.fn() },
     blueprintSlot: { findUnique: vi.fn(), update: vi.fn() },
     finalizedAttempt: { create: vi.fn(), findUnique: vi.fn() },
+    $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   };
   (mockPrisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation((arg: unknown) => {
@@ -27,11 +28,9 @@ const mocked = prisma as unknown as {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.practiceSet.update.mockImplementation(({ data }: { data: Record<string, unknown> }) => ({
-    id: "set1",
-    status: "COMPLETED",
-    ...data,
-  }));
+  // This request wins the claim unless a test says otherwise.
+  mocked.practiceSet.updateMany.mockResolvedValue({ count: 1 });
+  mocked.practiceSet.findUniqueOrThrow.mockResolvedValue({ id: "set1", status: "COMPLETED", completedAt: new Date() });
 });
 
 // One slot per category, all already finalized — the simplest "everyone
@@ -71,7 +70,7 @@ describe("completePracticeSet", () => {
   it("finalizes remaining blanks as incorrect when confirmBlanks is true", async () => {
     const set = fullyAnsweredSet();
     set.slots[0] = { ...set.slots[0], finalizedAttempt: null };
-    mocked.practiceSet.findUnique.mockResolvedValueOnce(set).mockResolvedValueOnce(set); // outer load + inner tx re-check
+    mocked.practiceSet.findUnique.mockResolvedValue(set);
     mocked.blueprintSlot.findUnique.mockResolvedValue({
       id: "slot0",
       practiceSetId: "set1",
@@ -117,14 +116,27 @@ describe("completePracticeSet", () => {
     });
   });
 
-  it("marks the set completed with a completedAt timestamp", async () => {
+  it("marks the set completed with a completedAt timestamp, claiming it only while still ACTIVE", async () => {
     mocked.practiceSet.findUnique.mockResolvedValue(fullyAnsweredSet());
 
     const result = await completePracticeSet("student1", "set1", { confirmBlanks: false });
 
-    expect(mocked.practiceSet.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: "COMPLETED" }) }),
-    );
+    expect(mocked.practiceSet.updateMany).toHaveBeenCalledWith({
+      where: { id: "set1", status: "ACTIVE" },
+      data: expect.objectContaining({ status: "COMPLETED", completedAt: expect.any(Date) }),
+    });
+    expect(result).toMatchObject({ status: "COMPLETED" });
+  });
+
+  it("leaves the counters alone when a concurrent completion already claimed the set", async () => {
+    // Both requests read ACTIVE before either committed; the second one's
+    // conditional update matches nothing once the first has flipped the row.
+    mocked.practiceSet.findUnique.mockResolvedValue(fullyAnsweredSet());
+    mocked.practiceSet.updateMany.mockResolvedValue({ count: 0 });
+
+    const result = await completePracticeSet("student1", "set1", { confirmBlanks: false });
+
+    expect(mocked.categoryState.update).not.toHaveBeenCalled();
     expect(result).toMatchObject({ status: "COMPLETED" });
   });
 });

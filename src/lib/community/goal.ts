@@ -1,5 +1,6 @@
 import type { CommunityGoalMetric } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { endOfLocalDay } from "./local-day";
 
 /**
  * The School Community goal, with a prize and a deadline (2026-10-24).
@@ -15,22 +16,30 @@ import { prisma } from "@/lib/prisma";
  * name a student.
  */
 
-/**
- * The time zone a goal's deadline is a calendar day in. The same zone the
- * weekly Rush leaderboard turns over in: PrepHub's partner districts are in
- * Texas, and "ends on the 15th" has to mean the end of the 15th there, not in
- * UTC, where it would end at 6pm.
- */
-export const GOAL_TIME_ZONE = "America/Chicago";
+export {
+  GOAL_TIME_ZONE,
+  endOfLocalDay,
+  startOfLocalDay,
+  localDateInputValue,
+  formatGoalDate,
+  formatLongLocalDate,
+} from "./local-day";
 
 export const GOAL_LABELS: Record<CommunityGoalMetric, string> = {
   QUESTIONS_ANSWERED: "Questions Answered",
   STUDY_HOURS: "Study Hours",
-  ADAPTIVE_SESSIONS: "Adaptive Sessions",
+  ADAPTIVE_SESSIONS: "Practice Sets",
 };
 
 /** The longest prize text a school can set — one line on a phone. */
 export const GOAL_PRIZE_MAX_LENGTH = 120;
+
+/**
+ * The largest target a goal can have. The column is a 32-bit integer, so a
+ * mistyped "50000000000" used to fail as a database error; ten million is
+ * far beyond anything one school will count, and says so in words instead.
+ */
+export const GOAL_TARGET_MAX = 10_000_000;
 
 export type GoalState = "IN_PROGRESS" | "REACHED" | "ENDED";
 
@@ -81,54 +90,6 @@ export function goalStatus({
   };
 }
 
-/** How far ahead of UTC the zone's wall clock is at `at`, in milliseconds. */
-function zoneOffsetMs(at: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).formatToParts(at);
-  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
-  const wallAsUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
-  return wallAsUtc - Math.floor(at.getTime() / 1000) * 1000;
-}
-
-/**
- * The last millisecond of a calendar day (`YYYY-MM-DD`, what a date input
- * gives) in the goal's zone. Null for anything that isn't such a date.
- */
-export function endOfLocalDay(date: string, timeZone: string = GOAL_TIME_ZONE): Date | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim());
-  if (!m) return null;
-  const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const naive = Date.UTC(year, month - 1, day, 23, 59, 59, 999);
-  const check = new Date(naive);
-  if (check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) return null; // 2026-02-30 and friends
-  // Wall-clock 23:59:59.999 in the zone. The offset is read at the guess and
-  // re-read at the result, which settles a guess that straddles a DST change.
-  let result = naive - zoneOffsetMs(check, timeZone);
-  result = naive - zoneOffsetMs(new Date(result), timeZone);
-  return new Date(result);
-}
-
-/** The `YYYY-MM-DD` a deadline falls on in the goal's zone, for a date input. */
-export function localDateInputValue(at: Date | null, timeZone: string = GOAL_TIME_ZONE): string {
-  if (!at) return "";
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(at);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return `${get("year")}-${get("month")}-${get("day")}`;
-}
-
-/** "Dec 15", in the goal's zone. */
-export function formatGoalDate(at: Date, timeZone: string = GOAL_TIME_ZONE): string {
-  return at.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone });
-}
-
 export class GoalError extends Error {
   constructor(message: string) {
     super(message);
@@ -176,6 +137,7 @@ export async function saveCommunityGoal(schoolId: string, input: SaveGoalInput, 
   if (!input.target || !Number.isInteger(input.target) || input.target <= 0) {
     throw new GoalError("Enter a goal target greater than zero.");
   }
+  if (input.target > GOAL_TARGET_MAX) throw new GoalError(targetTooLargeMessage());
   const prize = input.prize?.trim() || null;
   if (prize && prize.length > GOAL_PRIZE_MAX_LENGTH) {
     throw new GoalError(`Keep the prize under ${GOAL_PRIZE_MAX_LENGTH} characters.`);
@@ -183,8 +145,19 @@ export async function saveCommunityGoal(schoolId: string, input: SaveGoalInput, 
 
   const newRace = org.communityGoalMetric !== input.metric || org.communityGoalTarget !== input.target;
   const deadlineChanged = (org.communityGoalEndsAt?.getTime() ?? null) !== (input.endsAt?.getTime() ?? null);
-  if (input.endsAt && deadlineChanged && input.endsAt.getTime() <= now.getTime()) {
-    throw new GoalError("Pick a deadline that hasn't passed yet.");
+  // A deadline that has already passed is refused whenever this save starts
+  // a race, not only when the date itself was edited. The editor fills the
+  // date in with the last goal's deadline, so changing only the target after
+  // that day had gone by used to save a brand-new goal that was already
+  // "Ended" while the screen said "Saved". Keeping an old, passed deadline is
+  // still fine when the race carries on — changing a finished goal's prize
+  // doesn't reopen it.
+  if (input.endsAt && input.endsAt.getTime() <= now.getTime() && (deadlineChanged || newRace)) {
+    throw new GoalError(
+      deadlineChanged
+        ? "Pick a deadline that hasn't passed yet."
+        : "The deadline on this goal has already passed. Pick a new date for the new goal, or clear it for no deadline.",
+    );
   }
 
   return prisma.organization.update({
@@ -197,6 +170,10 @@ export async function saveCommunityGoal(schoolId: string, input: SaveGoalInput, 
       ...(newRace ? { communityGoalStartsAt: now, communityGoalReachedAt: null } : {}),
     },
   });
+}
+
+function targetTooLargeMessage(): string {
+  return `Keep the target at ${GOAL_TARGET_MAX.toLocaleString("en-US")} or less.`;
 }
 
 /**
@@ -216,6 +193,7 @@ export function parseGoalForm(formData: FormData): SaveGoalInput | { error: stri
   if (metric && (!target || !Number.isInteger(target) || target <= 0)) {
     return { error: "Enter a goal target greater than zero." };
   }
+  if (metric && target && target > GOAL_TARGET_MAX) return { error: targetTooLargeMessage() };
 
   const prize = String(formData.get("communityGoalPrize") ?? "").trim() || null;
   const rawEnds = String(formData.get("communityGoalEndsAt") ?? "").trim();

@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
-import { use } from "react";
+import Link from "next/link";
+import { use, useActionState } from "react";
 import { confirmPasswordResetAction, type ActionState } from "../../actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,21 +22,26 @@ export default function ConfirmResetPage({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-display-sm font-semibold">Set a new password</CardTitle>
-        <CardDescription className="text-base">Choose a new password for your account.</CardDescription>
+        <CardTitle className="text-display-sm font-semibold">Set your password</CardTitle>
+        <CardDescription className="text-base">Choose a password for your PrepHub account.</CardDescription>
       </CardHeader>
       <CardContent>
         <form action={formAction} className="flex flex-col gap-4">
           {state.error && (
             <Alert variant="destructive">
-              <AlertDescription>{state.error}</AlertDescription>
+              <AlertDescription>
+                {state.error}{" "}
+                <Link href="/reset-password" className="font-medium underline underline-offset-4">
+                  Get a new link
+                </Link>
+              </AlertDescription>
             </Alert>
           )}
 
           <input type="hidden" name="token" value={token} />
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="password">New password</Label>
+            <Label htmlFor="password">Password</Label>
             <Input
               id="password"
               name="password"
@@ -48,7 +53,7 @@ export default function ConfirmResetPage({
           </div>
 
           <Button type="submit" size="lg" className="h-12 text-base" disabled={pending}>
-            {pending ? "Saving..." : "Set new password"}
+            {pending ? "Saving..." : "Set password"}
           </Button>
         </form>
       </CardContent>

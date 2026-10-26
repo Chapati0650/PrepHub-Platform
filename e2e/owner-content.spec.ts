@@ -58,7 +58,13 @@ test.describe("Owner content management (PRD-013, PRD-015)", () => {
     await fillMultipleChoiceContent(page, "What is $2 + 2$?");
 
     // Question image upload
-    await page.locator('input[type="file"][accept*="image"]').first().setInputFiles(imagePath);
+    // "Transcribe from image", above the form, takes images too and comes
+    // first in the page, so the question image field is found by its label.
+    const questionImageField = page
+      .locator("div")
+      .filter({ has: page.getByText("Question image (optional)", { exact: true }) })
+      .last();
+    await questionImageField.locator('input[type="file"]').setInputFiles(imagePath);
     await waitForAutosave(page);
 
     // Student Preview — mandatory before publish, and exercises the actual

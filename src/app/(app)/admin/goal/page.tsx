@@ -2,9 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { getSchoolCommunityData } from "@/lib/community/school-community-data";
 import { localDateInputValue } from "@/lib/community/goal";
-import { PageHeader } from "@/components/page-header";
 import { GoalCard } from "@/components/community/goal-card";
 import { GoalEditor } from "@/components/community/goal-editor";
+import { StaffHeader, StaffNote, StaffPage, StaffUnavailable } from "@/components/staff/staff-ui";
 import { OwnerSchoolSwitcher } from "../school-switcher";
 import { saveSchoolGoalAction } from "./actions";
 
@@ -16,16 +16,7 @@ export default async function SchoolGoalPage({ searchParams }: { searchParams: P
   const { school } = await searchParams;
   const { schoolId, viewingAsOwner, availableSchools } = await requireAdminSchoolContext(school);
 
-  if (!schoolId) {
-    return (
-      <div className="mx-auto flex max-w-lg flex-col gap-4 p-8">
-        <h1 className="text-xl sm:text-2xl">Community Goal isn&apos;t available for this account.</h1>
-        <p className="text-muted-foreground">
-          This area is scoped to a single school. Contact PrepHub support if you believe this is unexpected.
-        </p>
-      </div>
-    );
-  }
+  if (!schoolId) return <StaffUnavailable title="The community goal isn't available for this account." />;
 
   const [org, community] = await Promise.all([
     prisma.organization.findUniqueOrThrow({
@@ -36,54 +27,56 @@ export default async function SchoolGoalPage({ searchParams }: { searchParams: P
   ]);
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8">
-      {viewingAsOwner && (
-        <OwnerSchoolSwitcher basePath="/admin/goal" schools={availableSchools} currentSchoolId={schoolId} />
-      )}
+    <StaffPage>
+      {viewingAsOwner && <OwnerSchoolSwitcher basePath="/admin/goal" schools={availableSchools} currentSchoolId={schoolId} />}
 
-      <PageHeader
-        eyebrow="Administrator"
-        title="Community Goal"
-        description="One target your whole school works toward together, shown to every student on School Community. A prize — a pizza party, a spirit day — is what makes it worth chasing."
+      <StaffHeader
+        eyebrow="Your school"
+        title="Community goal"
+        description="One target your whole school works toward together, like 5,000 questions answered by winter break. Every student sees the progress on their School Community page. A prize, such as a pizza party or a spirit day, is what makes it worth chasing."
       />
 
-      {community.goal ? (
-        <div className="flex flex-col gap-2">
-          <p className="text-sm font-medium">What students see</p>
-          <GoalCard goal={community.goal} />
-        </div>
-      ) : (
-        <p className="border-l-2 border-marker pl-3 text-sm text-muted-foreground">
-          No goal is set. Schools that set one usually pick a number a few weeks of normal studying would reach,
-          and a prize the whole school gets.
-        </p>
-      )}
+      <div className="grid gap-8 lg:grid-cols-[1.1fr_1fr] lg:items-start">
+        <section aria-labelledby="goal-form-heading" className="flex flex-col gap-4">
+          <h2 id="goal-form-heading" className="text-xl">
+            {community.goal ? "Change the goal" : "Set a goal"}
+          </h2>
+          {viewingAsOwner ? (
+            <p className="text-base text-muted-foreground">
+              This is a read-only preview. Edit the goal from this school&apos;s page under Schools.
+            </p>
+          ) : (
+            <div className="rounded-2xl border border-border p-5 sm:p-6">
+              <GoalEditor
+                action={saveSchoolGoalAction}
+                initial={{
+                  metric: org.communityGoalMetric,
+                  target: org.communityGoalTarget,
+                  prize: org.communityGoalPrize,
+                  endsOn: localDateInputValue(org.communityGoalEndsAt),
+                }}
+              />
+            </div>
+          )}
+        </section>
 
-      <div className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">{community.goal ? "Change the goal" : "Set a goal"}</h2>
-        {viewingAsOwner ? (
-          <p className="text-sm text-muted-foreground">
-            This is a read-only preview. Edit the goal from this school&apos;s page under Schools.
+        <section aria-labelledby="goal-preview-heading" className="flex flex-col gap-4 lg:sticky lg:top-8">
+          <h2 id="goal-preview-heading" className="text-xl">
+            What students see
+          </h2>
+          {community.goal ? (
+            <GoalCard goal={community.goal} />
+          ) : (
+            <StaffNote>
+              No goal is set, so students don&apos;t see one yet. Schools usually pick a number a few weeks of normal
+              practice would reach, and a prize the whole school gets.
+            </StaffNote>
+          )}
+          <p className="text-base text-muted-foreground">
+            Progress counts every registered student&apos;s work as one school total. No student is ever named.
           </p>
-        ) : (
-          <div className="rounded-2xl border border-border p-5">
-            <GoalEditor
-              action={saveSchoolGoalAction}
-              initial={{
-                metric: org.communityGoalMetric,
-                target: org.communityGoalTarget,
-                prize: org.communityGoalPrize,
-                endsOn: localDateInputValue(org.communityGoalEndsAt),
-              }}
-            />
-          </div>
-        )}
+        </section>
       </div>
-
-      <p className="text-xs text-muted-foreground">
-        Progress counts every registered student&apos;s work across PrepHub — practice, homework, the Daily Challenge
-        and the rest — as one school total. No student is ever named.
-      </p>
-    </div>
+    </StaffPage>
   );
 }

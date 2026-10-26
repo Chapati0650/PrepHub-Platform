@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { searchOrganizations, type DirectoryResult } from "@/lib/organizations";
 import { requestSchoolVerification, completeSchoolVerification } from "@/lib/school-verification";
@@ -86,6 +87,11 @@ export async function completeSchoolVerificationAction(
     throw err;
   }
 
+  // The app shell's layout was rendered before the membership existed, and a
+  // layout doesn't re-render on navigation: without this the sidebar went on
+  // offering "Upgrade · 50% off" to a student their school now covers, until
+  // a full reload. Same as onboarding's enrollment.
+  revalidatePath("/", "layout");
   redirect("/access/success");
 }
 
@@ -135,7 +141,11 @@ export async function chooseCampusAction(_prev: CampusState, formData: FormData)
   if (typeof schoolId !== "string" || !schoolId) return { error: "Choose your school to continue." };
 
   const outcome = await ensureDistrictMembership(session.user.id, { schoolId });
-  if (outcome === "CREATED" || outcome === "ALREADY_MEMBER") redirect("/home");
+  if (outcome === "CREATED" || outcome === "ALREADY_MEMBER") {
+    // A new membership changes the shell's Upgrade row; see above.
+    revalidatePath("/", "layout");
+    redirect("/home");
+  }
   if (outcome === "NEEDS_CAMPUS") return { error: "Choose one of the schools listed." };
   if (outcome === "NEEDS_EMAIL_VERIFICATION") return { error: "Confirm your email first — the link is in your inbox." };
   return { error: "Your school's PrepHub access isn't available for this account right now." };

@@ -1,7 +1,7 @@
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { listTeachers } from "@/lib/teacher/accounts";
-import { PageHeader } from "@/components/page-header";
 import { TeachersPanel } from "@/components/teacher/teachers-panel";
+import { StaffHeader, StaffPage, StaffSection, StaffSteps, StaffUnavailable } from "@/components/staff/staff-ui";
 import { OwnerSchoolSwitcher } from "../school-switcher";
 import { inviteTeacherAction, removeTeacherAction, resendTeacherInviteAction } from "./actions";
 
@@ -13,29 +13,42 @@ export default async function AdminTeachersPage({ searchParams }: { searchParams
   const { school } = await searchParams;
   const { schoolId, viewingAsOwner, availableSchools } = await requireAdminSchoolContext(school);
 
-  if (!schoolId) {
-    return (
-      <div className="mx-auto flex max-w-lg flex-col gap-4 p-8">
-        <h1 className="text-xl sm:text-2xl">Teachers aren&apos;t available for this account.</h1>
-        <p className="text-muted-foreground">
-          This area is scoped to a single school. Contact PrepHub support if you believe this is unexpected.
-        </p>
-      </div>
-    );
-  }
+  if (!schoolId) return <StaffUnavailable title="Teachers aren't available for this account." />;
 
   const teachers = await listTeachers(schoolId);
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-8 p-4 sm:p-8">
+    <StaffPage>
       {viewingAsOwner && (
         <OwnerSchoolSwitcher basePath="/admin/teachers" schools={availableSchools} currentSchoolId={schoolId} />
       )}
-      <PageHeader
-        eyebrow="Administrator"
+      <StaffHeader
+        eyebrow="Your school"
         title="Teachers"
-        description="Teachers make classes, give students a code to join, and assign PrepHub questions as homework with a due date. They see results on the homework they assign; this page shows you how many classes and students each has."
+        description="Teachers make classes, give students a code to join, and assign PrepHub questions as homework. They see results on the homework they assign. You see how many classes and students each one has, never anyone's results."
       />
+
+      {teachers.length === 0 && (
+        <StaffSection title="How it works">
+          <StaffSteps
+            steps={[
+              {
+                title: "Add a teacher with their school email",
+                body: "Use the form below. It takes a few seconds per teacher.",
+              },
+              {
+                title: "They set their password from an email",
+                body: "PrepHub sends them a link right away. If your school uses Google, they can sign in with Google instead.",
+              },
+              {
+                title: "They make a class and share its code",
+                body: "Students type the six-character code into PrepHub to join, then see their teacher's homework.",
+              },
+            ]}
+          />
+        </StaffSection>
+      )}
+
       <TeachersPanel
         teachers={teachers}
         invite={inviteTeacherAction}
@@ -43,6 +56,6 @@ export default async function AdminTeachersPage({ searchParams }: { searchParams
         remove={removeTeacherAction}
         readOnly={viewingAsOwner}
       />
-    </div>
+    </StaffPage>
   );
 }

@@ -29,6 +29,17 @@ export async function finalizeAnswer(params: { studentId: string; blueprintSlotI
 
   try {
     return await prisma.$transaction(async (tx) => {
+      // Lock this category's row before reading it. Two answers in the same
+      // category finalizing at once (two tabs, a retry overlapping the
+      // original) would otherwise both read the same ability, and the second
+      // write would erase the first's change. With the lock the second waits,
+      // then reads the ability the first one left. The cast keeps the
+      // comparison text-to-text, so no enum type name is spelled out here.
+      await tx.$queryRaw`
+        SELECT "id" FROM "category_states"
+         WHERE "studentId" = ${params.studentId} AND "category"::text = ${slot.resolvedCategory}
+           FOR UPDATE
+      `;
       const categoryState = await tx.categoryState.findUnique({
         where: { studentId_category: { studentId: params.studentId, category: slot.resolvedCategory } },
       });

@@ -1,14 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { DiagnosticError } from "./errors";
+import { sanitizeDraftPatch, type DraftPatch } from "@/lib/session/draft";
 
 // PRD-012 §16/§17 — unsubmitted selections and skip state must be preserved
 // across pause/resume, but only until the answer is finalized (submitted
 // answers are locked and must not be touched here).
-export async function saveDiagnosticDraft(
-  studentId: string,
-  attemptId: string,
-  patch: { draftAnswer?: string | null; skipped?: boolean },
-) {
+export async function saveDiagnosticDraft(studentId: string, attemptId: string, patch: DraftPatch) {
   const attempt = await prisma.diagnosticAttempt.findUnique({
     where: { id: attemptId },
     include: { diagnosticSession: true },
@@ -18,9 +15,12 @@ export async function saveDiagnosticDraft(
   }
   if (attempt.submittedAt) return attempt;
 
-  return prisma.diagnosticAttempt.update({
-    where: { id: attemptId },
-    data: patch,
+  // Conditioned on the row still being open, so a draft can't land on an
+  // answer submitted a moment earlier; the patch is rebuilt from the two draft
+  // fields (see sanitizeDraftPatch) because the action's argument is untrusted.
+  await prisma.diagnosticAttempt.updateMany({
+    where: { id: attemptId, submittedAt: null, waivedAt: null },
+    data: sanitizeDraftPatch(patch),
   });
 }
 

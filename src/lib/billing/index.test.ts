@@ -13,6 +13,7 @@ import {
 } from "@/lib/billing";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
+import { hasPaidAccess } from "@/lib/entitlements";
 import type Stripe from "stripe";
 
 vi.mock("@/lib/prisma", () => ({
@@ -32,6 +33,7 @@ vi.mock("@/lib/stripe", () => ({
 }));
 
 vi.mock("@/lib/email", () => ({ sendEmail: vi.fn(() => Promise.resolve()) }));
+vi.mock("@/lib/entitlements", () => ({ hasPaidAccess: vi.fn(() => Promise.resolve(false)) }));
 
 const mockedPrisma = prisma as unknown as {
   subscription: Record<string, ReturnType<typeof vi.fn>>;
@@ -115,6 +117,34 @@ describe("createCheckoutSession", () => {
     expect(call.customer).toBe("cus_existing");
   });
 
+  it("puts the account id on the subscription so later events can be attributed", async () => {
+    mockedPrisma.subscription.findUnique.mockResolvedValue(null);
+    mockedStripe.checkout.sessions.create.mockResolvedValue({ url: "https://checkout.stripe.com/x" });
+
+    await createCheckoutSession("user1", "MONTHLY", "http://localhost:3000");
+
+    const call = mockedStripe.checkout.sessions.create.mock.calls[0][0];
+    expect(call.subscription_data).toEqual({ metadata: { userId: "user1" } });
+  });
+
+  it("never passes a complimentary row's made-up customer id to Stripe", async () => {
+    mockedPrisma.subscription.findUnique.mockResolvedValue({ stripeCustomerId: "manual_comp_abc" });
+    mockedStripe.checkout.sessions.create.mockResolvedValue({ url: "https://checkout.stripe.com/x" });
+
+    await createCheckoutSession("user1", "MONTHLY", "http://localhost:3000");
+
+    expect(mockedStripe.checkout.sessions.create.mock.calls[0][0].customer).toBeUndefined();
+  });
+
+  it("refuses a second checkout for a student who already has Premium", async () => {
+    (hasPaidAccess as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
+
+    await expect(createCheckoutSession("user1", "MONTHLY", "http://x")).rejects.toMatchObject({
+      code: "ALREADY_SUBSCRIBED",
+    });
+    expect(mockedStripe.checkout.sessions.create).not.toHaveBeenCalled();
+  });
+
   it("throws STRIPE_NOT_CONFIGURED when no secret key is set", async () => {
     delete process.env.STRIPE_SECRET_KEY;
     await expect(createCheckoutSession("user1", "MONTHLY", "http://x")).rejects.toMatchObject({
@@ -136,10 +166,36 @@ describe("syncSubscriptionFromStripe", () => {
     expect(call.create.status).toBe("ACTIVE");
   });
 
-  it("does nothing when there's no existing row and no fallbackUserId", async () => {
+  it("throws for a live subscription it can't attribute, so Stripe retries the delivery", async () => {
     mockedPrisma.subscription.findUnique.mockResolvedValue(null);
 
-    await syncSubscriptionFromStripe(fakeStripeSubscription());
+    await expect(syncSubscriptionFromStripe(fakeStripeSubscription())).rejects.toThrow();
+    expect(mockedPrisma.subscription.upsert).not.toHaveBeenCalled();
+  });
+
+  it("lets an ended subscription it can't attribute go quietly", async () => {
+    mockedPrisma.subscription.findUnique.mockResolvedValue(null);
+
+    await syncSubscriptionFromStripe(fakeStripeSubscription({ status: "canceled" }));
+
+    expect(mockedPrisma.subscription.upsert).not.toHaveBeenCalled();
+  });
+
+  it("attributes a subscription by the account id checkout put in its metadata", async () => {
+    mockedPrisma.subscription.findUnique.mockResolvedValue(null);
+    mockedPrisma.subscription.upsert.mockResolvedValue({});
+
+    await syncSubscriptionFromStripe(fakeStripeSubscription({ metadata: { userId: "user1" } }));
+
+    expect(mockedPrisma.subscription.upsert.mock.calls[0][0].where).toEqual({ userId: "user1" });
+  });
+
+  it("doesn't let a different, ended subscription overwrite the one the student is on", async () => {
+    mockedPrisma.subscription.findUnique
+      .mockResolvedValueOnce(null) // no row for this event's customer
+      .mockResolvedValueOnce({ userId: "user1", status: "ACTIVE", stripeSubscriptionId: "sub_live" });
+
+    await syncSubscriptionFromStripe(fakeStripeSubscription({ id: "sub_stray", status: "canceled" }), "user1");
 
     expect(mockedPrisma.subscription.upsert).not.toHaveBeenCalled();
   });
@@ -441,9 +497,12 @@ describe("handleStripeWebhookEvent", () => {
     expect(mockedStripe.subscriptions.retrieve).not.toHaveBeenCalled();
   });
 
-  it("syncs on customer.subscription.updated and .deleted", async () => {
+  it("syncs on customer.subscription.updated and .deleted from Stripe's current state", async () => {
     mockedPrisma.subscription.findUnique.mockResolvedValue({ userId: "user1", status: "ACTIVE" });
     mockedPrisma.subscription.upsert.mockResolvedValue({});
+    mockedStripe.subscriptions.retrieve.mockImplementation((id: string) =>
+      Promise.resolve(fakeStripeSubscription({ id })),
+    );
 
     await handleStripeWebhookEvent({
       type: "customer.subscription.updated",
@@ -456,6 +515,20 @@ describe("handleStripeWebhookEvent", () => {
       data: { object: fakeStripeSubscription({ status: "canceled" }) },
     } as unknown as Stripe.Event);
     expect(mockedPrisma.subscription.upsert).toHaveBeenCalledTimes(2);
+    expect(mockedStripe.subscriptions.retrieve).toHaveBeenCalledWith("sub_1");
+  });
+
+  it("syncs when a delayed payment method finally succeeds", async () => {
+    mockedStripe.subscriptions.retrieve.mockResolvedValue(fakeStripeSubscription());
+    mockedPrisma.subscription.findUnique.mockResolvedValue(null);
+    mockedPrisma.subscription.upsert.mockResolvedValue({});
+
+    await handleStripeWebhookEvent({
+      type: "checkout.session.async_payment_succeeded",
+      data: { object: { client_reference_id: "user1", payment_status: "paid", subscription: "sub_1" } },
+    } as unknown as Stripe.Event);
+
+    expect(mockedPrisma.subscription.upsert).toHaveBeenCalled();
   });
 
   it("ignores unrelated event types", async () => {

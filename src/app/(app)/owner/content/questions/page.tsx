@@ -1,5 +1,6 @@
 import { listQuestions, parseQuestionListFilters } from "@/lib/content/list-questions";
 import { QuestionsTable } from "./questions-table";
+import { requireOwnerPage } from "@/lib/owner/guard";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -7,6 +8,7 @@ type SearchParams = Record<string, string | string[] | undefined>;
 // dashboard. Filters/search/sort/page all live in the URL so they survive
 // opening/closing Student Preview and are directly shareable/bookmarkable.
 export default async function QuestionsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  await requireOwnerPage();
   const filters = parseQuestionListFilters(await searchParams);
   const { rows, totalCount } = await listQuestions(filters);
 

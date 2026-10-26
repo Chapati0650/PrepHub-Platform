@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { QuestionDetail } from "@/components/session/session-results";
+import { ReviewDetail, useQuestionReview } from "@/components/session/session-results";
 import type { LoadedQuestion } from "@/components/session/session-runner";
 import type { RushParticipant, RushResults as RushResultsData } from "@/lib/rush/runs";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
@@ -21,22 +20,11 @@ export function RushQuestionReview({
   data: RushResultsData;
   loadQuestionDetail: (challengeId: string, position: number) => Promise<LoadedQuestion>;
 }) {
-  const [expanded, setExpanded] = useState<number | null>(null);
-  const [cache, setCache] = useState<Map<number, LoadedQuestion>>(new Map());
-  const [loading, setLoading] = useState(false);
+  // The shared review state, keyed by position as a string: a failed load
+  // shows a retry in the row instead of leaving it on "Loading…" for good.
+  const review = useQuestionReview((id) => loadQuestionDetail(data.challengeId, Number(id)));
 
   const opponent: RushParticipant | null = data.others.find((o) => o.status === "COMPLETED") ?? null;
-
-  async function toggle(position: number) {
-    if (expanded === position) return setExpanded(null);
-    setExpanded(position);
-    if (!cache.has(position)) {
-      setLoading(true);
-      const detail = await loadQuestionDetail(data.challengeId, position);
-      setCache((prev) => new Map(prev).set(position, detail));
-      setLoading(false);
-    }
-  }
 
   return (
     <section className="flex flex-col gap-4">
@@ -56,9 +44,9 @@ export function RushQuestionReview({
             <div key={q.position}>
               <button
                 type="button"
-                onClick={() => void toggle(q.position)}
+                onClick={() => review.toggle(String(q.position))}
                 className="flex w-full items-center justify-between gap-3 py-3 text-left text-sm"
-                aria-expanded={expanded === q.position}
+                aria-expanded={review.expandedId === String(q.position)}
               >
                 <span className="flex min-w-0 items-center gap-3">
                   <span className="w-6 shrink-0 font-heading text-sm font-semibold tabular-nums text-muted-foreground">{String(q.position + 1).padStart(2, "0")}</span>
@@ -68,17 +56,13 @@ export function RushQuestionReview({
                   <AnswerCell answer={mine} emphasis />
                   {theirs && <AnswerCell answer={theirs} />}
                   <span className="text-muted-foreground" aria-hidden="true">
-                    {expanded === q.position ? "−" : "+"}
+                    {review.expandedId === String(q.position) ? "−" : "+"}
                   </span>
                 </span>
               </button>
-              {expanded === q.position && (
+              {review.expandedId === String(q.position) && (
                 <div className="pb-4">
-                  {loading && !cache.has(q.position) ? (
-                    <p className="text-sm text-muted-foreground">Loading…</p>
-                  ) : (
-                    <QuestionDetail loaded={cache.get(q.position)!} isCorrect={mine.isCorrect ?? false} />
-                  )}
+                  <ReviewDetail review={review} id={String(q.position)} isCorrect={mine.isCorrect ?? false} />
                 </div>
               )}
             </div>

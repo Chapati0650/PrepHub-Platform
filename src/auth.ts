@@ -1,4 +1,4 @@
-import NextAuth from "next-auth";
+import NextAuth, { CredentialsSignin } from "next-auth";
 import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import { cache } from "react";
@@ -8,12 +8,23 @@ import { prisma } from "@/lib/prisma";
 import { FUNNEL_EVENTS, track } from "@/lib/analytics/track";
 import { hashPassword, needsRehash, verifyPassword } from "@/lib/password";
 import { sendWelcomeEmail } from "@/lib/auth/account";
+import { checkRateLimitEnforced, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
+import { logAuthFailure, logEvent, logRateLimitExceeded } from "@/lib/logger";
 import { authConfig } from "./auth.config";
 
 const credentialsSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
 });
+
+/**
+ * Thrown from `authorize` when a login is over its rate limit. Auth.js passes
+ * a CredentialsSignin subclass through untouched, so `loginAction` can tell
+ * "slow down" apart from "wrong password" by its type.
+ */
+export class LoginRateLimited extends CredentialsSignin {
+  code = "rate_limited";
+}
 
 const { handlers, signIn, signOut, auth: uncachedAuth } = NextAuth({
   ...authConfig,
@@ -69,11 +80,28 @@ const { handlers, signIn, signOut, auth: uncachedAuth } = NextAuth({
         if (!parsed.success) return null;
         const { email, password } = parsed.data;
 
-        const user = await prisma.user.findUnique({ where: { email } });
-        if (!user?.passwordHash || user.deletedAt) return null;
+        // GER §3's login limit lives here rather than in loginAction, because
+        // this function is also reachable directly: Auth.js serves
+        // POST /api/auth/callback/credentials from the same route handler, and
+        // a limit only the login form passed through left that endpoint open
+        // to unlimited password guessing. Keyed by both IP and the targeted
+        // email; see RATE_LIMITS for why the two sizes differ so much.
+        const ip = await getClientIp();
+        const [ipLimit, emailLimit] = await Promise.all([
+          checkRateLimitEnforced(`login:ip:${ip}`, RATE_LIMITS.LOGIN_PER_IP),
+          checkRateLimitEnforced(`login:email:${email}`, RATE_LIMITS.LOGIN_PER_EMAIL),
+        ]);
+        if (!ipLimit.allowed || !emailLimit.allowed) {
+          logRateLimitExceeded("Login rate limit exceeded", { ip, email });
+          throw new LoginRateLimited();
+        }
 
-        const valid = await verifyPassword(password, user.passwordHash);
-        if (!valid) return null;
+        const user = await prisma.user.findUnique({ where: { email } });
+        const valid = !!user?.passwordHash && !user.deletedAt && (await verifyPassword(password, user.passwordHash));
+        if (!user?.passwordHash || !valid) {
+          logAuthFailure("Login failed: incorrect credentials", { email, ip });
+          return null;
+        }
 
         // The password is correct and in hand, so this is the one moment the
         // stored hash can be re-costed without asking the user for anything.
@@ -95,6 +123,44 @@ const { handlers, signIn, signOut, auth: uncachedAuth } = NextAuth({
       },
     }),
   ],
+  events: {
+    // Google has verified the address it hands us. Auth.js nonetheless creates
+    // an OAuth user with `emailVerified: null` and never sets it when linking,
+    // so a Google student on a partner district's domain was asked to confirm
+    // an address Google had already confirmed: district enrollment acts only
+    // on a verified email (src/lib/district/enrollment.ts). Done on every
+    // Google sign-in, so accounts made before this existed are fixed the next
+    // time their owner signs in.
+    async signIn({ user, account }) {
+      if (account?.provider !== "google" || !user.id) return;
+      try {
+        await prisma.user.updateMany({ where: { id: user.id, emailVerified: null }, data: { emailVerified: new Date() } });
+      } catch (err) {
+        logEvent("AUTH_FAILURE", "Could not record a Google-verified email", { userId: user.id, error: String(err) });
+      }
+    },
+    // Linking Google to an existing account by email (allowDangerousEmailAccountLinking
+    // above) proves the person signing in owns the address. It proves nothing
+    // about whoever set the account's password: a password signup never
+    // confirms its email, so anyone could have registered this address first
+    // and be waiting for its real owner to arrive. When the address had never
+    // been confirmed, that password is dropped and every other session ended,
+    // so the account answers to the Google sign-in alone. "Forgot password"
+    // sets a new one through the owner's own inbox. This runs before the
+    // sign-in's own token is issued, so the jwt callback reads the new
+    // tokenVersion and the person signing in now stays signed in.
+    async linkAccount({ user, account }) {
+      if (account.provider !== "google" || !user.id) return;
+      try {
+        await prisma.user.updateMany({
+          where: { id: user.id, emailVerified: null, passwordHash: { not: null } },
+          data: { emailVerified: new Date(), passwordHash: null, tokenVersion: { increment: 1 } },
+        });
+      } catch (err) {
+        logEvent("AUTH_FAILURE", "Could not secure an account on Google linking", { userId: user.id, error: String(err) });
+      }
+    },
+  },
   callbacks: {
     ...authConfig.callbacks,
     async jwt({ token, user }) {

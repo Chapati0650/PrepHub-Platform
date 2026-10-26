@@ -21,11 +21,22 @@ function domainOf(email: string): string {
 export async function requestSchoolVerification(studentId: string, rawEmail: string): Promise<void> {
   const email = rawEmail.trim().toLowerCase();
 
-  const [existingMembership, emailAlreadyLinked] = await Promise.all([
+  const [account, existingMembership, emailAlreadyLinked] = await Promise.all([
+    prisma.user.findUnique({ where: { id: studentId }, select: { role: true, firstName: true } }),
     prisma.studentMembership.findUnique({ where: { studentId } }),
     prisma.studentMembership.findUnique({ where: { verifiedSchoolEmail: email } }),
   ]);
 
+  // A membership is what puts someone in a school's figures, its leaderboard
+  // and its announcement list. Staff accounts are kept out of all of those by
+  // never having one (CLAUDE.md, Phase 6), which this path didn't enforce:
+  // district enrollment checks the role, school-email verification didn't.
+  if (account && account.role !== "STUDENT") {
+    throw new SchoolVerificationError(
+      "NOT_A_STUDENT",
+      "School access connects to a student account. Staff accounts already have everything they need.",
+    );
+  }
   if (existingMembership) {
     throw new SchoolVerificationError(
       "ALREADY_HAS_MEMBERSHIP",
@@ -69,12 +80,9 @@ export async function requestSchoolVerification(studentId: string, rawEmail: str
     },
   });
 
-  // Addressed by name like every other email we send; studentId is already
-  // in scope, and a missing row simply falls back to a neutral greeting.
-  const student = await prisma.user.findUnique({
-    where: { id: studentId },
-    select: { firstName: true },
-  });
+  // Addressed by name like every other email we send; a missing row simply
+  // falls back to a neutral greeting.
+  const student = account;
 
   const verifyUrl = `${process.env.NEXTAUTH_URL ?? "http://localhost:3000"}/access/verify-school/${rawToken}`;
   await sendEmail({
@@ -189,6 +197,12 @@ export async function completeSchoolVerification(
     prisma.studentMembership.findUnique({ where: { studentId: currentStudentId } }),
     prisma.user.findUniqueOrThrow({ where: { id: currentStudentId } }),
   ]);
+  if (student.role !== "STUDENT") {
+    throw new SchoolVerificationError(
+      "NOT_A_STUDENT",
+      "School access connects to a student account. Staff accounts already have everything they need.",
+    );
+  }
   if (existingMembership) {
     throw new SchoolVerificationError(
       "ALREADY_HAS_MEMBERSHIP",

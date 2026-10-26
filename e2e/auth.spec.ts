@@ -74,8 +74,8 @@ test.describe("authentication (PRD-001)", () => {
     if (!resetUrl) throw new Error("Reset link not found in dev email");
 
     await page.goto(resetUrl);
-    await page.getByLabel("New password").fill("brand-new-pw1");
-    await page.getByRole("button", { name: "Set new password" }).click();
+    await page.getByLabel("Password", { exact: true }).fill("brand-new-pw1");
+    await page.getByRole("button", { name: "Set password" }).click();
     await expect(page).toHaveURL(/\/login$/);
 
     // old password must no longer work

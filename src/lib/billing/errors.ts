@@ -5,7 +5,8 @@ export class BillingError extends Error {
       | "SUBSCRIPTION_NOT_CANCELABLE"
       | "SAME_PLAN"
       | "INVALID_PROMO_CODE"
-      | "STRIPE_NOT_CONFIGURED",
+      | "STRIPE_NOT_CONFIGURED"
+      | "ALREADY_SUBSCRIBED",
     message: string,
   ) {
     super(message);

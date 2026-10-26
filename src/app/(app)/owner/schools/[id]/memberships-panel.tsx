@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ConfirmButton } from "@/components/confirm-button";
 import {
   Select,
   SelectContent,
@@ -138,6 +139,14 @@ function MembershipRowItem({
     });
   }
 
+  // Remove and Mark Graduated end the student's school access, so they ask
+  // first; the dialog shows an error itself.
+  async function confirmed(action: (membershipId: string, organizationId: string) => Promise<ActionState>) {
+    const result = await action(membership.id, organizationId);
+    if (!result.error) router.refresh();
+    return result;
+  }
+
   if (editing) {
     return (
       <TableRow>
@@ -205,12 +214,28 @@ function MembershipRowItem({
           </Button>
           {membership.status === "ACTIVE" && (
             <>
-              <Button size="sm" variant="ghost" disabled={isPending} onClick={() => run(removeMembershipAction)}>
+              <ConfirmButton
+                variant="ghost"
+                size="sm"
+                destructive
+                title={`Remove ${membership.student.firstName} from this school?`}
+                description={`${membership.student.firstName} loses Premium through this school as soon as you confirm. Their account and history are kept, and you can restore the membership later with Restore.`}
+                confirmLabel="Remove student"
+                onConfirm={() => confirmed(removeMembershipAction)}
+              >
                 Remove
-              </Button>
-              <Button size="sm" variant="ghost" disabled={isPending} onClick={() => run(markGraduatedAction)}>
+              </ConfirmButton>
+              <ConfirmButton
+                variant="ghost"
+                size="sm"
+                destructive
+                title={`Mark ${membership.student.firstName} as graduated?`}
+                description={`${membership.student.firstName} loses Premium through this school as soon as you confirm, ahead of the automatic July 1 cutoff. Their account and history are kept, but a graduated membership can't be restored from this page.`}
+                confirmLabel="Mark graduated"
+                onConfirm={() => confirmed(markGraduatedAction)}
+              >
                 Mark Graduated
-              </Button>
+              </ConfirmButton>
               <TransferDialog
                 membershipId={membership.id}
                 organizationId={organizationId}

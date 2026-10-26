@@ -20,10 +20,10 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ConfirmButton } from "@/components/confirm-button";
 
 const initialPreview: RosterPreviewState = {};
 const initialAction: ActionState = {};
-const initialInvite: RosterInviteState = {};
 
 const MODE_COPY: Record<string, { label: string; detail: string }> = {
   DOMAIN: {
@@ -348,20 +348,34 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: "wa
  * one press covered a district.
  */
 function InvitePanel({ id, summary }: { id: string; summary: RosterInviteSummary }) {
-  const [state, action, pending] = useActionState(sendRosterInvitesAction, initialInvite);
+  const [state, setState] = useState<(RosterInviteState & { reminder: boolean }) | null>(null);
+
+  // Through the confirmation rather than a bare form: each press emails up to
+  // a few hundred students and can't be unsent, so the dialog says how many.
+  async function send(reminder: boolean) {
+    const fd = new FormData();
+    fd.set("id", id);
+    if (reminder) fd.set("reminder", "1");
+    const result = await sendRosterInvitesAction({}, fd);
+    if (!result.error) setState({ ...result, reminder });
+    return result;
+  }
 
   return (
     <div className="border-t border-border pt-6">
       <p className="text-sm font-medium">Invite them</p>
       <p className="mt-1 text-sm text-muted-foreground">
         Emails every student on the roster who hasn&apos;t claimed their access, asking them to sign up
-        with their school address. No account or password is ever created for them.
+        with their school address. No account or password is ever created for them. Up to{" "}
+        {summary.perPressLimit} per press; a reminder only goes to someone last emailed over{" "}
+        {summary.reminderGapDays} days ago.
       </p>
 
-      <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Stat label="Awaiting claim" value={summary.awaitingClaim} />
         <Stat label="Never invited" value={summary.neverInvited} />
         <Stat label="Invited already" value={summary.alreadyInvited} />
+        <Stat label="Due a reminder" value={summary.reminderDue} />
       </div>
 
       {summary.lastInvitedAt && (
@@ -376,18 +390,14 @@ function InvitePanel({ id, summary }: { id: string; summary: RosterInviteSummary
         </p>
       )}
 
-      {state.error && (
-        <Alert variant="destructive" className="mt-4">
-          <AlertDescription>{state.error}</AlertDescription>
-        </Alert>
-      )}
-
-      {state.success && (
+      {state && (
         <Alert className="mt-4">
           <AlertDescription>
             {state.queued === 0
-              ? "Nobody was waiting on an invitation."
-              : `Queued ${state.queued} invitation${state.queued === 1 ? "" : "s"}.${
+              ? state.reminder
+                ? "Nobody was due a reminder."
+                : "Nobody was waiting on an invitation."
+              : `Queued ${state.queued} ${state.reminder ? "reminder" : "invitation"}${state.queued === 1 ? "" : "s"}.${
                   state.remaining ? ` ${state.remaining} still to go — send again to continue.` : ""
                 }`}
           </AlertDescription>
@@ -395,22 +405,46 @@ function InvitePanel({ id, summary }: { id: string; summary: RosterInviteSummary
       )}
 
       <div className="mt-4 flex flex-wrap gap-3">
-        <form action={action}>
-          <input type="hidden" name="id" value={id} />
-          <Button type="submit" disabled={pending || summary.neverInvited === 0}>
+        {summary.nextInviteBatch > 0 && (
+          <ConfirmButton
+            variant="default"
+            size="default"
+            title={`Email ${summary.nextInviteBatch} student${summary.nextInviteBatch === 1 ? "" : "s"}?`}
+            description={`Queues an invitation to ${summary.nextInviteBatch} never-invited student${
+              summary.nextInviteBatch === 1 ? "" : "s"
+            } on this roster, sent within minutes. An email can't be unsent.${
+              summary.neverInvited > summary.nextInviteBatch
+                ? ` ${summary.neverInvited - summary.nextInviteBatch} more will still be waiting.`
+                : ""
+            }`}
+            confirmLabel="Send invitations"
+            onConfirm={() => send(false)}
+          >
             <Mail className="size-4" aria-hidden />
-            {pending ? "Sending..." : `Invite ${summary.neverInvited} student${summary.neverInvited === 1 ? "" : "s"}`}
-          </Button>
-        </form>
+            {summary.nextInviteBatch < summary.neverInvited
+              ? `Invite the next ${summary.nextInviteBatch} of ${summary.neverInvited}`
+              : `Invite ${summary.neverInvited} student${summary.neverInvited === 1 ? "" : "s"}`}
+          </ConfirmButton>
+        )}
 
-        {summary.alreadyInvited > 0 && (
-          <form action={action}>
-            <input type="hidden" name="id" value={id} />
-            <input type="hidden" name="reminder" value="1" />
-            <Button type="submit" variant="outline" disabled={pending}>
-              {pending ? "Sending..." : `Remind all ${summary.awaitingClaim} unclaimed`}
-            </Button>
-          </form>
+        {summary.nextReminderBatch > 0 && (
+          <ConfirmButton
+            size="default"
+            title={`Remind ${summary.nextReminderBatch} student${summary.nextReminderBatch === 1 ? "" : "s"}?`}
+            description={`Queues one more email to ${summary.nextReminderBatch} student${
+              summary.nextReminderBatch === 1 ? "" : "s"
+            } invited over ${summary.reminderGapDays} days ago who still haven't claimed access. They won't be reminded again for ${summary.reminderGapDays} days. An email can't be unsent.${
+              summary.reminderDue > summary.nextReminderBatch
+                ? ` ${summary.reminderDue - summary.nextReminderBatch} more will still be due.`
+                : ""
+            }`}
+            confirmLabel="Send reminders"
+            onConfirm={() => send(true)}
+          >
+            {summary.nextReminderBatch < summary.reminderDue
+              ? `Remind the next ${summary.nextReminderBatch} of ${summary.reminderDue}`
+              : `Remind ${summary.reminderDue} unclaimed`}
+          </ConfirmButton>
         )}
       </div>
     </div>

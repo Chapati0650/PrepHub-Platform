@@ -28,12 +28,12 @@ describe("buildCommunityUpdates", () => {
 
   it("uses singular phrasing for exactly one active student", () => {
     const updates = buildCommunityUpdates({ ...base, studentsActiveToday: 1 });
-    expect(updates).toContain("1 student completed an adaptive session today.");
+    expect(updates).toContain("1 student practiced today.");
   });
 
   it("uses plural phrasing for multiple active students", () => {
     const updates = buildCommunityUpdates({ ...base, studentsActiveToday: 31 });
-    expect(updates).toContain("31 students completed an adaptive session today.");
+    expect(updates).toContain("31 students practiced today.");
   });
 
   it("includes the weekly SAT improvement update only when positive", () => {

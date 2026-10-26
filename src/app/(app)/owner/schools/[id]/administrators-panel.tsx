@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useActionState, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createAdministratorAction, removeAdministratorAssignmentAction, type ActionState } from "../actions";
 import { useCloseDialogOnSuccess } from "@/hooks/use-close-dialog-on-success";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ConfirmButton } from "@/components/confirm-button";
 import {
   Select,
   SelectContent,
@@ -43,8 +44,6 @@ export function AdministratorsPanel({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [state, formAction, pending] = useActionState(createAdministratorAction, initialState);
-  const [removingId, setRemovingId] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
 
   // The create form is a plain <form action> — Next.js auto-refreshes this
   // route's server data after it resolves, but doesn't close the dialog. Left
@@ -52,12 +51,12 @@ export function AdministratorsPanel({
   // which reads as "nothing happened" even though the row was created.
   useCloseDialogOnSuccess(state.success, setOpen);
 
-  function handleRemove(assignmentId: string) {
-    setRemovingId(assignmentId);
-    startTransition(async () => {
-      await removeAdministratorAssignmentAction(assignmentId, organizationId);
-      router.refresh();
-    });
+  // Removing ends someone's access, and nothing on this page assigns them
+  // back (a new administrator can't reuse the email), so it asks first.
+  async function handleRemove(assignmentId: string) {
+    const result = await removeAdministratorAssignmentAction(assignmentId, organizationId);
+    if (!result.error) router.refresh();
+    return result;
   }
 
   return (
@@ -71,14 +70,17 @@ export function AdministratorsPanel({
               <span>
                 {admin.firstName} ({admin.email}) — {admin.scope}
               </span>
-              <Button
+              <ConfirmButton
                 variant="ghost"
                 size="sm"
-                disabled={isPending && removingId === admin.assignmentId}
-                onClick={() => handleRemove(admin.assignmentId)}
+                destructive
+                title={`Remove ${admin.firstName} as an administrator?`}
+                description={`${admin.firstName} (${admin.email}) loses access to this organization's administrator pages as soon as you confirm. Their account is kept, but it can't be assigned back from this page, and a new administrator can't be created with the same email.`}
+                confirmLabel="Remove administrator"
+                onConfirm={() => handleRemove(admin.assignmentId)}
               >
                 Remove
-              </Button>
+              </ConfirmButton>
             </li>
           ))}
         </ul>

@@ -61,6 +61,28 @@ function sqlTextOf(call: unknown[]): string {
 }
 
 /**
+ * The full text and every bound value of a raw query, fragments included. A
+ * composed `Prisma.sql` fragment arrives as a nested object carrying its own
+ * `strings` and `values`, so the outer template alone doesn't show what a
+ * school-scoped query filters on.
+ */
+export function flattenSql(call: unknown[]): { text: string; values: unknown[] } {
+  const parts: string[] = [];
+  const values: unknown[] = [];
+  const walk = (strings: ArrayLike<string>, vals: unknown[]) => {
+    Array.from(strings).forEach((s, i) => {
+      parts.push(s);
+      if (i >= vals.length) return;
+      const v = vals[i] as { strings?: ArrayLike<string>; values?: unknown[] } | null;
+      if (v && typeof v === "object" && v.strings && Array.isArray(v.values)) walk(v.strings, v.values);
+      else values.push(v);
+    });
+  };
+  walk(call[0] as ArrayLike<string>, call.slice(1));
+  return { text: parts.join(" "), values };
+}
+
+/**
  * Installs a `$queryRaw` implementation that answers every student-activity
  * query from `fixture`. Returns the fixture so a test can mutate it in place.
  */
@@ -84,6 +106,14 @@ export function installActivityQueryMock(
       return Promise.resolve([...days].map((d) => ({ day: new Date(d) })));
     }
 
+    if (sql.includes("SELECT DISTINCT student_id")) {
+      const since = sinceFrom(values);
+      const students = new Set(
+        fixture.answers.filter((a) => !since || a.answeredAt >= since).map((a) => a.studentId),
+      );
+      return Promise.resolve([...students].map((student_id) => ({ student_id })));
+    }
+
     if (sql.includes("COUNT(DISTINCT student_id)")) {
       const since = sinceFrom(values);
       const students = new Set(
@@ -94,6 +124,20 @@ export function installActivityQueryMock(
 
     if (sql.includes('AS "questionsAnswered"')) {
       return Promise.resolve(perStudentActivity(fixture));
+    }
+
+    // After the per-student query, whose text also takes a MAX(answered_at).
+    if (sql.includes("MAX(answered_at) AS last_answered_at")) {
+      // The fixture has no memberships, so every answer in it is taken to be
+      // in the school's scope.
+      const latest = new Map<string, Date>();
+      for (const a of fixture.answers) {
+        const seen = latest.get(a.studentId);
+        if (!seen || a.answeredAt > seen) latest.set(a.studentId, a.answeredAt);
+      }
+      return Promise.resolve(
+        [...latest.entries()].map(([student_id, last_answered_at]) => ({ student_id, last_answered_at })),
+      );
     }
 
     if (sql.includes('AS "sessionsCompleted"')) {

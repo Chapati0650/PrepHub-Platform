@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { ASSIGNMENT_INSTRUCTIONS_MAX, ASSIGNMENT_MAX_QUESTIONS, ASSIGNMENT_TITLE_MAX } from "./config";
 import { requireOwnedAssignment, requireOwnedClassroom, type TeacherContext } from "./access";
 import { TeacherError } from "./errors";
+import { joinedAfterDeadline, turnedInLate } from "./deadline";
 
 export type AssignmentInput = {
   title: string;
@@ -139,6 +140,12 @@ export type AssignmentResults = {
     email: string;
     /** Still on the roster. A removed student's finished work stays listed. */
     enrolled: boolean;
+    /**
+     * Joined the class after this homework was already due (or closed). Not
+     * started, such a student is "Joined later", never "Missing", and isn't
+     * counted as not started.
+     */
+    joinedLater: boolean;
     status: SubmissionStatus;
     answered: number;
     correct: number;
@@ -147,7 +154,20 @@ export type AssignmentResults = {
     /** Positions (0-based) this student got wrong, for the per-student breakdown. */
     missed: number[];
   }[];
-  summary: { roster: number; completed: number; inProgress: number; notStarted: number; averagePercent: number | null };
+  /**
+   * Everything "of the class" counts the current roster only, so
+   * completed + inProgress + notStarted + joinedLater = roster. Finished work
+   * from students who have since left is counted on its own, in leftCompleted.
+   */
+  summary: {
+    roster: number;
+    completed: number;
+    inProgress: number;
+    notStarted: number;
+    joinedLater: number;
+    leftCompleted: number;
+    averagePercent: number | null;
+  };
 };
 
 /**
@@ -170,9 +190,10 @@ export async function getAssignmentResults(context: TeacherContext, assignmentId
       orderBy: { position: "asc" },
       select: { position: true, questionId: true, question: { select: { category: true, difficulty: true, questionType: true } } },
     }),
+    // Removed students too: when they joined still decides whether their work was late.
     prisma.classroomEnrollment.findMany({
-      where: { classroomId: assignment.classroomId, removedAt: null },
-      select: { student: { select: { id: true, firstName: true, email: true } } },
+      where: { classroomId: assignment.classroomId },
+      select: { joinedAt: true, removedAt: true, student: { select: { id: true, firstName: true, email: true } } },
     }),
     prisma.homeworkSession.findMany({
       where: { assignmentId },
@@ -208,9 +229,11 @@ export async function getAssignmentResults(context: TeacherContext, assignmentId
     }
   }
 
-  const rosterIds = new Set(enrollments.map((e) => e.student.id));
+  const roster = enrollments.filter((e) => e.removedAt === null);
+  const rosterIds = new Set(roster.map((e) => e.student.id));
+  const joinedAtByStudent = new Map(enrollments.map((e) => [e.student.id, e.joinedAt]));
   const people = [
-    ...enrollments.map((e) => ({ studentId: e.student.id, firstName: e.student.firstName, email: e.student.email, enrolled: true })),
+    ...roster.map((e) => ({ studentId: e.student.id, firstName: e.student.firstName, email: e.student.email, enrolled: true })),
     // Removed after starting: their work happened, so it stays in the results.
     ...sessions
       .filter((s) => !rosterIds.has(s.studentId))
@@ -221,13 +244,15 @@ export async function getAssignmentResults(context: TeacherContext, assignmentId
     const session = sessionByStudent.get(p.studentId);
     const finalized = session?.slots.filter((slot) => slot.finalizedAt) ?? [];
     const status: SubmissionStatus = !session ? "NOT_STARTED" : session.status === "COMPLETED" ? "COMPLETED" : "IN_PROGRESS";
+    const joinedAt = joinedAtByStudent.get(p.studentId) ?? null;
     return {
       ...p,
+      joinedLater: joinedAt !== null && joinedAfterDeadline(joinedAt, assignment),
       status,
       answered: finalized.length,
       correct: finalized.filter((slot) => slot.isCorrect).length,
       completedAt: session?.completedAt ?? null,
-      late: Boolean(assignment.dueAt && session?.completedAt && session.completedAt > assignment.dueAt),
+      late: turnedInLate(session?.completedAt ?? null, assignment, joinedAt),
       missed: finalized
         .filter((slot) => !slot.isCorrect)
         .map((slot) => slot.position)
@@ -235,13 +260,16 @@ export async function getAssignmentResults(context: TeacherContext, assignmentId
     };
   });
 
-  // Finished first (best score first), then in progress, then not started —
-  // the order a teacher scans for "who still owes me this".
-  const rank: Record<SubmissionStatus, number> = { COMPLETED: 0, IN_PROGRESS: 1, NOT_STARTED: 2 };
-  students.sort((a, b) => rank[a.status] - rank[b.status] || b.correct - a.correct || a.firstName.localeCompare(b.firstName));
+  // Finished first (best score first), then in progress, then not started,
+  // then those who joined after it was due — the order a teacher scans for
+  // "who still owes me this".
+  const rank = (s: (typeof students)[number]) =>
+    s.status === "COMPLETED" ? 0 : s.status === "IN_PROGRESS" ? 1 : s.joinedLater ? 3 : 2;
+  students.sort((a, b) => rank(a) - rank(b) || b.correct - a.correct || a.firstName.localeCompare(b.firstName));
 
   const total = questions.length;
-  const completed = students.filter((s) => s.status === "COMPLETED");
+  const current = students.filter((s) => s.enrolled);
+  const completed = current.filter((s) => s.status === "COMPLETED");
   return {
     id: assignment.id,
     title: assignment.title,
@@ -253,10 +281,12 @@ export async function getAssignmentResults(context: TeacherContext, assignmentId
     questions: perQuestion,
     students,
     summary: {
-      roster: enrollments.length,
+      roster: current.length,
       completed: completed.length,
-      inProgress: students.filter((s) => s.status === "IN_PROGRESS").length,
-      notStarted: students.filter((s) => s.status === "NOT_STARTED" && s.enrolled).length,
+      inProgress: current.filter((s) => s.status === "IN_PROGRESS").length,
+      notStarted: current.filter((s) => s.status === "NOT_STARTED" && !s.joinedLater).length,
+      joinedLater: current.filter((s) => s.status === "NOT_STARTED" && s.joinedLater).length,
+      leftCompleted: students.filter((s) => !s.enrolled && s.status === "COMPLETED").length,
       averagePercent:
         completed.length > 0 && total > 0
           ? Math.round((completed.reduce((sum, s) => sum + s.correct, 0) / (completed.length * total)) * 100)

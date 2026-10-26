@@ -72,6 +72,13 @@ export async function publishAnnouncement(
   createdByUserId: string,
   input: PublishAnnouncementInput,
 ): Promise<AnnouncementEntry> {
+  // An end date already behind us would publish an announcement no student
+  // ever sees while still emailing every one of them. The form's parser
+  // refuses it too; this is the rule, not just a form check.
+  if (input.expiresAt && input.expiresAt.getTime() <= Date.now()) {
+    throw new AdminError("INVALID_INPUT", "That end date has already passed. Pick today or a later day, or leave it empty.");
+  }
+
   const [org, memberships] = await Promise.all([
     prisma.organization.findUniqueOrThrow({ where: { id: schoolId } }),
     prisma.studentMembership.findMany({

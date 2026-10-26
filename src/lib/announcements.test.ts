@@ -105,6 +105,15 @@ describe("getActiveAnnouncementsForStudents", () => {
 });
 
 describe("publishAnnouncement", () => {
+  it("refuses an end date that has already passed, before anything is written or mailed", async () => {
+    mocked.studentMembership.findMany.mockResolvedValue([{ verifiedSchoolEmail: "ada@school.edu" }]);
+
+    await expect(
+      publishAnnouncement("school1", "admin1", { title: "t", message: "m", expiresAt: new Date(Date.now() - 1000) }),
+    ).rejects.toThrow(AdminError);
+    expect(mocked.$transaction).not.toHaveBeenCalled();
+  });
+
   it("creates the announcement and queues mail for every ACTIVE registered student", async () => {
     mocked.__tx.announcement.create.mockResolvedValue({
       id: "a1",

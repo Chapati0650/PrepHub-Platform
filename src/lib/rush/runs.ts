@@ -1,4 +1,4 @@
-import type { ClubSection, RushMode } from "@/generated/prisma/client";
+import { Prisma, type ClubSection, type RushMode } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { isAnswerCorrect } from "@/lib/adaptive/grading";
 import { getStudentQuestionContent, type StudentQuestionContent } from "@/lib/session/question-content";
@@ -47,22 +47,26 @@ export async function startRush(
 // this product's scale not worth a row lock.
 export async function startRandomRush(studentId: string, params: { section: ClubSection }): Promise<{ runId: string; challengeId: string; matched: boolean }> {
   return prisma.$transaction(async (tx) => {
-    // "Exactly one run" can't be expressed in a where clause, so fetch the
-    // oldest few candidates and take the first that still has only its
-    // creator in it.
-    const candidates = await tx.rushChallenge.findMany({
-      where: {
-        mode: "RANDOM",
-        live: false,
-        creatorId: { not: studentId },
-        set: { section: params.section },
-        runs: { every: { status: "COMPLETED" }, none: { studentId } },
-      },
-      orderBy: { createdAt: "asc" },
-      take: 20,
-      select: { id: true, _count: { select: { runs: true } } },
-    });
-    const waiting = candidates.find((c) => c._count.runs === 1);
+    // "Exactly one run, and it's finished" is a GROUP BY ... HAVING, which
+    // Prisma's where can't express. It used to fetch the oldest twenty
+    // candidates and look for a one-run challenge among them, but finished
+    // two-player matches satisfy the rest of the filter too: once the twenty
+    // oldest were all finished matches, nobody was ever matched again and
+    // every student opened a new challenge that no one would join.
+    const [waiting] = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT c."id"
+        FROM "rush_challenges" c
+        JOIN "rush_sets" s ON s."id" = c."setId"
+        JOIN "rush_runs" r ON r."challengeId" = c."id"
+       WHERE c."mode" = 'RANDOM'
+         AND c."live" = false
+         AND c."creatorId" <> ${studentId}
+         AND s."section" = ${params.section}::"ClubSection"
+       GROUP BY c."id", c."createdAt"
+      HAVING COUNT(*) = 1 AND bool_and(r."status" = 'COMPLETED') AND bool_and(r."studentId" <> ${studentId})
+       ORDER BY c."createdAt" ASC
+       LIMIT 1
+    `);
     if (waiting) {
       const run = await tx.rushRun.create({ data: { challengeId: waiting.id, studentId }, select: { id: true } });
       return { runId: run.id, challengeId: waiting.id, matched: true };
@@ -297,11 +301,27 @@ export type RushAnswerResult = {
 };
 
 // Grades and scores one answer. `answer` null = the client's clock ran out.
+/** Another request recorded this position's answer first; see submitRushAnswer. */
+class AnsweredElsewhere extends Error {}
+
 // Elapsed time is servedAt → now, on the server. Idempotent: a retried
 // submit for an already-answered position returns what was recorded, and
-// the run's totals are only ever bumped once per position because the
-// answeredAt check and the writes share a transaction.
+// the run's totals are only ever bumped once per position. Sharing a
+// transaction isn't enough for that on its own — under READ COMMITTED two
+// concurrent submits both read the answer as open — so the answer row is
+// claimed conditionally, and the loser of that race is replayed, which
+// lands on the "already answered" path below. Without it, firing A, B, C
+// and D at once scored the right one and counted duplicates on top.
 export async function submitRushAnswer(params: { studentId: string; runId: string; position: number; answer: string | null }): Promise<RushAnswerResult> {
+  try {
+    return await submitRushAnswerOnce(params);
+  } catch (err) {
+    if (err instanceof AnsweredElsewhere) return submitRushAnswerOnce(params);
+    throw err;
+  }
+}
+
+async function submitRushAnswerOnce(params: { studentId: string; runId: string; position: number; answer: string | null }): Promise<RushAnswerResult> {
   const { studentId, runId, position, answer } = params;
   return prisma.$transaction(async (tx) => {
     const run = await tx.rushRun.findUnique({
@@ -363,10 +383,11 @@ export async function submitRushAnswer(params: { studentId: string; runId: strin
     const countedMs = Math.min(elapsedMs, limitMs);
     const done = position + 1 >= total;
 
-    await tx.rushAnswer.update({
-      where: { id: existing.id },
+    const claimed = await tx.rushAnswer.updateMany({
+      where: { id: existing.id, answeredAt: null },
       data: { answeredAt: now, answer, isCorrect, elapsedMs, points },
     });
+    if (claimed.count === 0) throw new AnsweredElsewhere();
     const updated = await tx.rushRun.update({
       where: { id: runId },
       data: {

@@ -8,7 +8,10 @@ vi.mock("@/lib/prisma", () => {
     predictionHistoryEntry: { findFirst: vi.fn(), create: vi.fn() },
     practiceSet: { findUnique: vi.fn() },
     categoryState: { findMany: vi.fn() },
+    $queryRaw: vi.fn(),
+    $transaction: vi.fn(),
   };
+  (mockPrisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation((fn: (tx: unknown) => unknown) => fn(mockPrisma));
   return { prisma: mockPrisma };
 });
 
@@ -16,6 +19,7 @@ const mocked = prisma as unknown as {
   predictionHistoryEntry: Record<string, ReturnType<typeof vi.fn>>;
   practiceSet: Record<string, ReturnType<typeof vi.fn>>;
   categoryState: Record<string, ReturnType<typeof vi.fn>>;
+  $queryRaw: ReturnType<typeof vi.fn>;
 };
 
 function completedSet(overrides: Partial<Record<string, unknown>> = {}) {
@@ -37,6 +41,7 @@ beforeEach(() => {
   mocked.predictionHistoryEntry.findFirst.mockReset();
   mocked.predictionHistoryEntry.findFirst
     .mockResolvedValueOnce(null) // idempotency check
+    .mockResolvedValueOnce(null) // the same check again, under the lock
     .mockResolvedValueOnce({ representativeMidpoint: 440 }); // initial diagnostic baseline
   mocked.practiceSet.findUnique.mockResolvedValue(completedSet());
   mocked.categoryState.findMany.mockResolvedValue(categoryStatesAt(100));
@@ -58,6 +63,20 @@ describe("generateAdaptivePrediction", () => {
     expect(mocked.practiceSet.findUnique).not.toHaveBeenCalled();
   });
 
+  it("returns the entry a concurrent call wrote while this one waited on the set's lock", async () => {
+    // Both calls missed the fast-path check; the lock makes this one wait, and
+    // the re-check under it finds the winner's entry instead of writing a second.
+    mocked.predictionHistoryEntry.findFirst.mockReset();
+    const winner = { id: "pred-winner" };
+    mocked.predictionHistoryEntry.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(winner);
+
+    const result = await generateAdaptivePrediction("student1", "set1");
+
+    expect(result).toBe(winner);
+    expect(mocked.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(mocked.predictionHistoryEntry.create).not.toHaveBeenCalled();
+  });
+
   it("throws SET_INCOMPLETE when the practice set is not COMPLETED", async () => {
     mocked.practiceSet.findUnique.mockResolvedValue(completedSet({ status: "ACTIVE" }));
 
@@ -72,7 +91,7 @@ describe("generateAdaptivePrediction", () => {
 
   it("throws DIAGNOSTIC_INCOMPLETE when no initial diagnostic prediction exists as a baseline", async () => {
     mocked.predictionHistoryEntry.findFirst.mockReset();
-    mocked.predictionHistoryEntry.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    mocked.predictionHistoryEntry.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(null);
 
     await expect(generateAdaptivePrediction("student1", "set1")).rejects.toThrow(/diagnostic/i);
   });

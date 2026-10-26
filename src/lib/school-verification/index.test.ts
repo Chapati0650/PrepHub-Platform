@@ -40,6 +40,7 @@ describe("requestSchoolVerification", () => {
 
   function mockNoExisting() {
     mocked.studentMembership.findUnique.mockResolvedValue(null);
+    mocked.user.findUnique.mockResolvedValue({ role: "STUDENT", firstName: "Ada" });
   }
 
   it("throws ALREADY_HAS_MEMBERSHIP when the student already has a membership", async () => {
@@ -91,7 +92,7 @@ describe("requestSchoolVerification", () => {
     });
     mocked.schoolVerificationToken.create.mockResolvedValue({});
 
-    mocked.user.findUnique.mockResolvedValue({ firstName: "Ada" });
+    mocked.user.findUnique.mockResolvedValue({ role: "STUDENT", firstName: "Ada" });
 
     await requestSchoolVerification("student1", "  Kid@K12.FriscoISD.org  ");
 
@@ -104,6 +105,16 @@ describe("requestSchoolVerification", () => {
     const sent = vi.mocked(sendEmail).mock.calls[0][0];
     expect(sent.text).toContain("Hi Ada,");
     expect(sent.text).toContain("— Prithvi, PrepHub");
+  });
+
+  it("refuses a staff account, which must never hold a school membership", async () => {
+    mockNoExisting();
+    mocked.user.findUnique.mockResolvedValue({ role: "TEACHER", firstName: "Ada" });
+
+    await expect(requestSchoolVerification("teacher1", "kid@k12.friscoisd.org")).rejects.toMatchObject({
+      code: "NOT_A_STUDENT",
+    });
+    expect(mocked.schoolVerificationToken.create).not.toHaveBeenCalled();
   });
 
   it("falls back to a neutral greeting when the student row is missing", async () => {
@@ -203,7 +214,7 @@ describe("requestSchoolVerification with a roster-only organization", () => {
     mocked.studentMembership.findUnique.mockResolvedValue(null);
     mocked.organizationDomain.findFirst.mockResolvedValue({ organizationId: "org1", organization: rosterOnly });
     mocked.schoolVerificationToken.create.mockResolvedValue({});
-    mocked.user.findUnique.mockResolvedValue({ firstName: "Ada" });
+    mocked.user.findUnique.mockResolvedValue({ role: "STUDENT", firstName: "Ada" });
   });
 
   it("refuses an address on the domain that isn't on the roster, and says why", async () => {
@@ -274,7 +285,7 @@ describe("completeSchoolVerification", () => {
   it("throws ALREADY_HAS_MEMBERSHIP if a membership was created since the request", async () => {
     mocked.schoolVerificationToken.findUnique.mockResolvedValue(baseToken());
     mocked.studentMembership.findUnique.mockResolvedValue({ id: "m1" });
-    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 10 });
+    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 10, role: "STUDENT" });
 
     await expect(completeSchoolVerification("raw", "student1")).rejects.toMatchObject({
       code: "ALREADY_HAS_MEMBERSHIP",
@@ -303,7 +314,7 @@ describe("completeSchoolVerification", () => {
       school: { officialName: "Byron Nelson High School" },
     });
     mocked.studentMembership.findUnique.mockResolvedValue(null);
-    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 11 });
+    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 11, role: "STUDENT" });
 
     await completeSchoolVerification("raw", "student1");
 
@@ -328,7 +339,7 @@ describe("completeSchoolVerification", () => {
     );
     mocked.schoolRosterEntry.findFirst.mockResolvedValue(null);
     mocked.studentMembership.findUnique.mockResolvedValue(null);
-    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 10 });
+    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 10, role: "STUDENT" });
 
     await expect(completeSchoolVerification("raw", "student1")).rejects.toMatchObject({ code: "NOT_ON_ROSTER" });
     expect(mocked.studentMembership.create).not.toHaveBeenCalled();
@@ -349,7 +360,7 @@ describe("completeSchoolVerification", () => {
       }),
     );
     mocked.studentMembership.findUnique.mockResolvedValue(null);
-    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 10 });
+    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 10, role: "STUDENT" });
 
     await expect(completeSchoolVerification("raw", "student1")).rejects.toMatchObject({
       code: "NEEDS_SCHOOL_SELECTION",
@@ -371,7 +382,7 @@ describe("completeSchoolVerification", () => {
       }),
     );
     mocked.studentMembership.findUnique.mockResolvedValue(null);
-    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 10 });
+    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 10, role: "STUDENT" });
 
     await expect(
       completeSchoolVerification("raw", "student1", "not-a-real-school"),
@@ -390,7 +401,7 @@ describe("completeSchoolVerification", () => {
       }),
     );
     mocked.studentMembership.findUnique.mockResolvedValue(null);
-    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 10 });
+    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 10, role: "STUDENT" });
     mocked.schoolVerificationToken.update.mockResolvedValue({});
     mocked.studentMembership.create.mockResolvedValue({});
 
@@ -407,7 +418,7 @@ describe("completeSchoolVerification", () => {
       baseToken({ matchedOrganization: { id: "school1", status: "SUSPENDED", organizationType: "SCHOOL", schools: [] } }),
     );
     mocked.studentMembership.findUnique.mockResolvedValue(null);
-    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 10 });
+    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 10, role: "STUDENT" });
 
     await expect(completeSchoolVerification("raw", "student1")).rejects.toMatchObject({
       code: "PARTNERSHIP_INACTIVE",
@@ -417,7 +428,7 @@ describe("completeSchoolVerification", () => {
   it("calls scheduleSubscriptionNonRenewal (PRD-003 §16) after membership creation succeeds", async () => {
     mocked.schoolVerificationToken.findUnique.mockResolvedValue(baseToken());
     mocked.studentMembership.findUnique.mockResolvedValue(null);
-    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 10 });
+    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 10, role: "STUDENT" });
     mocked.schoolVerificationToken.update.mockResolvedValue({});
     mocked.studentMembership.create.mockResolvedValue({});
 
@@ -429,7 +440,7 @@ describe("completeSchoolVerification", () => {
   it("marks the token completed atomically alongside membership creation", async () => {
     mocked.schoolVerificationToken.findUnique.mockResolvedValue(baseToken());
     mocked.studentMembership.findUnique.mockResolvedValue(null);
-    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 11 });
+    mocked.user.findUniqueOrThrow.mockResolvedValue({ grade: 11, role: "STUDENT" });
     mocked.schoolVerificationToken.update.mockResolvedValue({});
     mocked.studentMembership.create.mockResolvedValue({});
 

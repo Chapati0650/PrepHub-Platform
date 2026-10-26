@@ -28,6 +28,7 @@ import { MembershipsPanel } from "./memberships-panel";
 import { RosterPanel } from "./roster-panel";
 import { LogoForm } from "./logo-form";
 import { RushLeaderboardForm } from "./leaderboard-form";
+import { requireOwnerPage } from "@/lib/owner/guard";
 
 export default async function OrganizationDetailPage({
   params,
@@ -36,6 +37,7 @@ export default async function OrganizationDetailPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  await requireOwnerPage();
   const { id } = await params;
   // The roster search lives in the URL so a particular lookup is shareable and
   // the back button behaves, same as the Student Directory's filters.
@@ -74,7 +76,7 @@ export default async function OrganizationDetailPage({
           <CardTitle>Status</CardTitle>
         </CardHeader>
         <CardContent>
-          <StatusActions id={org.id} status={org.status} />
+          <StatusActions id={org.id} status={org.status} paidByDistrict={Boolean(org.parentDistrictId)} />
         </CardContent>
       </Card>
 

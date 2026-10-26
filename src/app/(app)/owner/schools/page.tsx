@@ -13,6 +13,7 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { CreateOrganizationForm } from "./create-organization-form";
+import { requireOwnerPage } from "@/lib/owner/guard";
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
@@ -21,6 +22,7 @@ function formatDate(date: Date): string {
 // PRD-017 §18: the Owner's fourth primary page — a compact table over every
 // organization. Deliberately no seat-limit column/controls (§11: unlimited access).
 export default async function OwnerSchoolsPage() {
+  await requireOwnerPage();
   const organizations = await listOrganizations();
 
   return (

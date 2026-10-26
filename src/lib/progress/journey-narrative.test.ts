@@ -16,7 +16,7 @@ describe("buildJourneyNarrative", () => {
     const narrative = buildJourneyNarrative(base);
 
     expect(narrative).toContain("You started PrepHub with a predicted SAT score of 1260–1320.");
-    expect(narrative).toContain("completed 43 adaptive sessions, answered 903 questions");
+    expect(narrative).toContain("completed 43 practice sets, answered 903 questions");
     expect(narrative).toContain("improved your predicted SAT score by 180 points");
     expect(narrative).toContain("Your greatest improvement has been Geometry & Trig, increasing by 19%.");
     expect(narrative).toContain("You're now within approximately 20 points of your target score of 1500.");
@@ -24,7 +24,7 @@ describe("buildJourneyNarrative", () => {
 
   it("uses singular 'session' for exactly one completed session", () => {
     const narrative = buildJourneyNarrative({ ...base, completedSessions: 1 });
-    expect(narrative).toContain("completed 1 adaptive session,");
+    expect(narrative).toContain("completed 1 practice set,");
   });
 
   it("omits the session summary sentence when no sessions are completed yet", () => {

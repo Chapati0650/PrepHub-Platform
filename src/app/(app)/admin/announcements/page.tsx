@@ -1,45 +1,45 @@
+import { prisma } from "@/lib/prisma";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { OwnerSchoolSwitcher } from "../school-switcher";
 import { listAnnouncements } from "@/lib/announcements";
-import { PageHeader } from "@/components/page-header";
+import { localDateInputValue } from "@/lib/community/local-day";
+import { StaffHeader, StaffPage, StaffUnavailable } from "@/components/staff/staff-ui";
 import { AnnouncementsPanel } from "./announcements-panel";
 
-// PRD-011 §16-§18 — the administrator's brief, one-way communication tool:
-// create, preview, publish (with email delivery to every registered student),
-// and manage active/previous announcements.
-export default async function AnnouncementsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ school?: string }>;
-}) {
+// PRD-011 §16-§18 — the administrator's brief, one-way message to students:
+// write, check exactly what students will get, send (shown in PrepHub and
+// emailed once), and take it down.
+export default async function AnnouncementsPage({ searchParams }: { searchParams: Promise<{ school?: string }> }) {
   const { school } = await searchParams;
   const { schoolId, viewingAsOwner, availableSchools } = await requireAdminSchoolContext(school);
 
-  if (!schoolId) {
-    return (
-      <div className="mx-auto flex max-w-lg flex-col items-center gap-4 p-8 text-center">
-        <h1 className="text-xl sm:text-2xl">Announcements aren&apos;t available for this account.</h1>
-        <p className="text-muted-foreground">
-          This area is scoped to a single school. Contact PrepHub support if you believe this is unexpected.
-        </p>
-      </div>
-    );
-  }
+  if (!schoolId) return <StaffUnavailable title="Announcements aren't available for this account." />;
 
-  const announcements = await listAnnouncements(schoolId);
+  const [announcements, org, recipients] = await Promise.all([
+    listAnnouncements(schoolId),
+    prisma.organization.findUniqueOrThrow({ where: { id: schoolId }, select: { officialName: true } }),
+    // The same set publishAnnouncement mails: students whose access is live.
+    prisma.studentMembership.count({ where: { schoolId, status: "ACTIVE" } }),
+  ]);
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8">
+    <StaffPage>
       {viewingAsOwner && (
         <OwnerSchoolSwitcher basePath="/admin/announcements" schools={availableSchools} currentSchoolId={schoolId} />
       )}
 
-      <PageHeader
-        eyebrow="Administrator"
+      <StaffHeader
+        eyebrow="Your school"
         title="Announcements"
-        description="Share a brief update with your registered students. Announcements appear inside PrepHub and are emailed once, at publish time."
+        description="Send a short message to every student at your school. It appears at the top of their PrepHub home page and is emailed to their school address once, when you send it."
       />
-      <AnnouncementsPanel announcements={announcements} />
-    </div>
+      <AnnouncementsPanel
+        announcements={announcements}
+        schoolName={org.officialName}
+        recipients={recipients}
+        readOnly={viewingAsOwner}
+        today={localDateInputValue(new Date())}
+      />
+    </StaffPage>
   );
 }

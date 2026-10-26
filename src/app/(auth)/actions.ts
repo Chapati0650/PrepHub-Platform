@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 import { RUSH_JOIN_COOKIE } from "@/lib/rush/join-cookie";
 import { readPendingRushCode } from "@/lib/rush/pending-join";
 import { AuthError as NextAuthError } from "next-auth";
-import { signIn } from "@/auth";
+import { LoginRateLimited, signIn } from "@/auth";
 import {
   signUpSchema,
   loginSchema,
@@ -17,7 +17,7 @@ import { ensureDistrictMembership, getActivePartnerDomains, isDistrictCandidateE
 import { sendDistrictVerificationEmail } from "@/lib/district/email-verification";
 import { AuthError } from "@/lib/auth/errors";
 import { checkRateLimitEnforced, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
-import { logAuthFailure, logEvent, logRateLimitExceeded } from "@/lib/logger";
+import { logEvent, logRateLimitExceeded } from "@/lib/logger";
 
 const TOO_MANY_REQUESTS_MESSAGE = "Too many attempts. Please wait a few minutes and try again.";
 
@@ -130,23 +130,9 @@ export async function loginAction(_prev: ActionState, formData: FormData): Promi
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  // GER §3: keyed by both IP and the targeted email so a single attacker
-  // hammering one account and an attacker spraying many accounts from one
-  // IP are both slowed down, without either check alone blocking a student
-  // who's simply retyping their own password a few times. The two limits are
-  // deliberately very different sizes — see RATE_LIMITS: a whole campus shares
-  // one public IP, so the IP bucket has to fit a computer lab, while the email
-  // bucket is the one doing the security work.
-  const ip = await getClientIp();
-  const [ipLimit, emailLimit] = await Promise.all([
-    checkRateLimitEnforced(`login:ip:${ip}`, RATE_LIMITS.LOGIN_PER_IP),
-    checkRateLimitEnforced(`login:email:${parsed.data.email}`, RATE_LIMITS.LOGIN_PER_EMAIL),
-  ]);
-  if (!ipLimit.allowed || !emailLimit.allowed) {
-    logRateLimitExceeded("Login rate limit exceeded", { ip, email: parsed.data.email });
-    return { error: TOO_MANY_REQUESTS_MESSAGE };
-  }
-
+  // GER §3's login rate limit and the failed-login log both live in the
+  // Credentials provider's authorize (src/auth.ts), so they also cover Auth.js's
+  // own callback endpoint, which reaches authorize without passing through here.
   try {
     await signIn("credentials", {
       email: parsed.data.email,
@@ -154,10 +140,8 @@ export async function loginAction(_prev: ActionState, formData: FormData): Promi
       redirect: false,
     });
   } catch (err) {
-    if (err instanceof NextAuthError) {
-      logAuthFailure("Login failed: incorrect credentials", { email: parsed.data.email, ip });
-      return { error: "Incorrect email or password." };
-    }
+    if (err instanceof LoginRateLimited) return { error: TOO_MANY_REQUESTS_MESSAGE };
+    if (err instanceof NextAuthError) return { error: "Incorrect email or password." };
     throw err;
   }
 

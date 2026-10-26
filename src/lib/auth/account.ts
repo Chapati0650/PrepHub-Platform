@@ -5,6 +5,8 @@ import { hashPassword, verifyPassword } from "@/lib/password";
 import { sendEmail } from "@/lib/email";
 import { CURRENT_PRIVACY_VERSION, CURRENT_TOS_VERSION } from "@/lib/legal";
 import { AuthError } from "@/lib/auth/errors";
+import { cancelSubscriptionForDeletedAccount } from "@/lib/billing";
+import { DELETE_CONFIRMATION_WORD } from "@/lib/auth/delete-confirmation";
 import type { SignUpInput } from "@/lib/validation/auth";
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -118,16 +120,32 @@ export async function confirmPasswordReset(token: string, newPassword: string): 
   });
 
   if (!record || record.usedAt) {
-    throw new AuthError("INVALID_TOKEN", "This reset link is invalid or has already been used.");
+    throw new AuthError(
+      "INVALID_TOKEN",
+      "This link has already been used or isn't valid.",
+    );
   }
   if (record.expiresAt < new Date()) {
-    throw new AuthError("TOKEN_EXPIRED", "This reset link has expired.");
+    throw new AuthError(
+      "TOKEN_EXPIRED",
+      "This link has expired. If you were invited as a teacher, your administrator can also send the invitation again.",
+    );
   }
 
   const passwordHash = await hashPassword(newPassword);
+  const now = new Date();
 
-  await prisma.$transaction([
-    prisma.user.update({
+  await prisma.$transaction(async (tx) => {
+    // Claimed first and conditionally, so two submits of the same link can't
+    // both set a password: the loser finds the token already used.
+    const claimed = await tx.passwordResetToken.updateMany({
+      where: { id: record.id, usedAt: null },
+      data: { usedAt: now },
+    });
+    if (claimed.count === 0) {
+      throw new AuthError("INVALID_TOKEN", "This link has already been used. Sign in with your new password.");
+    }
+    await tx.user.update({
       where: { id: record.userId },
       data: {
         passwordHash,
@@ -135,12 +153,18 @@ export async function confirmPasswordReset(token: string, newPassword: string): 
         // signal the previous session(s) may not be trusted.
         tokenVersion: { increment: 1 },
       },
-    }),
-    prisma.passwordResetToken.update({
-      where: { id: record.id },
-      data: { usedAt: new Date() },
-    }),
-  ]);
+    });
+    // The link arrived at this account's address, so using it proves the
+    // address is theirs — which is what district enrollment waits for on a
+    // password account (src/lib/district/enrollment.ts).
+    await tx.user.updateMany({ where: { id: record.userId, emailVerified: null }, data: { emailVerified: now } });
+    // Any other link still sitting in the inbox (an earlier reset, a teacher
+    // invitation) stops working once a password has been chosen.
+    await tx.passwordResetToken.updateMany({
+      where: { userId: record.userId, usedAt: null },
+      data: { usedAt: now },
+    });
+  });
 }
 
 export async function logOutAllDevices(userId: string): Promise<void> {
@@ -153,35 +177,77 @@ export async function logOutAllDevices(userId: string): Promise<void> {
 /** PRD-001: self-service, reauthenticated, atomic, and anonymizing rather than
  *  a hard delete — history is retained for legal/fraud/tax reasons but PII is
  *  scrubbed and the account can no longer be used or discovered by email. */
-export async function deleteAccount(userId: string, password: string): Promise<void> {
+export async function deleteAccount(
+  userId: string,
+  confirm: { password?: string; confirmation?: string },
+): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user || user.deletedAt) {
     throw new AuthError("INVALID_CREDENTIALS", "Account not found.");
   }
 
-  // Accounts created via Google-only have no password to reauthenticate with.
-  // TODO: before launch, add an OAuth re-auth challenge for that path instead
-  // of skipping reauthentication entirely.
   if (user.passwordHash) {
-    const valid = await verifyPassword(password, user.passwordHash);
+    const valid = !!confirm.password && (await verifyPassword(confirm.password, user.passwordHash));
     if (!valid) {
       throw new AuthError("INVALID_CREDENTIALS", "Incorrect password.");
     }
+  } else if (confirm.confirmation?.trim().toUpperCase() !== DELETE_CONFIRMATION_WORD) {
+    // A Google-only account has no password to re-enter, which used to mean a
+    // single click deleted it. Typing the word is the deliberate second step.
+    throw new AuthError("INVALID_CREDENTIALS", `Type ${DELETE_CONFIRMATION_WORD} to confirm.`);
   }
 
-  await prisma.$transaction([
-    prisma.user.update({
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
       where: { id: userId },
       data: {
-        deletedAt: new Date(),
+        deletedAt: now,
         email: `deleted-${userId}@deleted.prephub.invalid`,
         firstName: "Deleted User",
         passwordHash: null,
         image: null,
         tokenVersion: { increment: 1 },
       },
-    }),
-    prisma.account.deleteMany({ where: { userId } }),
-    prisma.session.deleteMany({ where: { userId } }),
-  ]);
+    });
+    await tx.account.deleteMany({ where: { userId } });
+    await tx.session.deleteMany({ where: { userId } });
+
+    // School access ends with the account, the way an Owner's removal does
+    // (PRD-017 §14), with the same audit record. The school address is
+    // personal data and also unique: left in place, it kept "Deleted User" in
+    // the school's figures and leaderboard, and made the student's own
+    // re-registration with that address fail to enroll.
+    const membership = await tx.studentMembership.findUnique({ where: { studentId: userId } });
+    if (membership) {
+      await tx.studentMembership.update({
+        where: { id: membership.id },
+        data: {
+          verifiedSchoolEmail: `deleted-${membership.id}@deleted.prephub.invalid`,
+          ...(membership.status === "ACTIVE" ? { status: "REMOVED" as const, removedAt: now } : {}),
+        },
+      });
+      if (membership.status === "ACTIVE") {
+        await tx.membershipHistoryEvent.create({
+          data: {
+            membershipId: membership.id,
+            eventType: "REMOVAL",
+            performedByAccountId: userId,
+            optionalReason: "Account deleted by the student",
+          },
+        });
+      }
+    }
+    await tx.classroomEnrollment.updateMany({ where: { studentId: userId, removedAt: null }, data: { removedAt: now } });
+
+    // A teacher's classes would otherwise live on without anyone able to see
+    // or close them: join codes still working, homework still arriving from
+    // "Deleted User". Archived exactly as an administrator's removal does.
+    await tx.classroom.updateMany({ where: { teacherId: userId, archivedAt: null }, data: { archivedAt: now } });
+    await tx.teacherAssignment.updateMany({ where: { userId, removedAt: null }, data: { removedAt: now } });
+    await tx.administratorAssignment.updateMany({ where: { userId, removedAt: null }, data: { removedAt: now } });
+  });
+
+  // After the transaction: the deletion stands even if Stripe is unreachable.
+  await cancelSubscriptionForDeletedAccount(userId);
 }

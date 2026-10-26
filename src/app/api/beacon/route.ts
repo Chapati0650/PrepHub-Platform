@@ -19,7 +19,11 @@ export async function POST(request: Request) {
   const name = typeof body.name === "string" && ALLOWED.has(body.name) ? (body.name as typeof FUNNEL_EVENTS.PAGE_VIEW | typeof FUNNEL_EVENTS.PAYWALL_VIEWED) : null;
   if (!name) return new NextResponse(null, { status: 204 });
   const session = await auth().catch(() => null);
-  void track(name, {
+  // Awaited, not fire-and-forget: a serverless function can be frozen the
+  // moment its response is sent, taking an unfinished insert with it. Nobody
+  // waits on a beacon's response, so the extra few milliseconds cost nothing,
+  // and track() never throws.
+  await track(name, {
     userId: session?.user?.id ?? null,
     path: typeof body.path === "string" ? body.path : null,
     referrer: typeof body.referrer === "string" ? referrerHost(body.referrer) : null,

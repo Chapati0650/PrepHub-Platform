@@ -23,6 +23,28 @@ import { prisma } from "@/lib/prisma";
  */
 
 /**
+ * Which students a fragment covers.
+ *
+ * A list of ids is for a page's worth of students. A school is for a figure
+ * about the whole school: inlining every id there binds each one once per
+ * branch below, so a 2,000-student campus was fourteen thousand parameters per
+ * query (and Postgres refuses more than 65,535), where a membership subquery
+ * does the same job in the database with one. `activeOnly` is the scope every
+ * school aggregate uses; the Student Directory also lists students whose
+ * access has ended, so it asks for every status.
+ */
+type StudentScope = { studentIds: string[] } | { schoolId: string; activeOnly: boolean };
+
+function inScope(column: string, scope: StudentScope): Prisma.Sql {
+  const col = Prisma.raw(column);
+  if ("studentIds" in scope) return Prisma.sql`${col} IN (${Prisma.join(scope.studentIds)})`;
+  return Prisma.sql`${col} IN (
+    SELECT m."studentId" FROM "student_memberships" m
+     WHERE m."schoolId" = ${scope.schoolId}${scope.activeOnly ? Prisma.sql` AND m."status" = 'ACTIVE'` : Prisma.empty}
+  )`;
+}
+
+/**
  * (student_id, answered_at) — one row per question a student has answered,
  * anywhere in the product.
  *
@@ -32,45 +54,53 @@ import { prisma } from "@/lib/prisma";
  * Challenge. A null marker means the question was served but never answered,
  * so each branch excludes it.
  */
-function answerActivity(studentIds: string[]): Prisma.Sql {
-  const ids = Prisma.join(studentIds);
+export function answerActivity(studentIds: string[]): Prisma.Sql {
+  return answersIn({ studentIds });
+}
+
+/** The same rows as `answerActivity`, for every student with a membership at a school. */
+export function schoolAnswerActivity(schoolId: string, { activeOnly }: { activeOnly: boolean }): Prisma.Sql {
+  return answersIn({ schoolId, activeOnly });
+}
+
+function answersIn(scope: StudentScope): Prisma.Sql {
   return Prisma.sql`
     SELECT fa."studentId" AS student_id, fa."finalizedAt" AS answered_at
       FROM "finalized_attempts" fa
-     WHERE fa."studentId" IN (${ids})
+     WHERE ${inScope('fa."studentId"', scope)}
     UNION ALL
     SELECT ds."studentId", da."submittedAt"
       FROM "diagnostic_attempts" da
       JOIN "diagnostic_sessions" ds ON ds."id" = da."diagnosticSessionId"
-     WHERE ds."studentId" IN (${ids})
+     WHERE ${inScope('ds."studentId"', scope)}
        AND da."submittedAt" IS NOT NULL
     UNION ALL
     SELECT fs."studentId", fsl."finalizedAt"
       FROM "focused_slots" fsl
       JOIN "focused_sessions" fs ON fs."id" = fsl."sessionId"
-     WHERE fs."studentId" IN (${ids})
+     WHERE ${inScope('fs."studentId"', scope)}
        AND fsl."finalizedAt" IS NOT NULL
     UNION ALL
     SELECT cs."studentId", csl."finalizedAt"
       FROM "club_slots" csl
       JOIN "club_sessions" cs ON cs."id" = csl."sessionId"
-     WHERE cs."studentId" IN (${ids})
+     WHERE ${inScope('cs."studentId"', scope)}
        AND csl."finalizedAt" IS NOT NULL
     UNION ALL
     SELECT rr."studentId", ra."answeredAt"
       FROM "rush_answers" ra
       JOIN "rush_runs" rr ON rr."id" = ra."runId"
-     WHERE rr."studentId" IN (${ids})
+     WHERE ${inScope('rr."studentId"', scope)}
        AND ra."answeredAt" IS NOT NULL
     UNION ALL
     SELECT dca."studentId", dca."answeredAt"
       FROM "daily_challenge_attempts" dca
-     WHERE dca."studentId" IN (${ids})
+     WHERE ${inScope('dca."studentId"', scope)}
     UNION ALL
     SELECT hs."studentId", hsl."finalizedAt"
       FROM "homework_slots" hsl
       JOIN "homework_sessions" hs ON hs."id" = hsl."sessionId"
-     WHERE hs."studentId" IN (${ids})
+     WHERE ${inScope('hs."studentId"', scope)}
        AND hsl."finalizedAt" IS NOT NULL
   `;
 }
@@ -83,43 +113,52 @@ function answerActivity(studentIds: string[]): Prisma.Sql {
  * `createdAt`; `DiagnosticSession` and `RushRun` use `startedAt`. That
  * asymmetry is the reason this is written out per table rather than generated.
  */
-function sessionActivity(studentIds: string[]): Prisma.Sql {
-  const ids = Prisma.join(studentIds);
+export function sessionActivity(studentIds: string[]): Prisma.Sql {
+  return sessionsIn({ studentIds });
+}
+
+/** The same rows as `sessionActivity`, for every student with a membership at a school. */
+export function schoolSessionActivity(schoolId: string, { activeOnly }: { activeOnly: boolean }): Prisma.Sql {
+  return sessionsIn({ schoolId, activeOnly });
+}
+
+function sessionsIn(scope: StudentScope): Prisma.Sql {
   return Prisma.sql`
     SELECT ps."studentId" AS student_id, ps."createdAt" AS started_at, ps."completedAt" AS completed_at
       FROM "practice_sets" ps
-     WHERE ps."studentId" IN (${ids}) AND ps."completedAt" IS NOT NULL
+     WHERE ${inScope('ps."studentId"', scope)} AND ps."completedAt" IS NOT NULL
     UNION ALL
     SELECT d."studentId", d."startedAt", d."completedAt"
       FROM "diagnostic_sessions" d
-     WHERE d."studentId" IN (${ids}) AND d."completedAt" IS NOT NULL
+     WHERE ${inScope('d."studentId"', scope)} AND d."completedAt" IS NOT NULL
     UNION ALL
     SELECT fs."studentId", fs."createdAt", fs."completedAt"
       FROM "focused_sessions" fs
-     WHERE fs."studentId" IN (${ids}) AND fs."completedAt" IS NOT NULL
+     WHERE ${inScope('fs."studentId"', scope)} AND fs."completedAt" IS NOT NULL
     UNION ALL
     SELECT cs."studentId", cs."createdAt", cs."completedAt"
       FROM "club_sessions" cs
-     WHERE cs."studentId" IN (${ids}) AND cs."completedAt" IS NOT NULL
+     WHERE ${inScope('cs."studentId"', scope)} AND cs."completedAt" IS NOT NULL
     UNION ALL
     SELECT rr."studentId", rr."startedAt", rr."completedAt"
       FROM "rush_runs" rr
-     WHERE rr."studentId" IN (${ids}) AND rr."completedAt" IS NOT NULL
+     WHERE ${inScope('rr."studentId"', scope)} AND rr."completedAt" IS NOT NULL
     UNION ALL
     SELECT hs."studentId", hs."createdAt", hs."completedAt"
       FROM "homework_sessions" hs
-     WHERE hs."studentId" IN (${ids}) AND hs."completedAt" IS NOT NULL
+     WHERE ${inScope('hs."studentId"', scope)} AND hs."completedAt" IS NOT NULL
   `;
 }
 
 /**
  * A session left open overnight would otherwise report as a 14-hour sitting.
  * Capped rather than discarded, so a long-but-real session still counts for
- * something. The same cap `getCampusImpact` applies, for the same reason.
+ * something. Exported so the campus report's per-student hours
+ * (`getCampusImpact`) use exactly this cap rather than a copy of it.
  */
 const SESSION_HOUR_CAP = 3;
 
-function cappedHours(startExpr: string, endExpr: string): Prisma.Sql {
+export function cappedHours(startExpr: string, endExpr: string): Prisma.Sql {
   return Prisma.sql`LEAST(GREATEST(EXTRACT(EPOCH FROM (${Prisma.raw(endExpr)} - ${Prisma.raw(startExpr)})) / 3600.0, 0), ${SESSION_HOUR_CAP})`;
 }
 
@@ -264,6 +303,26 @@ export async function studentsActiveSince(studentIds: string[], since: Date): Pr
      WHERE answered_at >= ${since}
   `;
   return new Set(rows.map((r) => r.student_id));
+}
+
+/**
+ * When each student at a school last answered a question, one row per student
+ * who ever has. The Students page's summary and its activity filters are both
+ * read off this, so a count and the list it links to agree by construction —
+ * and it's one query, where the summary used to ask "who answered since X"
+ * four times over, inlining every student's id each time.
+ */
+export async function lastAnsweredAtForSchool(
+  schoolId: string,
+  { activeOnly }: { activeOnly: boolean },
+): Promise<Map<string, Date>> {
+  const rows = await prisma.$queryRaw<{ student_id: string; last_answered_at: Date }[]>`
+    WITH answers AS (${schoolAnswerActivity(schoolId, { activeOnly })})
+    SELECT student_id, MAX(answered_at) AS last_answered_at
+      FROM answers
+     GROUP BY student_id
+  `;
+  return new Map(rows.map((r) => [r.student_id, new Date(r.last_answered_at)]));
 }
 
 /**

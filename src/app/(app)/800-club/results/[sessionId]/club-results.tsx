@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { LinkButton } from "@/components/ui/link-button";
 import { Badge } from "@/components/ui/badge";
-import { QuestionDetail } from "@/components/session/session-results";
+import { ReviewDetail, useQuestionReview } from "@/components/session/session-results";
 import type { LoadedQuestion } from "@/components/session/session-runner";
 import type { ClubResults as ClubResultsData } from "@/lib/club/sessions";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
@@ -26,20 +25,7 @@ export function ClubResults({
   data: ClubResultsData;
   loadQuestionDetail: (slotId: string) => Promise<LoadedQuestion>;
 }) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [cache, setCache] = useState<Map<string, LoadedQuestion>>(new Map());
-  const [loading, setLoading] = useState(false);
-
-  async function toggle(id: string) {
-    if (expandedId === id) return setExpandedId(null);
-    setExpandedId(id);
-    if (!cache.has(id)) {
-      setLoading(true);
-      const detail = await loadQuestionDetail(id);
-      setCache((prev) => new Map(prev).set(id, detail));
-      setLoading(false);
-    }
-  }
+  const review = useQuestionReview(loadQuestionDetail);
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-10 p-4 pb-16 sm:p-8">
@@ -63,9 +49,9 @@ export function ClubResults({
             <div key={q.slotId}>
               <button
                 type="button"
-                onClick={() => void toggle(q.slotId)}
+                onClick={() => review.toggle(q.slotId)}
                 className="flex w-full items-center justify-between gap-3 py-3 text-left text-sm"
-                aria-expanded={expandedId === q.slotId}
+                aria-expanded={review.expandedId === q.slotId}
               >
                 <span className="flex min-w-0 items-center gap-3">
                   <Badge
@@ -82,16 +68,12 @@ export function ClubResults({
                   <span className="truncate text-xs text-muted-foreground">{CATEGORY_LABELS[q.category as QuestionCategory]}</span>
                 </span>
                 <span className="shrink-0 text-muted-foreground" aria-hidden="true">
-                  {expandedId === q.slotId ? "−" : "+"}
+                  {review.expandedId === q.slotId ? "−" : "+"}
                 </span>
               </button>
-              {expandedId === q.slotId && (
+              {review.expandedId === q.slotId && (
                 <div className="pb-4">
-                  {loading && !cache.has(q.slotId) ? (
-                    <p className="text-sm text-muted-foreground">Loading…</p>
-                  ) : (
-                    <QuestionDetail loaded={cache.get(q.slotId)!} isCorrect={q.isCorrect} />
-                  )}
+                  <ReviewDetail review={review} id={q.slotId} isCorrect={q.isCorrect} />
                 </div>
               )}
             </div>

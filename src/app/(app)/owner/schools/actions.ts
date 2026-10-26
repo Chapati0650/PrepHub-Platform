@@ -33,7 +33,7 @@ import {
   schoolTransferSchema,
 } from "@/lib/validation/owner";
 import { prisma } from "@/lib/prisma";
-import { logUnauthorizedAccess } from "@/lib/logger";
+import { logServerError, logUnauthorizedAccess } from "@/lib/logger";
 import {
   RosterError,
   commitRosterUpload,
@@ -558,21 +558,27 @@ export async function inviteTeacherOwnerAction(_prev: TeacherPanelState, formDat
   await requireOwner();
   const organizationId = String(formData.get("organizationId") ?? "");
   try {
-    const { created } = await inviteTeacher({
+    const { created, restoredClasses } = await inviteTeacher({
       firstName: String(formData.get("firstName") ?? ""),
       email: String(formData.get("email") ?? ""),
       schoolId: organizationId,
       invitedBy: "The PrepHub team",
     });
     revalidatePath(`/owner/schools/${organizationId}`);
-    return {
-      success: true,
-      message: created ? "Added. They'll get an email to set their password." : "Added back — their access is restored.",
-    };
+    return { success: true, message: teacherInviteMessage(created, restoredClasses) };
   } catch (err) {
+    // Nothing to do, and nothing went wrong: say so as a note, not an error.
+    if (err instanceof TeacherError && err.code === "ALREADY_TEACHER") return { success: true, message: err.message };
     if (err instanceof TeacherError) return { error: err.message };
     throw err;
   }
+}
+
+/** The same wording as the Administrator's own invite (admin/teachers/actions.ts). */
+function teacherInviteMessage(created: boolean, restoredClasses: number): string {
+  if (created) return "Added. They'll get an email to set their password.";
+  if (restoredClasses === 0) return "Added back — their access is restored.";
+  return `Added back — their access is restored, and the ${restoredClasses === 1 ? "class" : `${restoredClasses} classes`} closed when they were removed ${restoredClasses === 1 ? "is" : "are"} open again.`;
 }
 
 export async function resendTeacherInviteOwnerAction(organizationId: string, userId: string): Promise<TeacherPanelState> {
@@ -588,7 +594,19 @@ export async function resendTeacherInviteOwnerAction(organizationId: string, use
 
 export async function removeTeacherOwnerAction(organizationId: string, userId: string): Promise<TeacherPanelState> {
   await requireOwner();
-  await removeTeacher(userId, organizationId);
+  try {
+    await removeTeacher(userId, organizationId);
+  } catch (err) {
+    // Returned, not thrown, so the confirmation dialog can show it: in
+    // production a thrown message is replaced with a generic one. Both writes
+    // are one transaction, so a failure changed nothing.
+    logServerError("Removing a teacher failed", {
+      organizationId,
+      affectedResourceId: userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { error: "Couldn't remove this teacher just now, and nothing was changed. Try again in a moment." };
+  }
   revalidatePath(`/owner/schools/${organizationId}`);
   return { success: true };
 }

@@ -8,7 +8,7 @@ import { LIVE_IDLE_POLL_MS, LIVE_LOBBY_POLL_MS, LIVE_POLL_MS, LIVE_RANDOM_FALLBA
 import type { LiveAnswerResult, LiveRoundAnswer, LiveServedQuestion, LiveState } from "@/lib/rush/live";
 import { ShareChallenge } from "../../share-challenge";
 import { RushQuestion, TimeBar, formatSeconds } from "../../rush-question";
-import { PointsPop, SoundToggle, StreakFlame, useRushSound } from "../../game-fx";
+import { PointsPop, SoundControls, StreakFlame, useRushMusic, useRushSound } from "../../game-fx";
 import { fallbackToRecordedAction, leaveLiveRoomAction } from "../../actions";
 
 // The last few seconds of a question tick audibly, once a second.
@@ -227,7 +227,10 @@ export function LiveRush({
   // ---- Screens ---------------------------------------------------------
   const eyebrow = `1v1 Rush · Live · ${state.sectionLabel}`;
   const opp = state.opponent;
-  const soundToggle = <SoundToggle muted={sound.muted} onToggle={sound.toggle} />;
+  // Music while the questions are being played, quicker for the last ten
+  // seconds of each one — not in the lobby, not during the countdown.
+  useRushMusic(sound, state.status === "PLAYING", questionLive && remainingMs > 0 && remainingMs <= 10_000);
+  const soundToggle = <SoundControls controls={sound} />;
   const streaks = state.scoringVersion >= 2;
   const myStreak = result?.streak ?? state.me.streak;
 

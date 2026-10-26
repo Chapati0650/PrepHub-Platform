@@ -2,6 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { cacheAcrossRequests } from "@/lib/shared-cache";
 import { computeStudyStreak } from "@/lib/dashboard/study-streak";
+import { localDateInputValue, startOfLocalDay } from "@/lib/community/local-day";
 import {
   answerDays,
   countActiveStudents,
@@ -74,7 +75,7 @@ const EMPTY_RESULT: SchoolAggregateResult = {
 // Rush, Focused Practice or the Daily Challenge was reported as having done
 // less work than it had. `totalAdaptiveSessionsCompleted` is the one figure
 // still restricted to `PracticeSet`, and deliberately so — it is labelled
-// "Adaptive Sessions" on both pages, and a Rush run is not one.
+// "Practice Sets" on both pages, and a Rush run is not one.
 //
 // Shared for a minute across everyone who opens School Community, Admin
 // Overview or the admin goal page: the answer is the same for the whole
@@ -92,8 +93,11 @@ async function computeSchoolAggregateStats(schoolId: string): Promise<SchoolAggr
   if (studentIds.length === 0) return EMPTY_RESULT;
 
   const now = new Date();
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
+  // "Today" is the school's day, in the zone its goals and the Rush
+  // leaderboard keep. `setHours(0)` used the server's clock, which is UTC in
+  // production, so "answered today" rolled over at 7pm in Texas. (The school
+  // streak below still steps through UTC days, as `answerDays` buckets them.)
+  const startOfToday = startOfLocalDay(localDateInputValue(now)) ?? now;
   const weekAgo = new Date(now.getTime() - 7 * DAY_MS);
   const streakHorizon = new Date(now.getTime() - STREAK_HORIZON_DAYS * DAY_MS);
 

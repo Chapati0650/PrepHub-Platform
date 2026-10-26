@@ -52,41 +52,49 @@ export function QuestionBreakdown({ assignmentId, questions }: { assignmentId: s
   }
 
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">By question</h2>
-      <ul className="divide-y divide-border border-y border-border">
+    <section aria-labelledby="by-question-heading" className="flex flex-col gap-4">
+      <div>
+        <h2 id="by-question-heading" className="text-xl">
+          By question
+        </h2>
+        <p className="mt-1 text-base text-muted-foreground">
+          How many got each one right. Open a question to see it with its answer key; the one most students missed is
+          the one to go over in class.
+        </p>
+      </div>
+      <ul className="divide-y divide-border rounded-2xl border border-border">
         {questions.map((q) => {
           const percent = q.answered > 0 ? Math.round((q.correct / q.answered) * 100) : null;
           const preview = previews.get(q.position);
           return (
-            <li key={q.position} className="py-3">
+            <li key={q.position} className="px-5 py-4">
               <button
                 type="button"
                 onClick={() => toggle(q.position)}
                 aria-expanded={open === q.position}
-                className="flex w-full items-center gap-4 text-left text-sm"
+                className="flex w-full items-center gap-4 text-left text-base"
               >
-                <span className="w-8 shrink-0 font-heading font-semibold tabular-nums">Q{q.position + 1}</span>
+                <span className="w-10 shrink-0 font-heading font-semibold tabular-nums">Q{q.position + 1}</span>
                 <span className="min-w-0 flex-1 text-muted-foreground">
                   {CATEGORY_LABELS[q.category]} · {DIFFICULTY_LABELS[q.difficulty]}
                 </span>
                 <span className="hidden h-2 w-32 overflow-hidden rounded-full bg-foreground/10 sm:block" aria-hidden>
                   {percent !== null && <span className="block h-full rounded-full bg-primary" style={{ width: `${percent}%` }} />}
                 </span>
-                <span className="w-28 shrink-0 text-right tabular-nums">
+                <span className="w-36 shrink-0 text-right tabular-nums">
                   {percent === null ? (
-                    <span className="text-muted-foreground">no answers yet</span>
+                    <span className="text-muted-foreground">No answers yet</span>
                   ) : (
                     <>
                       <span className="font-semibold">{percent}%</span>
-                      <span className="text-muted-foreground"> of {q.answered}</span>
+                      <span className="text-muted-foreground"> right, of {q.answered}</span>
                     </>
                   )}
                 </span>
               </button>
               {open === q.position && (
                 <div className="mt-3 rounded-xl border border-border p-4">
-                  {preview ? <AnswerKey content={preview.content} feedback={preview.feedback} /> : <p className="text-sm text-muted-foreground">Loading…</p>}
+                  {preview ? <AnswerKey content={preview.content} feedback={preview.feedback} /> : <p className="text-base text-muted-foreground">Loading…</p>}
                 </div>
               )}
             </li>
@@ -118,33 +126,70 @@ export function AssignmentControls({
   const [dueOn, setDueOn] = useState(initial.dueOn);
 
   return (
-    <section className="flex flex-col gap-6 border-t border-border pt-8">
-      <h2 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">Manage</h2>
-      <form action={formAction} className="flex max-w-xl flex-col gap-3">
+    <section aria-labelledby="manage-heading" className="flex flex-col gap-6 border-t border-border pt-8">
+      <div>
+        <h2 id="manage-heading" className="text-xl">
+          Change this homework
+        </h2>
+        <p className="mt-1 text-base text-muted-foreground">
+          You can change the title, due date and instructions. The questions can&apos;t change once assigned, because
+          students may already be partway through.
+        </p>
+      </div>
+      <form action={formAction} className="flex max-w-xl flex-col gap-4">
         <input type="hidden" name="assignmentId" value={assignmentId} />
         <div className="flex flex-col gap-2">
-          <Label htmlFor="edit-title">Title</Label>
-          <Input id="edit-title" name="title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} required />
+          <Label htmlFor="edit-title" className="text-base">
+            Title
+          </Label>
+          <Input
+            id="edit-title"
+            name="title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={120}
+            required
+            className="h-11 text-base md:text-base"
+          />
         </div>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="edit-due">Due</Label>
-          <Input id="edit-due" name="dueOn" type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} className="w-fit" />
+          <Label htmlFor="edit-due" className="text-base">
+            Due date
+          </Label>
+          <Input
+            id="edit-due"
+            name="dueOn"
+            type="date"
+            value={dueOn}
+            onChange={(e) => setDueOn(e.target.value)}
+            className="h-11 w-fit text-base md:text-base"
+          />
         </div>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="edit-instructions">Instructions</Label>
-          <Textarea id="edit-instructions" name="instructions" value={instructions} onChange={(e) => setInstructions(e.target.value)} maxLength={2000} rows={3} />
+          <Label htmlFor="edit-instructions" className="text-base">
+            Instructions
+          </Label>
+          <Textarea
+            id="edit-instructions"
+            name="instructions"
+            value={instructions}
+            onChange={(e) => setInstructions(e.target.value)}
+            maxLength={2000}
+            rows={3}
+            className="text-base md:text-base"
+          />
         </div>
-        {state.error && <p className="text-sm text-destructive">{state.error}</p>}
-        {state.success && !pending && <p className="text-sm text-muted-foreground">Saved.</p>}
-        <Button type="submit" variant="outline" className="w-fit" disabled={pending}>
+        {state.error && <p className="text-base text-destructive">{state.error}</p>}
+        {state.success && !pending && <p className="text-base text-muted-foreground">Saved.</p>}
+        <Button type="submit" variant="outline" size="xl" className="w-fit" disabled={pending}>
           {pending ? "Saving…" : "Save changes"}
         </Button>
-        <p className="text-xs text-muted-foreground">The questions can&apos;t change once assigned — students may already be partway through.</p>
       </form>
 
       <div className="flex flex-wrap gap-3">
         {closed ? (
           <ConfirmButton
+            size="xl"
             title="Reopen this homework?"
             description="Students can start and answer it again right away. Nothing anyone has already done changes."
             confirmLabel="Reopen"
@@ -154,6 +199,7 @@ export function AssignmentControls({
           </ConfirmButton>
         ) : (
           <ConfirmButton
+            size="xl"
             title="Close this homework?"
             description="From now on nobody can start it or answer more of it, including students partway through. Everything already answered stays in these results. You can reopen it at any time."
             confirmLabel="Close homework"
@@ -164,6 +210,7 @@ export function AssignmentControls({
         )}
         {canDelete && (
           <ConfirmButton
+            size="xl"
             title="Delete this homework?"
             description="It disappears from your class and from every student's Homework page right away, and it can't be undone. Once any student starts it, it can only be closed."
             confirmLabel="Delete"

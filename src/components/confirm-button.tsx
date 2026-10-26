@@ -29,7 +29,7 @@ export function ConfirmButton({
   confirmLabel: string;
   onConfirm: () => Promise<unknown>;
   variant?: "outline" | "ghost" | "default" | "destructive";
-  size?: "sm" | "default" | "lg" | "xs";
+  size?: "sm" | "default" | "lg" | "xl" | "xs";
   destructive?: boolean;
   className?: string;
 }) {
@@ -58,14 +58,15 @@ export function ConfirmButton({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogDescription className="text-base">{description}</DialogDescription>
         </DialogHeader>
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <p className="text-base text-destructive">{error}</p>}
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>
+          <Button variant="outline" size="xl" onClick={() => setOpen(false)} disabled={pending}>
             Cancel
           </Button>
           <Button
+            size="xl"
             variant={destructive ? "destructive" : "default"}
             disabled={pending}
             onClick={() =>

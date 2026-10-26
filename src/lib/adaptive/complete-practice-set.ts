@@ -33,23 +33,30 @@ export async function completePracticeSet(studentId: string, practiceSetId: stri
   }
 
   return prisma.$transaction(async (tx) => {
-    const fresh = await tx.practiceSet.findUnique({ where: { id: practiceSetId } });
-    if (fresh?.status === "COMPLETED") return fresh;
-
-    for (const category of ALL_CATEGORIES) {
-      const count = countsByCategory.get(category) ?? 0;
-      await tx.categoryState.update({
-        where: { studentId_category: { studentId, category } },
-        data:
-          count === 1
-            ? { consecutiveSetsWithoutExtraAllocation: { increment: 1 } }
-            : { consecutiveSetsWithoutExtraAllocation: 0 },
-      });
-    }
-
-    return tx.practiceSet.update({
-      where: { id: practiceSetId },
+    // The status flip is the claim. Two requests completing the same set (a
+    // double-clicked Finish, two tabs) can both have read ACTIVE above, and a
+    // re-read inside the transaction doesn't stop that under READ COMMITTED.
+    // A conditional UPDATE does: the second waits on the first's row lock,
+    // then re-checks `status` against the committed row, matches nothing, and
+    // skips the counters — which would otherwise be incremented twice.
+    const claimed = await tx.practiceSet.updateMany({
+      where: { id: practiceSetId, status: "ACTIVE" },
       data: { status: "COMPLETED", completedAt: new Date() },
     });
+
+    if (claimed.count === 1) {
+      for (const category of ALL_CATEGORIES) {
+        const count = countsByCategory.get(category) ?? 0;
+        await tx.categoryState.update({
+          where: { studentId_category: { studentId, category } },
+          data:
+            count === 1
+              ? { consecutiveSetsWithoutExtraAllocation: { increment: 1 } }
+              : { consecutiveSetsWithoutExtraAllocation: 0 },
+        });
+      }
+    }
+
+    return tx.practiceSet.findUniqueOrThrow({ where: { id: practiceSetId } });
   });
 }

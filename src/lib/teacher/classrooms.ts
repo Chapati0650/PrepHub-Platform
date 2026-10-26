@@ -90,9 +90,14 @@ export type ClassroomSummary = {
   archived: boolean;
   studentCount: number;
   assignmentCount: number;
+  /**
+   * The open homework due soonest, for the class card: what's next, and how
+   * many of the students now in the class have finished it.
+   */
+  nextDue: { id: string; title: string; dueAt: Date; completed: number } | null;
 };
 
-export async function listClassrooms(context: TeacherContext): Promise<ClassroomSummary[]> {
+export async function listClassrooms(context: TeacherContext, now: Date = new Date()): Promise<ClassroomSummary[]> {
   const rows = await prisma.classroom.findMany({
     where: { teacherId: context.userId, schoolId: context.schoolId },
     orderBy: [{ archivedAt: { sort: "desc", nulls: "first" } }, { createdAt: "desc" }],
@@ -101,17 +106,39 @@ export async function listClassrooms(context: TeacherContext): Promise<Classroom
       name: true,
       joinCode: true,
       archivedAt: true,
-      _count: { select: { enrollments: { where: { removedAt: null } }, assignments: true } },
+      _count: { select: { assignments: true } },
+      // Ids rather than a count: "N of M done" has to count finished work from
+      // the students in the class now, or someone who finished and then left
+      // makes it "5 of 4".
+      enrollments: { where: { removedAt: null }, select: { studentId: true } },
+      assignments: {
+        where: { closedAt: null, dueAt: { gte: now } },
+        orderBy: { dueAt: "asc" },
+        take: 1,
+        select: { id: true, title: true, dueAt: true, sessions: { where: { status: "COMPLETED" }, select: { studentId: true } } },
+      },
     },
   });
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    joinCode: r.joinCode,
-    archived: r.archivedAt !== null,
-    studentCount: r._count.enrollments,
-    assignmentCount: r._count.assignments,
-  }));
+  return rows.map((r) => {
+    const next = r.assignments[0];
+    const roster = new Set(r.enrollments.map((e) => e.studentId));
+    return {
+      id: r.id,
+      name: r.name,
+      joinCode: r.joinCode,
+      archived: r.archivedAt !== null,
+      studentCount: roster.size,
+      assignmentCount: r._count.assignments,
+      nextDue: next?.dueAt
+        ? {
+            id: next.id,
+            title: next.title,
+            dueAt: next.dueAt,
+            completed: next.sessions.filter((s) => roster.has(s.studentId)).length,
+          }
+        : null,
+    };
+  });
 }
 
 export type ClassroomDetail = {
@@ -120,10 +147,21 @@ export type ClassroomDetail = {
   joinCode: string;
   archived: boolean;
   students: { studentId: string; firstName: string; email: string; joinedAt: Date; completedAssignments: number }[];
+  /**
+   * Every student's result on every assignment they've opened, for the class
+   * gradebook. A student with no row for an assignment hasn't started it.
+   */
+  submissions: { studentId: string; assignmentId: string; status: "IN_PROGRESS" | "COMPLETED"; correct: number }[];
+  /**
+   * Completed, in progress and the average count the students in the class
+   * now, so they always add up against the roster; finished work from anyone
+   * who has left stays on the assignment's own results page.
+   */
   assignments: {
     id: string;
     title: string;
     dueAt: Date | null;
+    closedAt: Date | null;
     closed: boolean;
     createdAt: Date;
     questionCount: number;
@@ -165,9 +203,11 @@ export async function getClassroomDetail(context: TeacherContext, classroomId: s
     }),
   ]);
 
+  const roster = new Set(enrollments.map((e) => e.student.id));
   const completedByStudent = new Map<string, number>();
   const byAssignment = new Map<string, { completed: number; inProgress: number; percents: number[] }>();
   for (const s of sessions) {
+    if (!roster.has(s.studentId)) continue;
     const entry = byAssignment.get(s.assignmentId) ?? { completed: 0, inProgress: 0, percents: [] };
     if (s.status === "COMPLETED") {
       entry.completed++;
@@ -192,12 +232,19 @@ export async function getClassroomDetail(context: TeacherContext, classroomId: s
       joinedAt: e.joinedAt,
       completedAssignments: completedByStudent.get(e.student.id) ?? 0,
     })),
+    submissions: sessions.map((s) => ({
+      studentId: s.studentId,
+      assignmentId: s.assignmentId,
+      status: s.status === "COMPLETED" ? ("COMPLETED" as const) : ("IN_PROGRESS" as const),
+      correct: s._count.slots,
+    })),
     assignments: assignments.map((a) => {
       const stats = byAssignment.get(a.id);
       return {
         id: a.id,
         title: a.title,
         dueAt: a.dueAt,
+        closedAt: a.closedAt,
         closed: a.closedAt !== null,
         createdAt: a.createdAt,
         questionCount: a._count.questions,

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { drainEmailQueue } from "@/lib/email-queue";
+import { isCronAuthorized } from "@/lib/cron-auth";
 
 // Drains the outbound email queue, called by
 // netlify/functions/email-queue-cron.mts every few minutes (or by hand with
@@ -15,9 +16,7 @@ import { drainEmailQueue } from "@/lib/email-queue";
 // twice: claiming is a single `FOR UPDATE SKIP LOCKED` update, so two
 // overlapping runs take disjoint rows rather than sending the same mail.
 export async function POST(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  const header = request.headers.get("authorization") ?? "";
-  if (!secret || header !== `Bearer ${secret}`) return new NextResponse(null, { status: 404 });
+  if (!isCronAuthorized(request)) return new NextResponse(null, { status: 404 });
 
   // Budgeted below the host's request limit. Whatever is left over is simply
   // picked up by the next run; a large district drains over a few minutes

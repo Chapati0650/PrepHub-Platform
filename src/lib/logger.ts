@@ -21,7 +21,8 @@ export type LogCategory =
   | "EXPLANATION_GENERATION_FAILURE"
   | "ANSWER_DETECTION_FAILURE"
   | "CATEGORY_CLASSIFICATION_FAILURE"
-  | "DIFFICULTY_CLASSIFICATION_FAILURE";
+  | "DIFFICULTY_CLASSIFICATION_FAILURE"
+  | "CRON_JOB_FAILURE";
 
 export type LogContext = {
   // Internal account id — GER §5 prefers this over email for general logs.

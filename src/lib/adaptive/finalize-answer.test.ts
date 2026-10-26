@@ -8,6 +8,7 @@ vi.mock("@/lib/prisma", () => {
     blueprintSlot: { findUnique: vi.fn(), update: vi.fn() },
     categoryState: { findUnique: vi.fn(), update: vi.fn() },
     finalizedAttempt: { create: vi.fn(), findUnique: vi.fn() },
+    $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   };
   (mockPrisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation((arg: unknown) => {
@@ -21,6 +22,7 @@ const mocked = prisma as unknown as {
   blueprintSlot: Record<string, ReturnType<typeof vi.fn>>;
   categoryState: Record<string, ReturnType<typeof vi.fn>>;
   finalizedAttempt: Record<string, ReturnType<typeof vi.fn>>;
+  $queryRaw: ReturnType<typeof vi.fn>;
 };
 
 beforeEach(() => {
@@ -87,6 +89,28 @@ describe("finalizeAnswer", () => {
 
     expect(result).toMatchObject({ isCorrect: false, isBlank: true, answer: null });
     expect((result as { abilityAfter: number }).abilityAfter).toBeLessThan(50);
+  });
+
+  it("locks the category's row before reading the ability it updates", async () => {
+    // Two answers in one category finalizing together would otherwise both
+    // read the same ability, and the later write would erase the earlier one.
+    const order: string[] = [];
+    mocked.blueprintSlot.findUnique.mockResolvedValue(baseSlot);
+    mocked.$queryRaw.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
+      order.push("lock");
+      expect(strings.join("?")).toMatch(/FROM "category_states"[\s\S]*FOR UPDATE/);
+      expect(values).toEqual(["student1", "ALGEBRA"]);
+      return Promise.resolve([]);
+    });
+    mocked.categoryState.findUnique.mockImplementation(() => {
+      order.push("read");
+      return Promise.resolve(baseCategoryState);
+    });
+    mocked.finalizedAttempt.create.mockImplementation(({ data }: { data: Record<string, unknown> }) => data);
+
+    await finalizeAnswer({ studentId: "student1", blueprintSlotId: "slot1", answer: "c1", isBlank: false });
+
+    expect(order).toEqual(["lock", "read"]);
   });
 
   it("grades an incorrect multiple-choice answer as incorrect", async () => {

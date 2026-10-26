@@ -853,8 +853,9 @@ the following, several of which deliberately override PRD text:
   (`src/lib/session/verdict.ts`, pure, tested) names the two weakest
   categories, the analysis the landing page promises — and offers a
   copyable parent summary (`ParentSummary`). Parents pay.
-- **The runner**: a multiple-choice tap submits (numeric keeps Submit and
-  Enter); Finish appears only once every question is answered, and on the
+- **The runner**: both question types take an explicit Submit (a tapped
+  choice is only a saved draft — tap-to-submit graded a student who was just
+  comparing options; numeric also submits on Enter); Finish appears only once every question is answered, and on the
   last question with blanks it jumps to the first blank; on phones the
   21-cell navigator is one scrolling row (`session-nav-grid.tsx`).
 - **Signup has one checkbox** (age, COPPA). Terms/Privacy are accepted by
@@ -1030,8 +1031,9 @@ students have *done* rather than with how many *rows the page shows*.
   answered nothing. `answerActivity`/`sessionActivity` are composed
   `Prisma.sql` fragments, so a seventh mode is added in exactly one place.
   `totalAdaptiveSessionsCompleted` is the one figure still restricted to
-  `PracticeSet`, deliberately — it is labelled "Adaptive Sessions" on both
-  pages and a Rush run is not one.
+  `PracticeSet`, deliberately — it is labelled "Practice Sets" on both pages
+  (it said "Adaptive Sessions" until 2026-10-25, an internal name that had
+  leaked into copy) and a Rush run is not one.
 - **Every school-wide figure is counted in the database.**
   `getSchoolAggregateStats` used to load every `FinalizedAttempt` row for
   every student and call `.length`; `getCampusImpact` loaded every prediction
@@ -1419,7 +1421,10 @@ free, automatically. Making that line true took more than the line.
   price in it, per the landing rule). `/pricing` carries a "Connect school
   email" link to PRD-002's `/access/verify-school` for a student who signed
   up with a personal address.
-- **Google sign-in enrolls on its own** (`emailVerified` is set by Google).
+- **Google sign-in enrolls on its own** (`emailVerified` is set on every
+  Google sign-in by `events.signIn` in `src/auth.ts` — Auth.js itself never
+  sets it for OAuth, which until 2026-10-26 meant it was null for every one of
+  160 Google students in production; see "Platform audit" below).
   **A password signup does not**: it has only *typed* the address, and
   enrolling on that would let anyone claim a district seat. Such an account
   is sent one link to its own address (`src/lib/district/email-verification.ts`,
@@ -1600,6 +1605,16 @@ rows, so a fictional student's Practice gateway shows "couldn't prepare your
 next practice set" if anyone signs in as one locally; nobody can in
 production, so it was left alone.
 
+`teacher --teacher=<email>` gives a real account the teacher's view: it takes
+over fictional Maria Alvarez's two classes (her seat's assignment is ended,
+the classes move to the real account) and is recorded in the district's
+`internalNotes` so `remove` knows what to undo. An existing student account
+needs `--convert-student` and is refused if it has a school membership, class
+enrollments or an active subscription; `remove` turns a converted account
+back into a student rather than deleting it. In production since 2026-10-25:
+prithviraj.chauhan@utexas.edu (converted from an unused student account;
+signs in with Google).
+
 ## Scale readiness for 20,000 students (2026-10-25)
 
 The Owner asked whether PrepHub could carry 20,000 students and, on mobile,
@@ -1694,3 +1709,287 @@ page that scrolls sideways.
   called from a plain HTTP client). It refuses prephubtp.com. Meant for a
   deploy preview pointed at a Neon branch; locally against `next start` with
   60 students and 30 concurrent, pages had a median around 1s on one process.
+
+## The staff experience: administrators and teachers (2026-10-25)
+
+The Owner's brief: the admin pages were "barebones", and the people using
+them may be sixty — the area has to be easy to see, easy to use and easy to
+learn, without being over the top. The teacher side is just as important.
+
+- **One kit**: `src/components/staff/staff-ui.tsx` — `StaffPage`,
+  `StaffHeader` (the `surface-tint` hero band, with an optional back link),
+  `StaffSection`, `StatStrip` (rules inside one box, `gap-px bg-border`),
+  `StaffSteps` (`01`/`02` ordinals and the word "Done", never a check alone),
+  `StaffField` (a visible label above every input — no placeholder-only
+  fields), `StatusChip` (tints with `dark:` variants, always a word). Every
+  admin and teacher page is built from it, so they can't drift apart.
+- **Bigger by default**: body copy is `text-base`/`text-lg`, and staff
+  controls use the new `size="xl"` button (`h-11 text-base`); inputs are
+  `h-11 text-base md:text-base`. **Gotcha**: the `Input` base class carries
+  `md:text-sm`, which beats a plain `text-base` from 768px up — the
+  `md:text-base` is not redundant.
+- **An administrator signs in to `/admin`.** `/home` redirects a School
+  Administrator there unless `?view=student`. The sidebar is "Your school"
+  (Overview, Students, Teachers, Announcements, Community goal, Access &
+  support, Account) and then a collapsible "Student experience" (`<details>`,
+  open whenever one of its pages is the current one) whose first item,
+  "Student dashboard", is `/home?view=student`. Nav matching ignores the
+  query string.
+- **Overview**: a four-step "Getting started" list (`getAdminSetupProgress`)
+  that disappears once done, then four figures. Its student counts come from
+  `getStudentDirectorySummary`, the same function as the Students page's
+  summary, so the two pages can't disagree (they did, briefly, by 24
+  students). Score growth and the TSI readiness bar follow; "Fell back" is
+  `destructive`, because amber beside the gold "Crossed" read as the same.
+- **Students**: four summary cells (signed up / active this week / haven't
+  started / gone quiet — 7 and 14 days, via `studentsActiveSince`) that are
+  links to the matching filter. An activity filter narrows the candidate ids
+  *before* paging, so page 2 of "haven't started" is still all
+  haven't-started. **Download as a spreadsheet** is
+  `/admin/students/export` (a route handler, `private, no-store`): the same
+  engagement-only columns as the page, CSV with a BOM and CRLF so Excel opens
+  it cleanly, and any cell starting with `= + - @` or a tab is prefixed with
+  `'` so a student's name can't become a spreadsheet formula
+  (`student-export.ts`, tested).
+- **Announcements**: "Preview before sending" shows both places it lands —
+  the home-page banner and the email, subject included — and the send button
+  names the count ("Send to 212 students") above a line that it can't be
+  unsent. Remove goes through `ConfirmButton`.
+- **Community goal**: four numbered questions ("1. What should the school
+  count?" …) beside a live "What students see" card; the shared
+  `GoalEditor` is the same on the Owner's school page.
+- **Access & support** names `schools@prephubtp.com`
+  (`SCHOOLS_CONTACT_EMAIL`); it used to say `support@prephub.app`, a domain
+  PrepHub never had. No reply-time promise is made on the Owner's behalf.
+- **Teachers**: class cards say what's due next and how many are done; a
+  class page has a gradebook (students down, homework across, score where
+  they meet, "Started"/"Missing" chips, names pinned while it scrolls
+  sideways — `ClassroomDetail.submissions`); an assignment's results lead
+  with finished / started / not started / class average.
+- **The annotate tip** (`session-runner.tsx`): a one-line `surface-tint` row
+  under the toolbar — "Tip: select any words in the passage or the question
+  to highlight them or add a note." — until the student presses "Got it" or
+  makes their first highlight (`hasSeenTip`/`markTipSeen` in
+  `local-store.ts`, per browser). The server snapshot says "seen", so it never
+  flashes on load. It shows in every `SessionRunner`, so a new student meets
+  it on the Diagnostic's first question.
+- **Rush music** (`src/app/(app)/rush/rush-music.ts`): an original
+  synthesized loop — I–V–vi–IV at 128 BPM, 144 with doubled hi-hats in a
+  question's last ten seconds — playing only while questions are on screen,
+  never in a lobby or on results. A "Music" switch (labelled in words) sits
+  beside the sound toggle on every Rush screen; muting all sound stops it
+  too. Everything Rush plays goes through one shared `AudioContext` and a
+  limiter (`game-fx.tsx`'s `audio()`), and the levels were measured offline,
+  not guessed: music peaks ~0.23, effects 0.36–0.43. Keep the music under the
+  effects. The "wrong" sound is two notes because the old single low sweep
+  came out at 0.16 through the limiter — inaudible next to the music.
+- Verified in a real browser: admin landing and nav, CSV download (212 rows),
+  the "haven't started" filter, the music switch (about 21 notes every two
+  seconds while on, none while off), the tip, the gradebook; and the admin,
+  community, Owner-schools e2e specs.
+
+## Platform audit (2026-10-26)
+
+The Owner asked for a sweep of the whole platform: infrastructure and
+performance, and anything hurting the student, admin or teacher experience.
+Five read-only reviews (infrastructure, students, admins, teachers,
+security), a read-only look at production, then fixes. What changed, and the
+rules that keep each one from coming back:
+
+**Security and data integrity**
+
+- **Every draft save goes through `sanitizeDraftPatch`**
+  (`src/lib/session/draft.ts`). The runners autosave through server actions
+  taking a `patch` object, and a server action's argument is whatever the
+  browser sends — its TypeScript type is never checked at runtime. Five
+  actions passed it straight to Prisma as `data`, so a hand-made call could
+  set `isCorrect`/`submittedAt`/`answer` (a forged Diagnostic score or
+  homework grade) or move a practice slot into another student's set. A new
+  runner mode must use it, and its write is `updateMany` guarded on the row
+  still being open.
+- **Answer keys wait for the answer.** Every `load*QuestionDetailAction`
+  returns `feedback: null` until that question is answered or its session is
+  finished (the Diagnostic: until it's complete). They used to hand back the
+  correct choice for any slot the student owned.
+- **The login rate limit lives in the Credentials `authorize`** (`src/auth.ts`),
+  not in `loginAction`: Auth.js also serves `POST /api/auth/callback/credentials`,
+  which reached `authorize` with no limit at all. `LoginRateLimited` (a
+  `CredentialsSignin` subclass, which Auth.js passes through untouched) is how
+  the form still says "slow down" rather than "wrong password".
+- **Google sign-in and `emailVerified`**: Auth.js never sets it for OAuth, so
+  it was null for every Google account in production — 160 students — and
+  district enrollment, which acts only on a verified address, would have
+  asked every Google student on a partner domain to confirm an address Google
+  had already confirmed. `events.signIn` now sets it on each Google sign-in.
+  `events.linkAccount`: when Google links to an existing account whose address
+  was never confirmed and that has a password, the password is dropped and
+  every session ended — a password signup proves nothing about the address,
+  so anyone could have registered it first and waited for its owner.
+  "Forgot password" restores one through the owner's own inbox.
+- **Reset links are single-use under concurrency** (claimed with
+  `updateMany … usedAt: null`), retire the account's other outstanding links
+  (including a teacher invitation), and mark the address verified — the link
+  arrived at it. The page says "Set your password", which reads right for a
+  reset and for a teacher's first visit, and an expired link offers a new one.
+- **Billing**: `createCheckoutSession` refuses anyone `hasPaidAccess` already
+  covers (a second checkout was a second subscription the app couldn't see or
+  cancel), never passes a comp's `manual_comp_…` id to Stripe, and puts
+  `userId` in the subscription's metadata. `syncSubscriptionFromStripe` falls
+  back to that metadata, **throws (→ webhook 500 → Stripe retries) for a live
+  subscription it can't attribute** instead of returning silently, and won't
+  let a different, ended subscription overwrite the live one. The
+  `updated`/`deleted` handler re-fetches the subscription, because Stripe
+  delivers out of order; `checkout.session.async_payment_succeeded` is
+  handled.
+- **Account deletion** (`deleteAccount`): Google-only accounts type DELETE
+  (`src/lib/auth/delete-confirmation.ts`) instead of deleting on one click;
+  the school membership is removed with a history event and its unique school
+  address tombstoned (it kept "Deleted User" in school figures and blocked
+  the student's own re-registration); class enrollments end; a teacher's
+  classes are archived and staff assignments ended; then the Stripe
+  subscription is cancelled (best-effort, after the transaction, logged on
+  failure). Before this, a deleted account was billed forever.
+- **School-email verification requires `role === "STUDENT"`**: a staff
+  account with a membership would be counted in its school's figures.
+- **Rush**: a recorded answer is claimed with `updateMany … answeredAt: null`
+  and the loser replayed (four simultaneous A–D submits used to score the
+  right one and count duplicates). `startRandomRush` finds a waiting
+  challenge with `GROUP BY … HAVING COUNT(*) = 1`. The old "oldest twenty,
+  then filter" stopped matching anyone once twenty finished matches existed.
+- Cron routes compare the bearer secret in constant time
+  (`src/lib/cron-auth.ts`); Settings caps a first name at 100 like signup.
+
+**Email**
+
+- **Daily reminders taper** (`reminderDue`, tested): daily while a student has
+  studied in the last week, weekly after that, nothing after 30 days. It was
+  every day for as long as the toggle was on: ~70 emails a day in October,
+  and 162 of the 194 students with reminders on hadn't studied in two weeks.
+  Mail nobody opens gets a domain filtered, and this domain carries password
+  resets and school announcements too.
+- **One-click unsubscribe** in every reminder: `/unsubscribe/<token>`, an
+  HMAC of the account id under `AUTH_SECRET` (`src/lib/lifecycle/unsubscribe.ts`,
+  no table, never expires), turned off on a button press — never on page view,
+  for the same mail-scanner reason as `/verify-email`. Works signed out. No
+  link is generated without a secret. A `List-Unsubscribe` header would need
+  a column on `QueuedEmail`, so it isn't there yet.
+- The **Diagnostic results email is queued** (claim + queue row in one
+  transaction, then a request drain). Sent directly, a provider error after
+  the claim lost it for good.
+- **The daily cron** (`/api/cron/daily`) runs each job in its own try/catch
+  (a failed graduation sweep no longer means no reminders), stops the
+  lifecycle pass at an 18s budget, and answers 500 if any job failed.
+  `netlify/functions/daily-cron.mts` fires at 22:00, 22:10 and 22:20 UTC, so
+  a district too big for one run finishes in the next; the day's claims make
+  reruns free. A third job, `purgeExpiredMail` (`src/lib/retention.ts`),
+  deletes sent queue rows after 30 days and daily-reminder claims after 90.
+  Every email used to keep its body and address forever. Once-per-account
+  claims are kept for good; analytics events are left alone.
+
+**Students**
+
+- **Error, not-found and loading pages exist** (`(app)/error.tsx`,
+  `(app)/not-found.tsx`, `(app)/loading.tsx`, `not-found.tsx`,
+  `global-error.tsx`). There were none, so any thrown error was Next's bare
+  white "Application error". Error pages in this Next version receive `retry`
+  (not `reset`); server errors arrive with a generic message and a `digest`,
+  which the page shows as a reference. A stale-build error offers a reload.
+- **The runner never freezes**: every action call is caught, the flag reset,
+  and a message with Try again (or Reload, for `isStaleServerActionError`)
+  shown in the footer. Draft saves are debounced (500ms, latest wins, flushed
+  before navigating). Actions return **`SessionBlocked`**
+  (`src/lib/session/blocked.ts`) instead of throwing when the student must be
+  told something (homework closed, Premium lapsed, Diagnostic finished
+  elsewhere), because production replaces a thrown message with a generic
+  one. Review rows on every results page use `useQuestionReview`/`ReviewDetail`
+  from `session-results.tsx`, which retry instead of sitting on "Loading…".
+- **Diagnostic results count only questions the student saw**: waived bonus
+  questions are left out of the total, accuracy, time and review list (they
+  still score as misses). It used to say "8/21" and list seven unseen Hard
+  questions as Incorrect.
+- **Completion is claimed, not checked** (`updateMany` on the open status) and
+  prediction generation locks its source row, so a double submit can't
+  double-count. A results page whose prediction step failed generates it
+  instead of crashing on every visit. `finalizeAnswer` locks the category's
+  `CategoryState` row, so two answers at once can't lose an ability update.
+- Answer feedback carries words ("Your answer", "Correct answer"), and the
+  result line is a live region that takes focus.
+- **Any action that creates a membership calls `revalidatePath("/", "layout")`**
+  before redirecting (school-email verification and the campus pick now do,
+  as onboarding already did). A layout doesn't re-render on navigation, so a
+  student whose school had just started covering them kept seeing "Upgrade ·
+  50% off" in the sidebar until a full reload. Found by the e2e suite, which
+  now asserts the Upgrade row is gone; with the shell refreshed, the Premium
+  celebration opens on the success page itself.
+- **Dashboard and Progress figures count all seven study modes** (one query
+  over `answerActivity`) and study days are **Central**, like goals and the
+  leaderboard; `streakFromDays` moved to `src/lib/dashboard/study-streak.ts`
+  and the Daily Challenge (still UTC days, by design) imports it. The Daily
+  Challenge answer action returns `rolled_over` instead of throwing when the
+  day changes under a student.
+
+**Administrators and the Owner's school tools**
+
+- **An announcement's end date is the end of that day, Central**
+  (`endOfLocalDay` in the new pure `src/lib/community/local-day.ts`, which
+  `goal.ts` re-exports). `z.coerce.date()` had read it as midnight UTC, 7pm
+  Central the evening before, so "today" published an already-expired banner
+  and still emailed everyone. Dates are displayed in Central too.
+- **What an admin is told about access comes from the paying organization**
+  (`schoolAccessState` in `src/lib/admin/access-info.ts`, tested to agree
+  with `hasActiveSchoolEntitlement`): the district when there is one, and
+  "Ended" once the end date passes whatever `status` says. Campus rows copy
+  the district's dates once and drift; no admin page reads them any more.
+  Roster invitations use the same check.
+- **Small-group privacy on the Overview** (PRD-011 §21): score growth and
+  readiness are withheld until 10 students can be measured
+  (`MIN_STUDENTS_FOR_SCORE_FIGURES`), any group of 1–4 shows as "Fewer than
+  5", and "Biggest gain" waits for the same threshold. `getCampusImpact`
+  returns the protected report; `measureCampusImpact` (raw) is read only by
+  tests. Not done: complementary suppression.
+- **"Class of" edits** are ACTIVE-only and limited to
+  `graduationYearWindow()`; a year that would end access is refused, because
+  the graduation sweep would make it permanent.
+- Suspend, Archive, Remove administrator, Mark Graduated and Remove
+  membership go through `ConfirmButton`. **Roster reminders** go only to
+  students last emailed more than `REMINDER_GAP_DAYS` (3) ago, so repeated
+  presses finish instead of re-mailing the same people; any membership
+  status counts as claimed, and graduated roster rows are skipped.
+- Student Directory summary cards link to `status=ACTIVE` lists; `status`
+  and `graduationYear` params are validated; the summary is one
+  school-scoped "last answered" query (`lastAnsweredAtForSchool`) cached 60s;
+  the CSV export reads activity in chunks of 500 (it would have hit
+  Postgres's bind-parameter limit at ~5,000 students).
+- **Every Owner page calls `requireOwnerPage()`** (`src/lib/owner/guard.ts`)
+  itself. Next's own auth guide says a layout check doesn't protect the
+  segments under it.
+- Not changed, an Owner decision: "all time" totals and score growth count
+  ACTIVE students only, so they drop graduates every July 1.
+
+**Teachers and homework**
+
+- Answering the last question turns homework in, dated by that answer, so
+  lateness reflects when the work was done. Closed homework, an archived class
+  and a removed student all go through one `homeworkBlock()` and reach the
+  runner as `SessionBlocked`.
+- A student who joined after an assignment's due date (or close) is "Joined
+  later", never "Missing" (`src/lib/teacher/deadline.ts`); "of N" figures
+  count the current roster only.
+- Re-adding a removed teacher reopens exactly the classes the removal
+  archived (they share its timestamp).
+
+**Infrastructure**
+
+- `catchUpDistrictEnrollment` remembers, per instance, that an address matched
+  no district, keyed to the partner-index load it was checked against. Once
+  any roster exists, a free student's every render no longer repeats the
+  roster and domain lookups.
+- The analytics beacon awaits its write: a serverless function can be frozen
+  the moment its response goes out.
+
+**Still open, recorded rather than fixed**: a one-time backfill of
+`emailVerified` for existing Google accounts (a production write, offered to
+the Owner); thin content (Advanced Math easy 2 published, PSDA easy 3,
+Vocabulary hard 3, Geometry easy 4, unchanged since September); practice-set
+generation's per-slot queries; KaTeX shipping to every student client;
+caching published question content.

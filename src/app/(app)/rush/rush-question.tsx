@@ -58,6 +58,33 @@ export function RushQuestion({
   const [scratchOpen, setScratchOpen] = useState(false);
   const isChoice = content.questionType === "MULTIPLE_CHOICE";
   const hasPassage = (content.passageText ?? "").trim().length > 0;
+  const choicesRef = useRef<HTMLDivElement | null>(null);
+
+  // Answering disables every choice, and the one that had focus drops it to
+  // the page. Focus goes to the choices instead, which now carry the
+  // "Correct answer" / "Your answer" tags, so keyboard and screen-reader
+  // players land on the outcome rather than at the top of the document.
+  useEffect(() => {
+    if (!answered || !isChoice) return;
+    const active = document.activeElement;
+    if (!active || active === document.body || choicesRef.current?.contains(active)) {
+      choicesRef.current?.focus();
+    }
+  }, [answered, isChoice]);
+
+  // The runners print "Correct!" or "Incorrect." visually; this says which
+  // choice was right for anyone who can't see the outline colours. Always
+  // mounted, so assistive technology announces the change when it happens.
+  const correctIndex = content.answerChoices.findIndex((c) => c.id === correctChoiceId);
+  const pickedIndex = content.answerChoices.findIndex((c) => c.id === draft);
+  const outcome =
+    answered && isChoice && correctIndex !== -1
+      ? pickedIndex === correctIndex
+        ? `The correct answer is ${String.fromCharCode(65 + correctIndex)}, the one you chose.`
+        : pickedIndex !== -1
+          ? `You chose ${String.fromCharCode(65 + pickedIndex)}. The correct answer is ${String.fromCharCode(65 + correctIndex)}.`
+          : `The correct answer is ${String.fromCharCode(65 + correctIndex)}.`
+      : "";
 
   // The latest values for the key handler, without re-binding it on every
   // keystroke. Refreshed in an effect, never written during render.
@@ -110,13 +137,33 @@ export function RushQuestion({
         </div>
       )}
 
-      <div className="mt-6 flex flex-col gap-2.5">
+      <p role="status" className="sr-only">
+        {outcome}
+      </p>
+
+      <div
+        ref={choicesRef}
+        tabIndex={isChoice && answered ? -1 : undefined}
+        role={isChoice ? "group" : undefined}
+        aria-label={isChoice ? "Answer choices" : undefined}
+        className="mt-6 flex flex-col gap-2.5 focus:outline-none"
+      >
         {isChoice ? (
           content.answerChoices.map((choice, choiceIndex) => {
             const letter = String.fromCharCode(65 + choiceIndex);
             const isSelected = draft === choice.id;
             const showCorrect = answered && correctChoiceId === choice.id;
             const showWrongSelection = answered && isSelected && correctChoiceId !== choice.id;
+            // In words as well as the outline colour (WCAG 1.4.1).
+            const tag = !answered
+              ? null
+              : isSelected && showCorrect
+                ? "Your answer · Correct"
+                : isSelected && correctChoiceId
+                  ? "Your answer"
+                  : showCorrect
+                    ? "Correct answer"
+                    : null;
             return (
               <button
                 key={choice.id}
@@ -151,6 +198,16 @@ export function RushQuestion({
                     <img src={`/api/media/${choice.imageId}`} alt="" className="mt-2 max-w-full rounded" />
                   )}
                 </span>
+                {tag && (
+                  <>
+                    {" "}
+                    <span
+                      className={`shrink-0 self-center text-sm font-semibold ${showWrongSelection ? "text-destructive" : "text-green-800 dark:text-green-300"}`}
+                    >
+                      {tag}
+                    </span>
+                  </>
+                )}
               </button>
             );
           })

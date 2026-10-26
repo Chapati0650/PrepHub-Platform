@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getBulkUploadReadiness } from "@/lib/content/ai-readiness";
 import { BulkUploadForm } from "./bulk-upload-form";
+import { requireOwnerPage } from "@/lib/owner/guard";
 
 // Role gate already lives in the parent /owner layout — this page only needs
 // its own content. See src/lib/content/bulk-upload.ts for the pipeline this
@@ -11,7 +12,8 @@ import { BulkUploadForm } from "./bulk-upload-form";
 // write an explanation, per image, landing every result as a Draft. Review
 // before publish is available but no longer required (validation.ts) — the
 // Owner can publish immediately and fix mistakes later if needed.
-export default function BulkUploadPage() {
+export default async function BulkUploadPage() {
+  await requireOwnerPage();
   // Read at request time on the server, so the page tells the Owner up
   // front which provider key is missing instead of letting a batch fail
   // one question at a time (see ai-readiness.ts for the incident).

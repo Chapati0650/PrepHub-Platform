@@ -3,6 +3,7 @@ import { stripe, STRIPE_PRICE_IDS } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
 import { logPaymentFailure } from "@/lib/logger";
+import { hasPaidAccess } from "@/lib/entitlements";
 import { BillingError } from "./errors";
 
 export type Plan = "MONTHLY" | "ANNUAL";
@@ -54,13 +55,28 @@ export async function createCheckoutSession(
     throw new BillingError("STRIPE_NOT_CONFIGURED", "Billing isn't configured yet.");
   }
 
+  // A second checkout is a second Stripe subscription billing the same
+  // person: a back button, another tab, or a student whose school already
+  // covers them. The database tracks one subscription per student, so the
+  // other would keep charging with no way to cancel it from here. Anyone who
+  // already has Premium is sent to manage what they have instead.
+  if (await hasPaidAccess(userId)) {
+    throw new BillingError("ALREADY_SUBSCRIBED", "You already have Premium. You can manage it from Billing.");
+  }
+
   const existing = await prisma.subscription.findUnique({ where: { userId } });
 
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     line_items: [{ price: priceIdForPlan(plan), quantity: 1 }],
     client_reference_id: userId,
-    customer: existing?.stripeCustomerId,
+    // A complimentary row's customer id ("manual_comp_…") was never a Stripe
+    // customer, and passing it would fail the checkout outright.
+    customer: existing?.stripeCustomerId.startsWith("cus_") ? existing.stripeCustomerId : undefined,
+    // Carried on the subscription itself so every later event about it can be
+    // attributed to this account, even one that arrives before the checkout's
+    // own completion event has created the Subscription row.
+    subscription_data: { metadata: { userId } },
     allow_promotion_codes: true,
     success_url: `${origin}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/pricing`,
@@ -93,9 +109,33 @@ export async function syncSubscriptionFromStripe(
   const status = mapStripeStatus(stripeSubscription.status, stripeSubscription.cancel_at_period_end);
   const currentPeriodEnd = currentPeriodEndOf(stripeSubscription);
 
-  const existing = await prisma.subscription.findUnique({ where: { stripeCustomerId: customerId } });
-  const userId = existing?.userId ?? fallbackUserId;
-  if (!userId) return; // nothing we can attribute this Stripe object to
+  const byCustomer = await prisma.subscription.findUnique({ where: { stripeCustomerId: customerId } });
+  const userId = byCustomer?.userId ?? fallbackUserId ?? stripeSubscription.metadata?.userId;
+  if (!userId) {
+    // Never silent: a live subscription nobody can be matched to is someone
+    // paying for access they don't have. Thrown so the webhook answers 500 and
+    // Stripe retries, which also covers an update that simply arrived before
+    // the checkout's completion event created the row.
+    logPaymentFailure("Stripe subscription could not be attributed to an account", {
+      affectedResourceId: stripeSubscription.id,
+      errorType: `status ${stripeSubscription.status}`,
+    });
+    if (status !== "EXPIRED") throw new Error("Unattributed live Stripe subscription");
+    return;
+  }
+
+  const existing = byCustomer?.userId === userId ? byCustomer : await prisma.subscription.findUnique({ where: { userId } });
+  // A different subscription that has ended (a stray second checkout, an
+  // old one being cleaned up) must not overwrite the one this student is
+  // actually on.
+  if (
+    existing?.stripeSubscriptionId &&
+    existing.stripeSubscriptionId !== stripeSubscription.id &&
+    existing.status !== "EXPIRED" &&
+    status === "EXPIRED"
+  ) {
+    return;
+  }
 
   const wasPastDue = existing?.status === "PAST_DUE";
   const isPastDue = status === "PAST_DUE";
@@ -185,6 +225,35 @@ export async function scheduleSubscriptionNonRenewal(userId: string): Promise<vo
   });
 }
 
+/**
+ * Account deletion: a deleted account can't sign in to reach Billing, so a
+ * subscription left running would charge forever for access nobody can use.
+ * Cancelled immediately rather than at period end for the same reason.
+ * Best-effort against Stripe — deletion has already happened and must not be
+ * undone by a Stripe outage — but the failure is logged so it can be finished
+ * by hand.
+ */
+export async function cancelSubscriptionForDeletedAccount(userId: string): Promise<void> {
+  const subscription = await prisma.subscription.findUnique({ where: { userId } });
+  if (!subscription || subscription.status === "EXPIRED") return;
+
+  if (subscription.stripeSubscriptionId) {
+    try {
+      await stripe.subscriptions.cancel(subscription.stripeSubscriptionId);
+    } catch (err) {
+      logPaymentFailure("Could not cancel a deleted account's Stripe subscription", {
+        accountId: userId,
+        affectedResourceId: subscription.stripeSubscriptionId,
+        errorType: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  await prisma.subscription.update({
+    where: { userId },
+    data: { status: "EXPIRED", cancelAtPeriodEnd: false, gracePeriodEndsAt: null },
+  });
+}
+
 export async function cancelSubscription(userId: string): Promise<void> {
   const subscription = await prisma.subscription.findUnique({ where: { userId } });
   if (!subscription?.stripeSubscriptionId || subscription.status !== "ACTIVE") {
@@ -265,7 +334,10 @@ export async function applyPromoCode(userId: string, code: string): Promise<void
  */
 export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<void> {
   switch (event.type) {
-    case "checkout.session.completed": {
+    // A delayed payment method (a bank debit) completes checkout unpaid and
+    // reports the payment later, as async_payment_succeeded.
+    case "checkout.session.completed":
+    case "checkout.session.async_payment_succeeded": {
       const session = event.data.object as Stripe.Checkout.Session;
       if (!session.client_reference_id || !session.subscription) break;
       const paid =
@@ -280,7 +352,13 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
     }
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
-      await syncSubscriptionFromStripe(event.data.object as Stripe.Subscription);
+      // Stripe doesn't deliver events in order, and retries an old one after a
+      // newer one has landed. Syncing from the event's own snapshot could put
+      // a paid-up subscription back to past-due (and send the failed-payment
+      // email after the payment succeeded), so the current state is fetched.
+      const snapshot = event.data.object as Stripe.Subscription;
+      const current = await stripe.subscriptions.retrieve(snapshot.id);
+      await syncSubscriptionFromStripe(current);
       break;
     }
     default:

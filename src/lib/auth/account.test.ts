@@ -9,27 +9,33 @@ import {
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/password";
 import { sendEmail } from "@/lib/email";
+import { cancelSubscriptionForDeletedAccount } from "@/lib/billing";
 
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    user: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-    passwordResetToken: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+vi.mock("@/lib/prisma", () => {
+  const mockPrisma: Record<string, unknown> = {
+    user: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    passwordResetToken: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     account: { deleteMany: vi.fn() },
     session: { deleteMany: vi.fn() },
-    $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
-  },
-}));
+    studentMembership: { findUnique: vi.fn(), update: vi.fn() },
+    membershipHistoryEvent: { create: vi.fn() },
+    classroomEnrollment: { updateMany: vi.fn() },
+    classroom: { updateMany: vi.fn() },
+    teacherAssignment: { updateMany: vi.fn() },
+    administratorAssignment: { updateMany: vi.fn() },
+  };
+  // Interactive transactions run against the same mocks.
+  mockPrisma.$transaction = vi.fn((fn: (tx: unknown) => Promise<unknown>) => fn(mockPrisma));
+  return { prisma: mockPrisma };
+});
 
 vi.mock("@/lib/email", () => ({ sendEmail: vi.fn() }));
+vi.mock("@/lib/billing", () => ({ cancelSubscriptionForDeletedAccount: vi.fn() }));
 
 const mockedSendEmail = sendEmail as ReturnType<typeof vi.fn>;
+const mockedCancel = cancelSubscriptionForDeletedAccount as ReturnType<typeof vi.fn>;
 
-const mockedPrisma = prisma as unknown as {
-  user: Record<string, ReturnType<typeof vi.fn>>;
-  passwordResetToken: Record<string, ReturnType<typeof vi.fn>>;
-  account: Record<string, ReturnType<typeof vi.fn>>;
-  session: Record<string, ReturnType<typeof vi.fn>>;
-};
+const mockedPrisma = prisma as unknown as Record<string, Record<string, ReturnType<typeof vi.fn>>>;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -124,18 +130,50 @@ describe("confirmPasswordReset", () => {
       expiresAt: new Date(Date.now() + 1000 * 60),
     });
     mockedPrisma.user.update.mockResolvedValue({});
-    mockedPrisma.passwordResetToken.update.mockResolvedValue({});
+    mockedPrisma.passwordResetToken.updateMany.mockResolvedValue({ count: 1 });
 
     await confirmPasswordReset("raw-token", "newpassword1");
 
+    expect(mockedPrisma.passwordResetToken.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "t1", usedAt: null } }),
+    );
     expect(mockedPrisma.user.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "u1" },
         data: expect.objectContaining({ tokenVersion: { increment: 1 } }),
       }),
     );
-    expect(mockedPrisma.passwordResetToken.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "t1" } }),
+  });
+
+  it("refuses the second of two simultaneous uses of one link", async () => {
+    mockedPrisma.passwordResetToken.findUnique.mockResolvedValue({
+      id: "t1",
+      userId: "u1",
+      usedAt: null,
+      expiresAt: new Date(Date.now() + 1000 * 60),
+    });
+    mockedPrisma.passwordResetToken.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(confirmPasswordReset("raw-token", "newpassword1")).rejects.toMatchObject({ code: "INVALID_TOKEN" });
+    expect(mockedPrisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it("marks the address verified and retires the account's other outstanding links", async () => {
+    mockedPrisma.passwordResetToken.findUnique.mockResolvedValue({
+      id: "t1",
+      userId: "u1",
+      usedAt: null,
+      expiresAt: new Date(Date.now() + 1000 * 60),
+    });
+    mockedPrisma.passwordResetToken.updateMany.mockResolvedValue({ count: 1 });
+
+    await confirmPasswordReset("raw-token", "newpassword1");
+
+    expect(mockedPrisma.user.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "u1", emailVerified: null } }),
+    );
+    expect(mockedPrisma.passwordResetToken.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: "u1", usedAt: null } }),
     );
   });
 
@@ -185,16 +223,10 @@ describe("logOutAllDevices", () => {
 describe("deleteAccount", () => {
   it("verifies the password, anonymizes the user, and clears sessions/accounts atomically", async () => {
     const passwordHash = await hashPassword("correct-password");
-    mockedPrisma.user.findUnique.mockResolvedValue({
-      id: "u1",
-      passwordHash,
-      deletedAt: null,
-    });
-    mockedPrisma.user.update.mockResolvedValue({});
-    mockedPrisma.account.deleteMany.mockResolvedValue({});
-    mockedPrisma.session.deleteMany.mockResolvedValue({});
+    mockedPrisma.user.findUnique.mockResolvedValue({ id: "u1", passwordHash, deletedAt: null });
+    mockedPrisma.studentMembership.findUnique.mockResolvedValue(null);
 
-    await deleteAccount("u1", "correct-password");
+    await deleteAccount("u1", { password: "correct-password" });
 
     const updateCall = mockedPrisma.user.update.mock.calls[0][0];
     expect(updateCall.data.deletedAt).toBeInstanceOf(Date);
@@ -202,36 +234,71 @@ describe("deleteAccount", () => {
     expect(updateCall.data.passwordHash).toBeNull();
     expect(mockedPrisma.account.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } });
     expect(mockedPrisma.session.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } });
+    expect(mockedCancel).toHaveBeenCalledWith("u1");
   });
 
-  it("rejects an incorrect password without touching the account", async () => {
+  it("rejects an incorrect or missing password without touching the account", async () => {
     const passwordHash = await hashPassword("correct-password");
     mockedPrisma.user.findUnique.mockResolvedValue({ id: "u1", passwordHash, deletedAt: null });
 
-    await expect(deleteAccount("u1", "wrong-password")).rejects.toMatchObject({
+    await expect(deleteAccount("u1", { password: "wrong-password" })).rejects.toMatchObject({
       code: "INVALID_CREDENTIALS",
     });
+    await expect(deleteAccount("u1", {})).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" });
     expect(mockedPrisma.user.update).not.toHaveBeenCalled();
+    expect(mockedCancel).not.toHaveBeenCalled();
   });
 
   it("rejects deleting an account that doesn't exist or is already deleted", async () => {
     mockedPrisma.user.findUnique.mockResolvedValue(null);
-    await expect(deleteAccount("ghost", "anything")).rejects.toMatchObject({
+    await expect(deleteAccount("ghost", { password: "anything" })).rejects.toMatchObject({
       code: "INVALID_CREDENTIALS",
     });
 
     mockedPrisma.user.findUnique.mockResolvedValue({ id: "u1", deletedAt: new Date() });
-    await expect(deleteAccount("u1", "anything")).rejects.toMatchObject({
+    await expect(deleteAccount("u1", { password: "anything" })).rejects.toMatchObject({
       code: "INVALID_CREDENTIALS",
     });
   });
 
-  it("skips password verification for Google-only accounts (no passwordHash)", async () => {
+  it("asks a Google-only account to type the confirmation word instead of a password", async () => {
     mockedPrisma.user.findUnique.mockResolvedValue({ id: "u1", passwordHash: null, deletedAt: null });
-    mockedPrisma.user.update.mockResolvedValue({});
-    mockedPrisma.account.deleteMany.mockResolvedValue({});
-    mockedPrisma.session.deleteMany.mockResolvedValue({});
+    mockedPrisma.studentMembership.findUnique.mockResolvedValue(null);
 
-    await expect(deleteAccount("u1", "")).resolves.toBeUndefined();
+    await expect(deleteAccount("u1", {})).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" });
+    expect(mockedPrisma.user.update).not.toHaveBeenCalled();
+
+    await expect(deleteAccount("u1", { confirmation: " delete " })).resolves.toBeUndefined();
+    expect(mockedPrisma.user.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("ends an active school membership with an audit record and frees the school address", async () => {
+    const passwordHash = await hashPassword("correct-password");
+    mockedPrisma.user.findUnique.mockResolvedValue({ id: "u1", passwordHash, deletedAt: null });
+    mockedPrisma.studentMembership.findUnique.mockResolvedValue({ id: "m1", status: "ACTIVE" });
+
+    await deleteAccount("u1", { password: "correct-password" });
+
+    const membershipUpdate = mockedPrisma.studentMembership.update.mock.calls[0][0];
+    expect(membershipUpdate.data.status).toBe("REMOVED");
+    expect(membershipUpdate.data.verifiedSchoolEmail).toContain("deleted-m1");
+    expect(mockedPrisma.membershipHistoryEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ membershipId: "m1", eventType: "REMOVAL" }) }),
+    );
+  });
+
+  it("archives a departing teacher's classes so they don't live on ownerless", async () => {
+    const passwordHash = await hashPassword("correct-password");
+    mockedPrisma.user.findUnique.mockResolvedValue({ id: "t1", passwordHash, deletedAt: null });
+    mockedPrisma.studentMembership.findUnique.mockResolvedValue(null);
+
+    await deleteAccount("t1", { password: "correct-password" });
+
+    expect(mockedPrisma.classroom.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { teacherId: "t1", archivedAt: null } }),
+    );
+    expect(mockedPrisma.teacherAssignment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: "t1", removedAt: null } }),
+    );
   });
 });

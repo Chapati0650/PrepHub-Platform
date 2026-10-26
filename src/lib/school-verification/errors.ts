@@ -10,7 +10,8 @@ export class SchoolVerificationError extends Error {
       | "ALREADY_COMPLETED"
       | "WRONG_ACCOUNT"
       | "NEEDS_SCHOOL_SELECTION"
-      | "NOT_ON_ROSTER",
+      | "NOT_ON_ROSTER"
+      | "NOT_A_STUDENT",
     message: string,
   ) {
     super(message);

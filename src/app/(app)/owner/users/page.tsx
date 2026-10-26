@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { requireOwnerPage } from "@/lib/owner/guard";
 
 const ROLE_LABELS: Record<string, string> = {
   OWNER: "Owner",
@@ -34,6 +35,7 @@ function formatDate(date: Date): string {
 // table, not editable here — student info edits already live in the School
 // Administrator's own Student Directory, scoped to their school.
 export default async function OwnerUsersPage() {
+  await requireOwnerPage();
   const { entries, stats } = await getUserDirectory();
 
   return (

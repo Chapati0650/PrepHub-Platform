@@ -17,6 +17,7 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { CreateFamilyDialog } from "./create-family-dialog";
 import { GroupQuestionsDialog } from "./group-questions-dialog";
+import { requireOwnerPage } from "@/lib/owner/guard";
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
@@ -30,6 +31,7 @@ function statusVariant(status: string): "default" | "secondary" | "destructive" 
 
 // PRD-015 §8.6: Question Families table.
 export default async function QuestionFamiliesPage() {
+  await requireOwnerPage();
   const [families, eligibleResult] = await Promise.all([
     prisma.questionFamily.findMany({
       include: { sharedVideo: true, questions: { select: { id: true } } },

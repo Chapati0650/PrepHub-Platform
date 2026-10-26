@@ -76,7 +76,7 @@ export type DistrictMatch =
 const DOMAIN_CACHE_TTL_MS = 60_000;
 let domainCache: { domains: Set<string>; anyRoster: boolean; loadedAt: number } | null = null;
 
-async function getPartnerIndex(): Promise<{ domains: Set<string>; anyRoster: boolean }> {
+async function getPartnerIndex(): Promise<{ domains: Set<string>; anyRoster: boolean; loadedAt: number }> {
   if (domainCache && Date.now() - domainCache.loadedAt < DOMAIN_CACHE_TTL_MS) return domainCache;
   const [rows, rosterCount] = await Promise.all([
     prisma.organizationDomain.findMany({ where: { isActive: true }, select: { domain: true } }),
@@ -91,6 +91,19 @@ async function getPartnerIndex(): Promise<{ domains: Set<string>; anyRoster: boo
     loadedAt: Date.now(),
   };
   return domainCache;
+}
+
+/**
+ * Addresses found to match no district, each with the partner index load it
+ * was checked against (see catchUpDistrictEnrollment). Per instance, bounded,
+ * and simply cleared when full: losing it costs one lookup, never a wrong answer.
+ */
+const NO_MATCH_CACHE_LIMIT = 20_000;
+const noMatchUnderIndex = new Map<string, number>();
+
+function rememberNoMatch(address: string, indexLoadedAt: number): void {
+  if (noMatchUnderIndex.size >= NO_MATCH_CACHE_LIMIT) noMatchUnderIndex.clear();
+  noMatchUnderIndex.set(address, indexLoadedAt);
 }
 
 export async function getActivePartnerDomains(): Promise<Set<string>> {
@@ -120,6 +133,7 @@ export async function isDistrictCandidateEmail(rawEmail: string | null | undefin
 /** Test seam — the module-level cache would otherwise leak between cases. */
 export function __resetPartnerDomainCache(): void {
   domainCache = null;
+  noMatchUnderIndex.clear();
 }
 
 /**
@@ -340,8 +354,20 @@ export async function catchUpDistrictEnrollment(userId: string): Promise<Distric
   const { user, subscription, membership } = await getAccessContext(userId);
   if (membership) return { outcome: "ALREADY_MEMBER", prompt: null };
   if (subscription) return { outcome: "NO_PARTNER", prompt: null };
-  if (!(await isDistrictCandidateEmail(user?.email))) return { outcome: "NO_PARTNER", prompt: null };
+  if (!user?.email || !(await isDistrictCandidateEmail(user.email))) return { outcome: "NO_PARTNER", prompt: null };
+
+  // Once any district has uploaded a roster, every address is a candidate, so
+  // without this every render for every free student repeated the same
+  // roster and domain lookups to learn, again, that they match nothing. The
+  // answer is remembered against the partner index it was found under, so a
+  // new roster or domain is noticed as soon as the index reloads (a minute at
+  // most), exactly as stale as the pre-check above already is.
+  const index = await getPartnerIndex();
+  const address = user.email.trim().toLowerCase();
+  if (noMatchUnderIndex.get(address) === index.loadedAt) return { outcome: "NO_PARTNER", prompt: null };
+
   const { outcome, match, email } = await enroll(userId, {});
+  if (match?.kind === "NONE") rememberNoMatch(address, index.loadedAt);
   // The access context was read before the membership existed, so anything
   // reading it later in this same render would still see an unenrolled
   // student — the bug this function exists to prevent.

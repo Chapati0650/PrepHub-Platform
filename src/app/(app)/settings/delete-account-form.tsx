@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { ActionState } from "@/app/(auth)/actions";
+import { DELETE_CONFIRMATION_WORD } from "@/lib/auth/delete-confirmation";
 
 const initialState: ActionState = {};
 
@@ -21,10 +22,15 @@ export function DeleteAccountForm({ hasPassword }: { hasPassword: boolean }) {
         </Alert>
       )}
 
-      {hasPassword && (
+      {hasPassword ? (
         <div className="flex flex-col gap-2">
           <Label htmlFor="password">Confirm your password</Label>
-          <Input id="password" name="password" type="password" required />
+          <Input id="password" name="password" type="password" autoComplete="current-password" required />
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="confirmation">Type {DELETE_CONFIRMATION_WORD} to confirm</Label>
+          <Input id="confirmation" name="confirmation" autoComplete="off" required />
         </div>
       )}
 

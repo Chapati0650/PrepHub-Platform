@@ -1,6 +1,8 @@
 import type { QuestionCategory } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ALL_CATEGORIES } from "@/lib/adaptive/config";
+import { generateDiagnosticPrediction } from "@/lib/score/generate-diagnostic-prediction";
+import { generateAdaptivePrediction } from "@/lib/score/generate-adaptive-prediction";
 
 export type SessionResultsData = {
   sourceType: "DIAGNOSTIC" | "ADAPTIVE_SET";
@@ -14,8 +16,8 @@ export type SessionResultsData = {
   continueHref: string;
 };
 
-// Session-level total/completedAt - startedAt divided evenly across the 21
-// questions. We don't persist per-question timing (PRD-012 §15: response time
+// Session-level total/completedAt - startedAt divided evenly across the
+// questions the student was shown. We don't persist per-question timing (PRD-012 §15: response time
 // never affects adaptivity or scoring, so it was never modeled as more than a
 // display nicety) — this derives the two required display stats from the
 // timestamps we do have rather than adding storage purely for a stat.
@@ -27,16 +29,28 @@ function timeStats(startedAt: Date, completedAt: Date, questionCount: number) {
   };
 }
 
+// Callers check the Diagnostic is COMPLETED first. The prediction is
+// generated here if it's missing rather than read with a findFirstOrThrow:
+// completion commits before the prediction is written, so if that second step
+// failed, a plain read would fail this page on every visit and nothing would
+// ever retry it. Generation is idempotent, so normally this is one read.
 export async function getDiagnosticResultsData(studentId: string): Promise<SessionResultsData> {
   const [session, prediction, categoryStates, user] = await Promise.all([
     prisma.diagnosticSession.findUniqueOrThrow({ where: { studentId }, include: { attempts: { orderBy: { position: "asc" } } } }),
-    prisma.predictionHistoryEntry.findFirstOrThrow({ where: { studentId, sourceType: "DIAGNOSTIC" } }),
+    generateDiagnosticPrediction(studentId),
     prisma.categoryState.findMany({ where: { studentId } }),
     prisma.user.findUniqueOrThrow({ where: { id: studentId }, select: { targetScore: true } }),
   ]);
 
   const abilityByCategory = new Map(categoryStates.map((s) => [s.category, s.ability]));
-  const correct = session.attempts.filter((a) => a.isCorrect).length;
+  // Only the questions the student was actually shown. A waived Hard question
+  // (one whose bonus round wasn't earned) still scores as a miss in the
+  // prediction above, but it was never served — counting it here put "8/21"
+  // and seven red "Incorrect" rows for questions the student never saw on a
+  // fourteen-question test. Renumbered so the review reads 1, 2, 3… without
+  // gaps where a waived question sat.
+  const shown = session.attempts.filter((a) => a.waivedAt === null);
+  const correct = shown.filter((a) => a.isCorrect).length;
 
   return {
     sourceType: "DIAGNOSTIC",
@@ -46,35 +60,39 @@ export async function getDiagnosticResultsData(studentId: string): Promise<Sessi
     targetScore: user.targetScore,
     stats: {
       correct,
-      total: session.attempts.length,
-      accuracy: session.attempts.length === 0 ? 0 : Math.round((correct / session.attempts.length) * 100),
-      ...timeStats(session.startedAt, session.completedAt ?? new Date(), session.attempts.length),
+      total: shown.length,
+      accuracy: shown.length === 0 ? 0 : Math.round((correct / shown.length) * 100),
+      ...timeStats(session.startedAt, session.completedAt ?? new Date(), shown.length),
     },
     mastery: ALL_CATEGORIES.map((category) => ({
       category,
       currentMastery: Math.round(abilityByCategory.get(category) ?? 0),
       changeSinceStart: null,
     })),
-    questions: session.attempts.map((a) => ({ id: a.id, position: a.position, isCorrect: !!a.isCorrect, category: a.category })),
+    questions: shown.map((a, index) => ({ id: a.id, position: index, isCorrect: !!a.isCorrect, category: a.category })),
     continueHref: "/practice",
   };
 }
 
+// Callers check the set is COMPLETED first. As with the Diagnostic above, a
+// missing prediction is generated here rather than failing the page forever.
+// The set is read (and its owner checked) before that, so nothing is ever
+// generated for another student's set.
 export async function getPracticeSetResultsData(studentId: string, practiceSetId: string): Promise<SessionResultsData> {
-  const [set, prediction, categoryStates, user] = await Promise.all([
-    prisma.practiceSet.findUniqueOrThrow({
-      where: { id: practiceSetId },
-      include: {
-        slots: { orderBy: { position: "asc" }, include: { finalizedAttempt: true } },
-        categorySnapshots: true,
-      },
-    }),
-    prisma.predictionHistoryEntry.findFirstOrThrow({ where: { studentId, sourceType: "ADAPTIVE_SET", sourceSetId: practiceSetId } }),
+  const set = await prisma.practiceSet.findUniqueOrThrow({
+    where: { id: practiceSetId },
+    include: {
+      slots: { orderBy: { position: "asc" }, include: { finalizedAttempt: true } },
+      categorySnapshots: true,
+    },
+  });
+  if (set.studentId !== studentId) throw new Error("Practice set not found for this student.");
+
+  const [prediction, categoryStates, user] = await Promise.all([
+    generateAdaptivePrediction(studentId, practiceSetId),
     prisma.categoryState.findMany({ where: { studentId } }),
     prisma.user.findUniqueOrThrow({ where: { id: studentId }, select: { targetScore: true } }),
   ]);
-
-  if (set.studentId !== studentId) throw new Error("Practice set not found for this student.");
 
   const previousPrediction = await prisma.predictionHistoryEntry.findFirst({
     where: { studentId, createdAt: { lt: prediction.createdAt } },

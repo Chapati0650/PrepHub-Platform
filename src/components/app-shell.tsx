@@ -43,6 +43,12 @@ import { PremiumUnlocked } from "@/components/premium-unlocked";
 
 type NavItem = { href: string; label: string; icon: ComponentType<{ className?: string }> };
 
+/**
+ * A group of nav items. `label` heads the group; a `collapsible` group folds
+ * away behind its label and opens on its own when the current page is in it.
+ */
+type NavSection = { label?: string; items: NavItem[]; collapsible?: boolean };
+
 const STUDENT_ITEMS: NavItem[] = [
   { href: "/home", label: "Home", icon: LayoutDashboard },
   { href: "/practice", label: "Practice", icon: PencilLine },
@@ -64,13 +70,27 @@ const STUDENT_ITEMS: NavItem[] = [
 // under Home: homework has a due date, so it belongs near the top.
 const HOMEWORK_ITEM: NavItem = { href: "/homework", label: "Homework", icon: NotebookPen };
 
+// An administrator's own work comes first, under plain names (2026-10-25).
+// They signed in to run PrepHub for a school; the student pages they can also
+// use follow in their own folded section (see AppShell).
 const ADMIN_ITEMS: NavItem[] = [
-  { href: "/admin", label: "Admin Overview", icon: ClipboardList },
-  { href: "/admin/students", label: "Student Directory", icon: IdCard },
+  { href: "/admin", label: "Overview", icon: ClipboardList },
+  { href: "/admin/students", label: "Students", icon: IdCard },
   { href: "/admin/teachers", label: "Teachers", icon: Presentation },
-  { href: "/admin/goal", label: "Community Goal", icon: Target },
   { href: "/admin/announcements", label: "Announcements", icon: Megaphone },
-  { href: "/admin/access", label: "School Access & Support", icon: ShieldCheck },
+  { href: "/admin/goal", label: "Community goal", icon: Target },
+  { href: "/admin/access", label: "Access & support", icon: ShieldCheck },
+  { href: "/settings", label: "Account", icon: Settings },
+];
+
+/**
+ * The student pages, as an administrator reaches them: Home is the student
+ * dashboard (`/home` alone sends an administrator to their Overview), and
+ * Profile is already in the admin list as Account.
+ */
+const ADMIN_STUDENT_ITEMS: NavItem[] = [
+  { href: "/home?view=student", label: "Student dashboard", icon: LayoutDashboard },
+  ...STUDENT_ITEMS.filter((item) => item.href !== "/home" && item.href !== "/settings"),
 ];
 
 // A teacher has no student experience of their own (CLAUDE.md, Teachers):
@@ -94,7 +114,8 @@ const OWNER_ITEMS: NavItem[] = [
 ];
 
 function isActive(pathname: string, href: string): boolean {
-  return pathname === href || pathname.startsWith(`${href}/`);
+  const path = href.split("?")[0];
+  return pathname === path || pathname.startsWith(`${path}/`);
 }
 
 /**
@@ -104,8 +125,8 @@ function isActive(pathname: string, href: string): boolean {
  * both "Practice" and "Focused Practice". The longest matching href wins,
  * which is the one the student is actually on.
  */
-function activeHref(pathname: string, sections: NavItem[][]): string | null {
-  const matches = sections.flat().filter((item) => isActive(pathname, item.href));
+function activeHref(pathname: string, sections: NavSection[]): string | null {
+  const matches = sections.flatMap((s) => s.items).filter((item) => isActive(pathname, item.href));
   if (matches.length === 0) return null;
   return matches.reduce((best, item) => (item.href.length > best.href.length ? item : best)).href;
 }
@@ -135,50 +156,62 @@ function isFocusMode(pathname: string): boolean {
   return FOCUS_MODE_PATHS.has(pathname) || FOCUS_MODE_PREFIXES.some((p) => pathname.startsWith(p));
 }
 
-// Second and later sections get a small uppercase label (the reference
-// groups its nav the same way). The first never does: for a plain student
-// there is only one group, and labelling it "Student" would be noise.
-const SECTION_LABELS = ["", "Administrator"];
+// A labelled section gets a small uppercase heading (the reference groups its
+// nav the same way). A plain student has one unlabelled group: labelling it
+// "Student" would be noise.
+const SECTION_HEADING = "mb-1.5 px-3 text-caption font-semibold tracking-[0.12em] text-sidebar-foreground/50 uppercase";
 
-function NavList({ sections, pathname, onNavigate }: { sections: NavItem[][]; pathname: string; onNavigate?: () => void }) {
+function NavList({ sections, pathname, onNavigate }: { sections: NavSection[]; pathname: string; onNavigate?: () => void }) {
   const current = activeHref(pathname, sections);
+  const links = (items: NavItem[]) =>
+    items.map((item) => {
+      const active = item.href === current;
+      const Icon = item.icon;
+      return (
+        <Link
+          key={item.href}
+          href={item.href}
+          onClick={onNavigate}
+          aria-current={active ? "page" : undefined}
+          // Pill, matching the CTA shape the rest of the product now
+          // uses, rather than the same small rounded rectangle as every
+          // other surface in the app. The active item is also the only
+          // place the sidebar spends color, so it reads as a position
+          // indicator and not as decoration on a list.
+          className={cn(
+            "flex items-center gap-2.5 rounded-full px-3 py-2 text-sm transition-colors",
+            active
+              ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+          )}
+        >
+          <Icon className={cn("size-4 shrink-0", active && "text-sidebar-primary")} />
+          {item.label}
+        </Link>
+      );
+    });
+
   return (
     <nav className="flex flex-col gap-6">
-      {sections.map((items, i) => (
-        <div key={i} className="flex flex-col gap-0.5">
-          {SECTION_LABELS[i] && (
-            <p className="mb-1.5 px-3 text-caption font-semibold tracking-[0.12em] text-sidebar-foreground/50 uppercase">
-              {SECTION_LABELS[i]}
-            </p>
-          )}
-          {items.map((item) => {
-            const active = item.href === current;
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onNavigate}
-                aria-current={active ? "page" : undefined}
-                // Pill, matching the CTA shape the rest of the product now
-                // uses, rather than the same small rounded rectangle as every
-                // other surface in the app. The active item is also the only
-                // place the sidebar spends color, so it reads as a position
-                // indicator and not as decoration on a list.
-                className={cn(
-                  "flex items-center gap-2.5 rounded-full px-3 py-2 text-sm transition-colors",
-                  active
-                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
-                )}
-              >
-                <Icon className={cn("size-4 shrink-0", active && "text-sidebar-primary")} />
-                {item.label}
-              </Link>
-            );
-          })}
-        </div>
-      ))}
+      {sections.map((section, i) =>
+        section.collapsible ? (
+          // Folded by default so an administrator's own pages aren't buried
+          // under eleven student ones, and open whenever one of them is the
+          // current page, so you never lose your place.
+          <details key={i} open={section.items.some((item) => item.href === current)} className="group flex flex-col gap-0.5">
+            <summary className={`${SECTION_HEADING} flex cursor-pointer list-none items-center justify-between rounded-full py-1 hover:text-sidebar-foreground/80 [&::-webkit-details-marker]:hidden`}>
+              {section.label}
+              <span aria-hidden className="text-sm transition-transform group-open:rotate-90">›</span>
+            </summary>
+            <div className="mt-1 flex flex-col gap-0.5">{links(section.items)}</div>
+          </details>
+        ) : (
+          <div key={i} className="flex flex-col gap-0.5">
+            {section.label && <p className={SECTION_HEADING}>{section.label}</p>}
+            {links(section.items)}
+          </div>
+        ),
+      )}
     </nav>
   );
 }
@@ -263,15 +296,18 @@ export function AppShell({
   const isStudentExperience = role === "STUDENT" || isAdmin;
 
   const studentItems = showHomework ? [STUDENT_ITEMS[0], HOMEWORK_ITEM, ...STUDENT_ITEMS.slice(1)] : STUDENT_ITEMS;
-  const sections: NavItem[][] = isOwner
-    ? [OWNER_ITEMS]
+  const sections: NavSection[] = isOwner
+    ? [{ items: OWNER_ITEMS }]
     : isTeacher
-      ? [TEACHER_ITEMS]
-      : isStudentExperience
-        ? isAdmin
-          ? [studentItems, ADMIN_ITEMS]
-          : [studentItems]
-        : [];
+      ? [{ items: TEACHER_ITEMS }]
+      : isAdmin
+        ? [
+            { label: "Your school", items: ADMIN_ITEMS },
+            { label: "Student experience", items: ADMIN_STUDENT_ITEMS, collapsible: true },
+          ]
+        : isStudentExperience
+          ? [{ items: studentItems }]
+          : [];
 
   const initials = (user.name || user.email).trim().slice(0, 2).toUpperCase();
 

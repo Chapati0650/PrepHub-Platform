@@ -61,6 +61,23 @@ export default async function HomeworkPage({ searchParams }: { searchParams: Pro
             )}
           </section>
 
+          {homework.earlier.length > 0 && (
+            <section className="flex flex-col gap-3">
+              <h2 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                From before you joined
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Your class had these before you joined. They&apos;re here if you want the practice, and they won&apos;t
+                count as missing.
+              </p>
+              <ul className="divide-y divide-border border-y border-border">
+                {homework.earlier.map((item) => (
+                  <HomeworkRow key={item.assignmentId} item={item} now={now} />
+                ))}
+              </ul>
+            </section>
+          )}
+
           {homework.done.length > 0 && (
             <section className="flex flex-col gap-3">
               <h2 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">Done</h2>
@@ -102,9 +119,16 @@ export default async function HomeworkPage({ searchParams }: { searchParams: Pro
 }
 
 function HomeworkRow({ item, now }: { item: HomeworkItem; now: Date }) {
-  const overdue = item.status !== "COMPLETED" && item.dueAt && item.dueAt < now;
+  // Never red for homework that was already due when the student joined.
+  const overdue = item.status !== "COMPLETED" && item.dueAt && item.dueAt < now && !item.setBeforeJoining;
+  // Every question answered but not yet turned in: the session page turns it
+  // in and shows the results, even if the teacher has since closed it.
   const href =
-    item.status === "COMPLETED" && item.sessionId ? `/homework/results/${item.sessionId}` : `/homework/${item.assignmentId}`;
+    item.status === "COMPLETED" && item.sessionId
+      ? `/homework/results/${item.sessionId}`
+      : item.readyToTurnIn && item.sessionId
+        ? `/homework/session/${item.sessionId}`
+        : `/homework/${item.assignmentId}`;
   return (
     <li>
       <Link href={href} className="flex items-center justify-between gap-4 py-4">
