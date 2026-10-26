@@ -10,6 +10,15 @@ import { useRushSound } from "../../game-fx";
 
 /** How often the results page checks whether the other player asked. */
 const POLL_MS = 3_000;
+/** The same, while the tab is in the background: an invitation still arrives, just later. */
+const HIDDEN_POLL_MS = 15_000;
+/**
+ * A rematch is a "right now" thing. A results tab left open all day used to
+ * ask every three seconds until it was closed — some thirty thousand requests
+ * for nothing — so checking stops once the moment has clearly passed. The hub
+ * still shows any invitation that arrives later.
+ */
+const POLL_FOR_MS = 15 * 60 * 1000;
 
 /**
  * Rematch, on the results page of a finished head-to-head.
@@ -35,9 +44,13 @@ export function RematchPanel({ challengeId, initial, paid }: { challengeId: stri
   const settled = state.kind === "UNAVAILABLE" || state.kind === "PLAYED" || state.kind === "IN_PROGRESS";
   useEffect(() => {
     if (settled) return;
-    const timer = window.setInterval(async () => {
+    const stopAt = Date.now() + POLL_FOR_MS;
+    let timer = 0;
+    let cancelled = false;
+    async function check() {
       try {
         const next = await rematchStateAction(challengeId);
+        if (cancelled) return;
         // A ping when an invitation arrives, so a student who has looked away
         // from the screen hears it.
         if (next.kind === "RECEIVED" && lastKind.current !== "RECEIVED") playRef.current("go");
@@ -46,8 +59,17 @@ export function RematchPanel({ challengeId, initial, paid }: { challengeId: stri
       } catch {
         // A blip; try again on the next tick.
       }
-    }, POLL_MS);
-    return () => window.clearInterval(timer);
+      schedule();
+    }
+    function schedule() {
+      if (cancelled || Date.now() >= stopAt) return;
+      timer = window.setTimeout(check, document.hidden ? HIDDEN_POLL_MS : POLL_MS);
+    }
+    schedule();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [challengeId, settled]);
 
   if (state.kind === "UNAVAILABLE") return null;

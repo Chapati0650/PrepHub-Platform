@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { drainEmailQueue, enqueueEmails, getQueueHealth, queueRows } from "@/lib/email-queue";
-import { sendBulkEmail } from "@/lib/email";
+import { sendEmailBatch } from "@/lib/email";
 import { prisma } from "@/lib/prisma";
 
 vi.mock("@/lib/email", () => ({
-  sendBulkEmail: vi.fn().mockResolvedValue({ sent: 0, failed: 0 }),
+  sendEmailBatch: vi.fn().mockResolvedValue({ sent: 0, failed: 0 }),
+  BATCH_PAUSE_MS: 0,
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -18,7 +19,7 @@ const mocked = prisma as unknown as {
   queuedEmail: Record<string, ReturnType<typeof vi.fn>>;
   $queryRaw: ReturnType<typeof vi.fn>;
 };
-const mockedSendBulkEmail = sendBulkEmail as unknown as ReturnType<typeof vi.fn>;
+const mockedSendEmailBatch = sendEmailBatch as unknown as ReturnType<typeof vi.fn>;
 
 type Row = { id: string; kind: string; to: string; subject: string; body: string };
 
@@ -34,7 +35,7 @@ function givenClaims(...batches: Row[][]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockedSendBulkEmail.mockResolvedValue({ sent: 0, failed: 0 });
+  mockedSendEmailBatch.mockResolvedValue({ sent: 0, failed: 0 });
   mocked.queuedEmail.count.mockResolvedValue(0);
   mocked.queuedEmail.findFirst.mockResolvedValue(null);
   mocked.queuedEmail.updateMany.mockResolvedValue({ count: 0 });
@@ -78,25 +79,26 @@ describe("drainEmailQueue", () => {
     });
   });
 
-  it("sends one provider call per distinct message, not one per row", async () => {
+  it("sends a claimed batch as one provider call, even when its messages differ", async () => {
     givenClaims([
       row("a", { subject: "Snow day" }),
       row("b", { subject: "Snow day" }),
-      row("c", { subject: "Picture day", body: "Wear a shirt." }),
+      row("c", { kind: "daily_reminder", subject: "Today's set", body: "Hi Ada" }),
     ]);
 
     await drainEmailQueue({});
 
-    expect(mockedSendBulkEmail).toHaveBeenCalledTimes(2);
-    expect(mockedSendBulkEmail).toHaveBeenCalledWith(
-      ["a@school.edu", "b@school.edu"],
-      { subject: "Snow day", text: "No school." },
-    );
+    expect(mockedSendEmailBatch).toHaveBeenCalledTimes(1);
+    expect(mockedSendEmailBatch).toHaveBeenCalledWith([
+      { to: "a@school.edu", subject: "Snow day", text: "No school." },
+      { to: "b@school.edu", subject: "Snow day", text: "No school." },
+      { to: "c@school.edu", subject: "Today's set", text: "Hi Ada" },
+    ]);
   });
 
   it("releases the claim instead of marking sent when the provider rejects the batch", async () => {
     givenClaims([row("a")]);
-    mockedSendBulkEmail.mockResolvedValue({ sent: 0, failed: 1 });
+    mockedSendEmailBatch.mockResolvedValue({ sent: 0, failed: 1 });
 
     const result = await drainEmailQueue({});
 
@@ -133,7 +135,7 @@ describe("drainEmailQueue", () => {
   it("stops once the time budget is spent, leaving the rest for the scheduled run", async () => {
     givenClaims([row("a")], [row("b")], [row("c")]);
     // Each send takes longer than the whole budget, so exactly one batch goes.
-    mockedSendBulkEmail.mockImplementation(async () => {
+    mockedSendEmailBatch.mockImplementation(async () => {
       vi.advanceTimersByTime(50);
       return { sent: 1, failed: 0 };
     });
@@ -150,7 +152,7 @@ describe("drainEmailQueue", () => {
     const result = await drainEmailQueue({});
 
     expect(result).toEqual({ sent: 0, failed: 0, remaining: 0 });
-    expect(mockedSendBulkEmail).not.toHaveBeenCalled();
+    expect(mockedSendEmailBatch).not.toHaveBeenCalled();
   });
 });
 

@@ -1,5 +1,6 @@
 import type { CommunityGoalMetric } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { cacheAcrossRequests } from "@/lib/shared-cache";
 import { getSchoolAggregateStats } from "@/lib/school/aggregate-stats";
 import { countAnswers, studyHoursBetween } from "@/lib/school/student-activity";
 import { GOAL_LABELS, goalStatus, type GoalStatus } from "./goal";
@@ -57,7 +58,7 @@ export async function getSchoolCommunityData(schoolId: string): Promise<SchoolCo
     // A windowed goal counts only what happened inside its window; one set
     // before windows existed keeps its all-time total, already computed above.
     const current = startsAt
-      ? await goalProgressInWindow(schoolId, metric, startsAt, endsAt && endsAt < now ? endsAt : now)
+      ? await goalProgressInWindow(schoolId, metric, startsAt.toISOString(), endsAt?.toISOString() ?? null)
       : metric === "QUESTIONS_ANSWERED"
         ? totalQuestionsAnswered
         : metric === "STUDY_HOURS"
@@ -115,13 +116,23 @@ export async function getSchoolCommunityData(schoolId: string): Promise<SchoolCo
  * definitions every school figure uses — a homework answer or a Rush answer
  * counts toward "Questions Answered" here exactly as it does on the campus
  * report. Scoped to the school's ACTIVE students, as the all-time totals are.
+ *
+ * Keyed by the goal's own window (ISO strings, so the cache key is stable)
+ * and cached for a minute like the totals beside it; "now" is read inside,
+ * which is what lets two requests a second apart share one answer. A new
+ * goal is a new window, so it never inherits the last one's count.
  */
-async function goalProgressInWindow(
+const goalProgressInWindow = cacheAcrossRequests("school-goal-progress", goalProgressUncached, 60);
+
+async function goalProgressUncached(
   schoolId: string,
   metric: CommunityGoalMetric,
-  from: Date,
-  to: Date,
+  startsAtIso: string,
+  endsAtIso: string | null,
 ): Promise<number> {
+  const now = new Date();
+  const from = new Date(startsAtIso);
+  const to = endsAtIso && new Date(endsAtIso) < now ? new Date(endsAtIso) : now;
   const memberships = await prisma.studentMembership.findMany({
     where: { schoolId, status: "ACTIVE" },
     select: { studentId: true },

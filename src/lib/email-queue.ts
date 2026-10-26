@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { sendBulkEmail } from "@/lib/email";
+import { BATCH_PAUSE_MS, sendEmailBatch } from "@/lib/email";
 import { logEmailDeliveryFailure } from "@/lib/logger";
 
 /**
@@ -117,39 +117,38 @@ export async function drainEmailQueue({
     const claimed = await claimBatch(Math.min(limit - sent - failed, 100));
     if (claimed.length === 0) break;
 
-    // Rows sharing a subject and body are one provider batch; a drain that
-    // spans two announcements simply makes two calls.
-    for (const group of groupByMessage(claimed)) {
-      const result = await sendBulkEmail(
-        group.rows.map((r) => r.to),
-        { subject: group.subject, text: group.body },
-      );
+    // One provider call per claim, whatever the rows say: an announcement's
+    // hundred identical messages and a hundred personal reminders cost the
+    // same single request.
+    const result = await sendEmailBatch(claimed.map((r) => ({ to: r.to, subject: r.subject, text: r.body })));
 
-      const ids = group.rows.map((r) => r.id);
-      if (result.failed === 0) {
-        await prisma.queuedEmail.updateMany({
-          where: { id: { in: ids } },
-          data: { sentAt: new Date(), claimedAt: null, lastError: null },
-        });
-        sent += group.rows.length;
-      } else {
-        // sendBulkEmail reports per-batch, not per-address, so a partial
-        // failure is retried as a whole. A duplicate email is a far smaller
-        // problem than an announcement a student never receives, and
-        // MAX_ATTEMPTS bounds how often that can happen.
-        await prisma.queuedEmail.updateMany({
-          where: { id: { in: ids } },
-          data: { claimedAt: null, lastError: `provider rejected ${result.failed} of ${ids.length}` },
-        });
-        failed += group.rows.length;
-        logEmailDeliveryFailure("Queued email batch failed", {
-          kind: group.rows[0]?.kind,
-          recipients: ids.length,
-        });
-      }
+    const ids = claimed.map((r) => r.id);
+    if (result.failed === 0) {
+      await prisma.queuedEmail.updateMany({
+        where: { id: { in: ids } },
+        data: { sentAt: new Date(), claimedAt: null, lastError: null },
+      });
+      sent += claimed.length;
+    } else {
+      // The provider reports per-batch, not per-address, so a partial
+      // failure is retried as a whole. A duplicate email is a far smaller
+      // problem than an announcement a student never receives, and
+      // MAX_ATTEMPTS bounds how often that can happen.
+      await prisma.queuedEmail.updateMany({
+        where: { id: { in: ids } },
+        data: { claimedAt: null, lastError: `provider rejected ${result.failed} of ${ids.length}` },
+      });
+      failed += claimed.length;
+      logEmailDeliveryFailure("Queued email batch failed", {
+        kind: claimed[0]?.kind,
+        recipients: ids.length,
+      });
     }
 
     if (sent + failed >= limit) break;
+    // Back-to-back claims would be back-to-back provider calls; the pause is
+    // the same one sendEmailBatch takes between its own batches.
+    if (claimed.length === 100) await new Promise((resolve) => setTimeout(resolve, BATCH_PAUSE_MS));
   }
 
   const remaining = await prisma.queuedEmail.count({
@@ -193,17 +192,6 @@ async function claimBatch(limit: number): Promise<ClaimedRow[]> {
            )
     RETURNING "id", "kind", "to", "subject", "body"
   `;
-}
-
-function groupByMessage(rows: ClaimedRow[]): { subject: string; body: string; rows: ClaimedRow[] }[] {
-  const groups = new Map<string, { subject: string; body: string; rows: ClaimedRow[] }>();
-  for (const row of rows) {
-    const key = `${row.subject}\u0000${row.body}`;
-    const group = groups.get(key);
-    if (group) group.rows.push(row);
-    else groups.set(key, { subject: row.subject, body: row.body, rows: [row] });
-  }
-  return [...groups.values()];
 }
 
 export type QueueHealth = {

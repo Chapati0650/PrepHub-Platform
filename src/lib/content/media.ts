@@ -64,7 +64,7 @@ export async function uploadImage(input: UploadInput): Promise<MediaAsset> {
   const { data, info } = await image.toFormat(format, { quality: 85 }).toBuffer({ resolveWithObject: true });
 
   const key = `images/${randomUUID()}.${format === "jpeg" ? "jpg" : format}`;
-  await saveToStorage(key, data);
+  await saveToStorage(key, data, input.mimeType);
 
   return prisma.mediaAsset.create({
     data: {
@@ -107,7 +107,7 @@ export async function uploadVideo(input: UploadInput): Promise<MediaAsset> {
   });
 
   try {
-    await saveToStorage(key, input.buffer);
+    await saveToStorage(key, input.buffer, input.mimeType);
     const durationSeconds = await probeVideoDurationSeconds(input.buffer, extension);
     if (durationSeconds > VIDEO_MAX_DURATION_SECONDS) {
       await deleteFromStorage(key);

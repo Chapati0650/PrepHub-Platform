@@ -246,7 +246,9 @@ export function SessionRunner(props: SessionRunnerProps) {
             <button
               type="button"
               onClick={() => setTimerHidden((v) => !v)}
-              className="mt-1 rounded-full border border-border px-3 py-0.5 text-xs font-medium hover:bg-muted"
+              // The pill is small on purpose; the ::after is an invisible
+              // margin around it, so a thumb doesn't have to land on 21px.
+              className="relative mt-1 rounded-full border border-border px-3 py-0.5 text-xs font-medium after:absolute after:-inset-2 after:content-[''] hover:bg-muted"
             >
               {timerHidden ? "Show" : "Hide"}
             </button>
@@ -310,7 +312,9 @@ export function SessionRunner(props: SessionRunnerProps) {
                   type="button"
                   onClick={toggleMarked}
                   aria-pressed={marked}
-                  className="flex items-center gap-1.5 text-sm hover:underline"
+                  // Taller to tap than it looks: the padding is given back by
+                  // the negative margin, so the strip keeps its height.
+                  className="-my-2 flex items-center gap-1.5 py-2 text-sm hover:underline"
                 >
                   <Bookmark className={marked ? "size-4 fill-current" : "size-4"} aria-hidden />
                   Mark for Review

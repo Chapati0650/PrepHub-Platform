@@ -21,7 +21,11 @@ export async function POST(request: Request) {
 
   // Budgeted below the host's request limit. Whatever is left over is simply
   // picked up by the next run; a large district drains over a few minutes
-  // rather than needing one long-running request.
-  const result = await drainEmailQueue({ budgetMs: 20_000 });
+  // rather than needing one long-running request. The time budget, not the
+  // row limit, is what stops a scheduled run: at a hundred messages a call,
+  // twenty seconds is well over a thousand emails, and the evening's daily
+  // reminders for a district go out within a few runs instead of trickling
+  // out three hundred at a time into the night.
+  const result = await drainEmailQueue({ budgetMs: 20_000, limit: 5_000 });
   return NextResponse.json({ ok: true, ...result, ranAt: new Date().toISOString() });
 }

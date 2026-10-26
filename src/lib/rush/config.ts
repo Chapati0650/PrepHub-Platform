@@ -76,7 +76,13 @@ export const LIVE_PRESENCE_MS = 12_000;
 export const LIVE_LOBBY_STALE_MS = 25_000;
 export const LIVE_RANDOM_FALLBACK_MS = 30_000;
 export const LIVE_POLL_MS = 1_000;
-export const LIVE_LOBBY_POLL_MS = 1_500;
+export const LIVE_LOBBY_POLL_MS = 3_000;
+// Every poll is a server request and a database round trip, for both
+// players, for the whole match. While a question is open and this player
+// hasn't answered, the room can't move on without them, so the only news a
+// poll can bring is the opponent's progress — worth a second's delay at
+// district scale. Still well inside LIVE_PRESENCE_MS, so nobody reads as away.
+export const LIVE_IDLE_POLL_MS = 2_000;
 
 // What the hub offers. `live` and `mode` together pick the code path:
 // RANDOM live = the lobby queue, FRIEND live = a room with a link, FRIEND

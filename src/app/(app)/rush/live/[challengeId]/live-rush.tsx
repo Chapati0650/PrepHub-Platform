@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
-import { LIVE_LOBBY_POLL_MS, LIVE_POLL_MS, LIVE_RANDOM_FALLBACK_MS } from "@/lib/rush/config";
+import { LIVE_IDLE_POLL_MS, LIVE_LOBBY_POLL_MS, LIVE_POLL_MS, LIVE_RANDOM_FALLBACK_MS } from "@/lib/rush/config";
 import type { LiveAnswerResult, LiveRoundAnswer, LiveServedQuestion, LiveState } from "@/lib/rush/live";
 import { ShareChallenge } from "../../share-challenge";
 import { RushQuestion, TimeBar, formatSeconds } from "../../rush-question";
@@ -16,9 +16,18 @@ const TICK_FROM_MS = 5_000;
 
 // The live room, start to finish: lobby → countdown → ten shared questions
 // → results. The server owns every clock (see lib/rush/live.ts); this
-// component polls it once a second and draws what it's told. Between
-// polls the countdowns run on this device's clock from the last
+// component polls it and draws what it's told — once a second whenever the
+// room could change under this player, less often in the lobby and while
+// their own answer is the thing the room is waiting for (`pollDelay`).
+// Between polls the countdowns run on this device's clock from the last
 // server-reported remainder, so they never drift more than a poll.
+function pollDelay(state: LiveState): number {
+  if (state.status === "WAITING") return LIVE_LOBBY_POLL_MS;
+  const waitingOnMe = state.status === "PLAYING" && state.questionOpen && state.me.answered === null;
+  // Back to every second as the buzzer nears, so the round's close is seen promptly.
+  return waitingOnMe && state.remainingMs > LIVE_IDLE_POLL_MS + LIVE_POLL_MS ? LIVE_IDLE_POLL_MS : LIVE_POLL_MS;
+}
+
 export function LiveRush({
   initial,
   joinUrl,
@@ -49,19 +58,40 @@ export function LiveRush({
   // delete the room, and the next poll would otherwise see "no room" and
   // bounce to the hub before the action's own redirect lands.
   const leaving = useRef(false);
+  // Asks the poll loop to look again now rather than at its next tick —
+  // after this player answers, when the room may be about to move on.
+  const pollNow = useRef<() => void>(() => {});
   const resultsHref = `/rush/results/${id}`;
 
   // ---- Poll -----------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
     let timer = 0;
+    // One poll at a time: a request to look again that arrives mid-poll is
+    // kept and served the moment that poll returns, never run alongside it.
+    let polling = false;
+    let again = false;
+    pollNow.current = () => {
+      if (polling) {
+        again = true;
+        return;
+      }
+      window.clearTimeout(timer);
+      timer = window.setTimeout(loop, 0);
+    };
     async function loop() {
-      let next: LiveState | null = null;
+      polling = true;
+      // Undefined means the request itself failed, which is not the same as
+      // the server answering "no room" (null). It used to be: a single
+      // dropped poll on a school network sent the player back to the hub
+      // in the middle of a match.
+      let next: LiveState | null | undefined;
       try {
         next = await poll(id);
       } catch {
         // A blip. Keep the last state and try again on the next tick.
       }
+      polling = false;
       if (cancelled || leaving.current) return;
       if (next === null) {
         // Only null when this student has no run here (or the room was
@@ -80,7 +110,9 @@ export function LiveRush({
           return;
         }
       }
-      timer = window.setTimeout(loop, next?.status === "WAITING" ? LIVE_LOBBY_POLL_MS : LIVE_POLL_MS);
+      const delay = again ? 0 : next ? pollDelay(next) : LIVE_POLL_MS;
+      again = false;
+      timer = window.setTimeout(loop, delay);
     }
     timer = window.setTimeout(loop, LIVE_POLL_MS);
     return () => {
@@ -144,6 +176,7 @@ export function LiveRush({
       const r = await submit(id, question.position, answer);
       if ("over" in r) return; // the room moved on; the poll will redraw
       setResult(r);
+      pollNow.current();
       if (r.points > 0) sound.play(state.scoringVersion >= 2 && r.streak >= 3 ? "streak" : "correct");
       else sound.play("wrong");
     } catch (err) {

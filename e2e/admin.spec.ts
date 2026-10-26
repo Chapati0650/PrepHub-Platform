@@ -116,7 +116,11 @@ test.describe("School Administrator (PRD-011)", () => {
     await adminPage.getByRole("spinbutton", { name: "Graduation Year" }).fill(String(newGraduationYear));
     await adminPage.getByRole("button", { name: "Save" }).click();
     await expect(adminPage.getByRole("cell", { name: "Beatrice" })).toBeVisible();
-    await expect(adminPage.getByText(String(newGraduationYear))).toBeVisible();
+    // Scoped to the row: on a phone the same student also appears in a
+    // stacked list (hidden at this width), which carries the year too.
+    await expect(
+      adminPage.getByRole("row", { name: new RegExp(verifiedSchoolEmail) }).getByText(String(newGraduationYear)),
+    ).toBeVisible();
 
     // Announcements: create, preview, publish (with email delivery), then remove.
     await adminPage.goto("/admin/announcements");

@@ -247,6 +247,21 @@
   }
 }
 
+/* iPhone Safari zooms the whole page into any text field set below 16px the
+   moment it is focused, and leaves it zoomed. With the 15px base above,
+   that was every field in the app: signup, login, Settings, a class code,
+   and the Rush answer box mid-countdown. Found with an iPhone-sized WebKit
+   sweep on 2026-10-25. Phone widths only, so desktop density is unchanged.
+   Deliberately outside @layer: an unlayered rule outranks every layered
+   utility, so a field's own text-sm can't undo this. */
+@media (max-width: 767px) {
+  input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="hidden"])),
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+  }
+}
+
 /* 1v1 Rush game feel (2026-10-24). Every use is behind `motion-safe:`, so a
    student who has asked their device for reduced motion gets the same
    information — the points, the streak, the result — without any of it

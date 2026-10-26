@@ -1,6 +1,7 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 // Uploaded question media (PRD-015 §9), behind one swappable interface —
 // saveToStorage/readFromStorage/deleteFromStorage are the only three
@@ -52,10 +53,13 @@ function resolveKeyPath(key: string): string {
   return resolved;
 }
 
-export async function saveToStorage(key: string, data: Buffer): Promise<void> {
+export async function saveToStorage(key: string, data: Buffer, contentType?: string): Promise<void> {
   if (R2_CONFIGURED) {
     const { client, bucket } = getR2();
-    await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: data }));
+    // The type is stored with the object because a signed URL (below) has R2
+    // serve it directly, and Safari won't play a video whose type it can't
+    // trust. Objects saved before this carry R2's generic default.
+    await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: data, ContentType: contentType }));
     return;
   }
   const filePath = resolveKeyPath(key);
@@ -71,6 +75,32 @@ export async function readFromStorage(key: string): Promise<Buffer> {
     return Buffer.from(await result.Body.transformToByteArray());
   }
   return readFile(resolveKeyPath(key));
+}
+
+const SIGNED_URL_BUCKET_MS = 60 * 60 * 1000;
+
+/**
+ * A time-limited URL that reads the object straight from R2, or null on the
+ * local-disk backend. R2 answers byte-range requests, which is what Safari
+ * needs to play a video at all, and a file served from there never passes
+ * through a serverless function, whose response size is capped (about 6MB on
+ * Netlify) — far below the 500MB a video may be.
+ *
+ * Every URL is signed as of the start of the current hour and lasts two, so
+ * everyone asking within the same hour gets the identical URL — which lets
+ * the browser cache the file across page views — and any URL handed out
+ * still has at least an hour to run.
+ */
+export async function getSignedReadUrl(key: string, now: Date = new Date()): Promise<{ url: string; expiresAt: Date } | null> {
+  if (!R2_CONFIGURED) return null;
+  const { client, bucket } = getR2();
+  const signingDate = new Date(Math.floor(now.getTime() / SIGNED_URL_BUCKET_MS) * SIGNED_URL_BUCKET_MS);
+  const lifetimeMs = 2 * SIGNED_URL_BUCKET_MS;
+  const url = await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), {
+    expiresIn: lifetimeMs / 1000,
+    signingDate,
+  });
+  return { url, expiresAt: new Date(signingDate.getTime() + lifetimeMs) };
 }
 
 export async function deleteFromStorage(key: string): Promise<void> {

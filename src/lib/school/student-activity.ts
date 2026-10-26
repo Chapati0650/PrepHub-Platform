@@ -250,6 +250,23 @@ export async function countActiveStudents(studentIds: string[], since: Date): Pr
 }
 
 /**
+ * Which of these students answered anything since a moment. The daily
+ * reminder's "already studied today", which used to check two of the seven
+ * places answering is recorded, and so nagged a student who had just finished
+ * their homework or a rush.
+ */
+export async function studentsActiveSince(studentIds: string[], since: Date): Promise<Set<string>> {
+  if (studentIds.length === 0) return new Set();
+  const rows = await prisma.$queryRaw<{ student_id: string }[]>`
+    WITH answers AS (${answerActivity(studentIds)})
+    SELECT DISTINCT student_id
+      FROM answers
+     WHERE answered_at >= ${since}
+  `;
+  return new Set(rows.map((r) => r.student_id));
+}
+
+/**
  * One Date per calendar day on which any of these students answered anything.
  *
  * At most one row per day regardless of district size, where the equivalent

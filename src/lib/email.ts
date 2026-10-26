@@ -148,9 +148,11 @@ export async function sendEmail({ to, subject, text }: SendEmailInput): Promise<
 const BATCH_SIZE = 100;
 
 /** Pause between batches, to stay under the provider's request rate limit. */
-const BATCH_PAUSE_MS = 600;
+export const BATCH_PAUSE_MS = 600;
 
 export type BulkEmailResult = { sent: number; failed: number };
+
+export type OutgoingEmail = { to: string; subject: string; text: string };
 
 /**
  * Sends the same message to many recipients.
@@ -170,34 +172,49 @@ export async function sendBulkEmail(
   { subject, text }: { subject: string; text: string },
 ): Promise<BulkEmailResult> {
   const unique = [...new Set(recipients.filter((r) => r && r.includes("@")))];
-  if (unique.length === 0) return { sent: 0, failed: 0 };
+  return sendEmailBatch(unique.map((to) => ({ to, subject, text })));
+}
+
+/**
+ * Sends many messages, each with its own recipient, subject and body, a
+ * hundred to a provider call.
+ *
+ * Resend's batch endpoint doesn't need the hundred to be identical, which is
+ * what makes personal mail ("Hi Ada, ...") as cheap to send as an
+ * announcement: twenty thousand daily reminders are two hundred calls, not
+ * twenty thousand. Same guarantees as `sendBulkEmail`, which is this with one
+ * message repeated.
+ */
+export async function sendEmailBatch(messages: OutgoingEmail[]): Promise<BulkEmailResult> {
+  const valid = messages.filter((m) => m.to && m.to.includes("@"));
+  if (valid.length === 0) return { sent: 0, failed: 0 };
 
   if (!resendClient) {
     if (process.env.NODE_ENV === "production") {
       logEmailDeliveryFailure("RESEND_API_KEY is not configured - bulk email was not sent", {
-        subject,
-        recipients: unique.length,
+        subject: valid[0].subject,
+        recipients: valid.length,
         errorType: "MissingApiKey",
       });
-      return { sent: 0, failed: unique.length };
+      return { sent: 0, failed: valid.length };
     }
-    for (const to of unique) await sendEmail({ to, subject, text });
-    return { sent: unique.length, failed: 0 };
+    for (const message of valid) await sendEmail(message);
+    return { sent: valid.length, failed: 0 };
   }
 
   const from = emailFromAddress();
   const replyTo = emailReplyTo();
   // Reserved test addresses are handled by not sending (see
   // isUndeliverableAddress), which counts as done, not as a failure.
-  const deliverable = unique.filter((r) => !isUndeliverableAddress(r));
-  let sent = unique.length - deliverable.length;
+  const deliverable = valid.filter((m) => !isUndeliverableAddress(m.to));
+  let sent = valid.length - deliverable.length;
   let failed = 0;
 
   for (let i = 0; i < deliverable.length; i += BATCH_SIZE) {
     const batch = deliverable.slice(i, i + BATCH_SIZE);
     try {
       const { error } = await resendClient.batch.send(
-        batch.map((to) => ({
+        batch.map(({ to, subject, text }) => ({
           from,
           ...(replyTo ? { replyTo } : {}),
           to,
@@ -208,7 +225,7 @@ export async function sendBulkEmail(
       if (error) {
         failed += batch.length;
         logEmailDeliveryFailure("Bulk email batch rejected by Resend", {
-          subject,
+          subject: batch[0].subject,
           recipients: batch.length,
           errorType: error.name,
         });
@@ -218,7 +235,7 @@ export async function sendBulkEmail(
     } catch (err) {
       failed += batch.length;
       logEmailDeliveryFailure("Bulk email batch threw", {
-        subject,
+        subject: batch[0].subject,
         recipients: batch.length,
         errorType: err instanceof Error ? err.name : "Unknown",
       });

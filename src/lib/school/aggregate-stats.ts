@@ -1,5 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { cacheAcrossRequests } from "@/lib/shared-cache";
 import { computeStudyStreak } from "@/lib/dashboard/study-streak";
 import {
   answerDays,
@@ -74,7 +75,14 @@ const EMPTY_RESULT: SchoolAggregateResult = {
 // less work than it had. `totalAdaptiveSessionsCompleted` is the one figure
 // still restricted to `PracticeSet`, and deliberately so — it is labelled
 // "Adaptive Sessions" on both pages, and a Rush run is not one.
-export async function getSchoolAggregateStats(schoolId: string): Promise<SchoolAggregateResult> {
+//
+// Shared for a minute across everyone who opens School Community, Admin
+// Overview or the admin goal page: the answer is the same for the whole
+// school, and a class opening Community together would otherwise compute it
+// thirty times over. Every field is a number, so it survives the cache's JSON.
+export const getSchoolAggregateStats = cacheAcrossRequests("school-aggregate-stats", computeSchoolAggregateStats, 60);
+
+async function computeSchoolAggregateStats(schoolId: string): Promise<SchoolAggregateResult> {
   const memberships = await prisma.studentMembership.findMany({
     where: { schoolId, status: "ACTIVE" },
     select: { studentId: true },

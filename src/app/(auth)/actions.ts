@@ -13,7 +13,7 @@ import {
   confirmPasswordResetSchema,
 } from "@/lib/validation/auth";
 import { createAccount, requestPasswordReset, confirmPasswordReset } from "@/lib/auth/account";
-import { ensureDistrictMembership, isDistrictCandidateEmail } from "@/lib/district/enrollment";
+import { ensureDistrictMembership, getActivePartnerDomains, isDistrictCandidateEmail } from "@/lib/district/enrollment";
 import { sendDistrictVerificationEmail } from "@/lib/district/email-verification";
 import { AuthError } from "@/lib/auth/errors";
 import { checkRateLimitEnforced, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
@@ -39,9 +39,15 @@ export async function signUpAction(_prev: ActionState, formData: FormData): Prom
 
   // GER §3: account creation is rate-limited by client IP — the target of
   // abuse here is volumetric fake-account creation, not one specific email,
-  // so unlike login/password-reset there's no per-account key to add.
+  // so unlike login/password-reset there's no per-account key to add. A
+  // partner district's own domain gets its own, much larger bucket, because
+  // that is what a whole school signing up on rollout day looks like; the
+  // partner-domain set is cached in memory, so this costs no query.
   const ip = await getClientIp();
-  const rateLimit = checkRateLimitEnforced(`signup:${ip}`, RATE_LIMITS.ACCOUNT_CREATION_PER_IP);
+  const domain = parsed.data.email.split("@").pop()?.toLowerCase() ?? "";
+  const rateLimit = (await getActivePartnerDomains()).has(domain)
+    ? await checkRateLimitEnforced(`signup:partner:${ip}`, RATE_LIMITS.ACCOUNT_CREATION_PER_IP_PARTNER)
+    : await checkRateLimitEnforced(`signup:${ip}`, RATE_LIMITS.ACCOUNT_CREATION_PER_IP);
   if (!rateLimit.allowed) {
     logRateLimitExceeded("Account creation rate limit exceeded", { ip });
     return { error: TOO_MANY_REQUESTS_MESSAGE };
@@ -132,8 +138,10 @@ export async function loginAction(_prev: ActionState, formData: FormData): Promi
   // one public IP, so the IP bucket has to fit a computer lab, while the email
   // bucket is the one doing the security work.
   const ip = await getClientIp();
-  const ipLimit = checkRateLimitEnforced(`login:ip:${ip}`, RATE_LIMITS.LOGIN_PER_IP);
-  const emailLimit = checkRateLimitEnforced(`login:email:${parsed.data.email}`, RATE_LIMITS.LOGIN_PER_EMAIL);
+  const [ipLimit, emailLimit] = await Promise.all([
+    checkRateLimitEnforced(`login:ip:${ip}`, RATE_LIMITS.LOGIN_PER_IP),
+    checkRateLimitEnforced(`login:email:${parsed.data.email}`, RATE_LIMITS.LOGIN_PER_EMAIL),
+  ]);
   if (!ipLimit.allowed || !emailLimit.allowed) {
     logRateLimitExceeded("Login rate limit exceeded", { ip, email: parsed.data.email });
     return { error: TOO_MANY_REQUESTS_MESSAGE };
@@ -170,11 +178,10 @@ export async function requestPasswordResetAction(
   // account — it can't be used to distinguish registered from unregistered
   // addresses, preserving PRD-001's "identical response either way" rule.
   const ip = await getClientIp();
-  const ipLimit = checkRateLimitEnforced(`password-reset:ip:${ip}`, RATE_LIMITS.PASSWORD_RESET_PER_IP);
-  const emailLimit = checkRateLimitEnforced(
-    `password-reset:email:${parsed.data.email}`,
-    RATE_LIMITS.PASSWORD_RESET_PER_EMAIL,
-  );
+  const [ipLimit, emailLimit] = await Promise.all([
+    checkRateLimitEnforced(`password-reset:ip:${ip}`, RATE_LIMITS.PASSWORD_RESET_PER_IP),
+    checkRateLimitEnforced(`password-reset:email:${parsed.data.email}`, RATE_LIMITS.PASSWORD_RESET_PER_EMAIL),
+  ]);
   if (!ipLimit.allowed || !emailLimit.allowed) {
     logRateLimitExceeded("Password reset request rate limit exceeded", { ip, email: parsed.data.email });
     return { error: TOO_MANY_REQUESTS_MESSAGE };

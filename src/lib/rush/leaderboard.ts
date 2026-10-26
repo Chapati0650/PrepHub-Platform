@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { cacheAcrossRequests } from "@/lib/shared-cache";
 
 /**
  * The weekly school leaderboard for 1v1 Rush (2026-10-24).
@@ -231,6 +232,20 @@ async function bestRuns(schoolId: string, start: Date, end: Date): Promise<BestR
 }
 
 /**
+ * Last week's board can't change any more (a run counts in the week it was
+ * finished), so it is shared for an hour rather than recomputed on every
+ * visit to the hub. This week's never is: a student who just finished a run
+ * is told their new place, and a cached board would contradict them. Hidden
+ * students stay in the rows and are filtered per viewer afterwards, exactly
+ * as for this week, so a cached copy carries no one viewer's perspective.
+ */
+const bestRunsLastWeek = cacheAcrossRequests(
+  "rush-leaderboard-last-week",
+  (schoolId: string, startIso: string, endIso: string) => bestRuns(schoolId, new Date(startIso), new Date(endIso)),
+  3600,
+);
+
+/**
  * Standard competition ranking among the rows given ("1, 2, 2, 4"): equal
  * scores share a place, and the next place skips. Pure.
  */
@@ -250,7 +265,7 @@ export async function getWeeklyLeaderboard(viewerId: string, now: Date = new Dat
   const previous = weekBounds(new Date(week.start.getTime() - 1));
   const [thisWeek, lastWeekRows] = await Promise.all([
     bestRuns(scope.schoolId, week.start, week.end),
-    bestRuns(scope.schoolId, previous.start, previous.end),
+    bestRunsLastWeek(scope.schoolId, previous.start.toISOString(), previous.end.toISOString()),
   ]);
 
   const toEntry = (r: BestRow & { rank: number }): LeaderboardEntry => ({

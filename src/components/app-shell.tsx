@@ -232,7 +232,7 @@ export function AppShell({
           {canExit ? (
             <Link
               href="/home"
-              className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="-my-2 flex items-center gap-2 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               <LogoMark className="size-6 text-primary" />
               <span>Exit</span>

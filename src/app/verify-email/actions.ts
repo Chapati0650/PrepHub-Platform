@@ -66,11 +66,10 @@ export async function resendExpiredVerificationAction(
   if (typeof token !== "string" || !token) return { error: "This link doesn't work." };
 
   const ip = await getClientIp();
-  const ipLimit = checkRateLimitEnforced(`email-verify-resend:ip:${ip}`, RATE_LIMITS.PASSWORD_RESET_PER_IP);
-  const linkLimit = checkRateLimitEnforced(
-    `email-verify-resend:link:${token.slice(0, 24)}`,
-    RATE_LIMITS.SCHOOL_EMAIL_VERIFICATION_REQUEST,
-  );
+  const [ipLimit, linkLimit] = await Promise.all([
+    checkRateLimitEnforced(`email-verify-resend:ip:${ip}`, RATE_LIMITS.PASSWORD_RESET_PER_IP),
+    checkRateLimitEnforced(`email-verify-resend:link:${token.slice(0, 24)}`, RATE_LIMITS.SCHOOL_EMAIL_VERIFICATION_REQUEST),
+  ]);
   if (!ipLimit.allowed || !linkLimit.allowed) {
     logRateLimitExceeded("Expired verification link resend rate limit exceeded", { ip });
     return { error: "That's a lot of emails in a row — give it a few minutes." };

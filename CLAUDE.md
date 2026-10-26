@@ -971,11 +971,14 @@ signups a day nearly every real visitor got the cold path.
 - Measured queries per render, before → after (student with a completed
   Diagnostic): `/home` 29 → 26, `/daily` 17 → 14, `/curriculum` 11 → 8,
   `/800-club` 13 → 10, `/rush` 15 → 12.
-- **Still outstanding, needs the Owner**: the production `DATABASE_URL` is
-  Neon's *direct* endpoint, not the `-pooler` one, so every cold serverless
-  instance opens a fresh Postgres connection (measured 693ms). And Neon is
-  in `us-east-2` while Netlify functions default to `us-east-1`, so every
-  query crosses regions.
+- **Connection and region**: since 2026-10-25 the production `DATABASE_URL`
+  is Neon's `-pooler` endpoint (confirmed: only `pgbouncer` connections in
+  `pg_stat_activity`); `.env.neon` deliberately stays on the *direct* string,
+  because `prisma migrate` takes an advisory lock the transaction-mode pooler
+  can't hold. Neon is in `us-east-2`; whether Netlify's functions are too is
+  unverified — Netlify's docs say sites created after October 2023 default to
+  Ohio (us-east-2), so the earlier "functions default to us-east-1" note was
+  probably wrong. `/owner/status`'s Function region line settles it.
 
 ## Gotcha: next-themes hydration mismatch
 
@@ -1592,4 +1595,102 @@ roster rows** (a roster's existence makes every signup pay for an eligibility
 lookup), hidden from the directory, no Rush or Daily Challenge rows, and no
 usable password on any fictional account. Its answer rows reference real
 published questions, which is harmless because nothing reports per-question
-statistics — and `remove` takes them with it.
+statistics — and `remove` takes them with it. It creates no `CategoryState`
+rows, so a fictional student's Practice gateway shows "couldn't prepare your
+next practice set" if anyone signs in as one locally; nobody can in
+production, so it was left alone.
+
+## Scale readiness for 20,000 students (2026-10-25)
+
+The Owner asked whether PrepHub could carry 20,000 students and, on mobile,
+work as well as on desktop. Everything that needed the Owner's accounts,
+plans or decisions is in `Downloads\PrepHub\OWNER-TODO-SCALE.md`; the code
+side is below. A WebKit sweep at iPhone 13 size over ~40 screens found no
+page that scrolls sideways.
+
+- **Connection pool** (`src/lib/prisma.ts`): `max` 5 per instance in
+  production (pg's default 10 multiplied by dozens of serverless instances
+  against the *direct* endpoint), a 10s connect timeout instead of waiting
+  forever, `DATABASE_POOL_MAX` to override. pg's timeout wording is in the
+  connectivity-failure log patterns.
+- **Media** (`src/lib/content/media-response.ts`, both media routes): videos,
+  and any file over 4MB, redirect to a signed R2 URL — R2 answers byte
+  ranges (Safari won't play a video without a 206) and the file never passes
+  through a function (Netlify refuses responses over ~6MB). URLs are signed
+  as of the start of the hour for two hours, so they're identical within an
+  hour and the browser can cache them; the redirect's own cache never
+  outlives the URL. Small images are still proxied, now with `immutable`
+  caching (a media id's file never changes) and Range support, which is also
+  how local disk serves video. Uploads now store their `ContentType` in R2;
+  older objects carry R2's generic default, which `<img>` ignores — and
+  there were no uploaded videos in production when this shipped. **Not
+  fixed: uploading a video over ~6MB through the CMS fails on Netlify**
+  (server-action bodies cap at 12MB here and Netlify's request cap is lower).
+  The fix is a browser-to-R2 presigned upload, which needs a CORS rule on the
+  bucket from the Owner.
+- **Lifecycle email is queued** (`src/lib/lifecycle/emails.ts`): nudges and
+  daily reminders page through students 1,000 at a time, and each page's
+  `EmailSend` claims (`createManyAndReturn` + `skipDuplicates` — only claims
+  this run won come back) and `QueuedEmail` rows are written in one
+  transaction. They used to be sent one call at a time and capped at 200/500
+  a day. `sendEmailBatch` (`src/lib/email.ts`) sends a hundred *different*
+  messages per Resend call, so the queue now sends each claimed batch as one
+  call whatever the subjects; the scheduled drain's row limit is 5,000 so its
+  20-second budget is what stops it. "Studied today" is
+  `studentsActiveSince` (all seven answer tables), and "paid" is
+  `decidePaidAccess` — a district-covered student used to be pointed at the
+  free Daily Challenge.
+- **Gotcha, found by running it: the local embedded Postgres is WIN1252, not
+  UTF-8.** A queued body containing "→" failed to insert locally (production
+  Neon is UTF8 and would have been fine). Copy that is *stored* — queued
+  email bodies — should stay within characters WIN1252 has, or local dev and
+  e2e break while production works.
+- **Rate limits** (`src/lib/rate-limit.ts`): with `UPSTASH_REDIS_REST_URL` /
+  `_TOKEN` set, counts live in Upstash Redis (one fixed-window `INCR` +
+  `PEXPIRE` pipeline, keys SHA-256-hashed so no email or IP is stored
+  readable, 1.5s timeout, falls back to the per-instance Map and logs).
+  `checkRateLimitEnforced` is now async. Shared counts make the numbers real,
+  so `LOGIN_PER_IP` went to 1,500/5min (a 2,000-student campus at the first
+  bell), and a signup on a partner district's domain uses
+  `ACCOUNT_CREATION_PER_IP_PARTNER` (3,000/hr) — the partner-domain set is
+  already cached in memory, so choosing the bucket costs no query.
+- **Shared cache** (`src/lib/shared-cache.ts`'s `cacheAcrossRequests`):
+  `unstable_cache`, because `use cache` needs the app-wide Cache Components
+  mode in this Next version. JSON round-trip, so numbers and strings only; it
+  falls back to a plain call outside a Next request (tests, scripts). Used
+  for `getSchoolAggregateStats` (60s), community goal progress (60s, keyed on
+  the goal's own window as ISO strings so "now" doesn't defeat the key) and
+  *last* week's Rush leaderboard (1h). This week's board is deliberately not
+  cached: the results page tells a student their new place right after a run.
+- **Live Rush polling** (`live-rush.tsx`'s `pollDelay`): one second while the
+  room could change under the player, `LIVE_IDLE_POLL_MS` (2s) while a
+  question is open and only this player's answer is outstanding, 3s in the
+  lobby, and an immediate poll after submitting. Verified with two browsers
+  over a full ten-question match: 3 server calls in 8 seconds while an answer
+  was due, against ~8 before. **Fixed while there:** a poll that *threw* left
+  `next` null, which means "no room", so one dropped request on a school
+  network sent the player to the hub mid-match. The rematch panel's polling
+  now slows to 15s in a background tab and stops after 15 minutes (a results
+  tab left open used to poll every 3s indefinitely).
+- **Phones**: an unlayered rule in `globals.css` sets text fields to at least
+  16px below 768px — iPhone Safari zooms into anything smaller, and the 15px
+  base made that every field. The admin Student Directory renders a stacked
+  list below `sm` (the table's engagement columns were off-screen), sharing
+  one edit form with the table rows; e2e's graduation-year assertion is
+  scoped to the row because the hidden list carries the year too. The teacher
+  results table drops its finish-date column and min-width on phones. Small
+  in-session controls got bigger hit areas without changing their look:
+  `-my-2 py-2` for "Mark for Review" and Exit, an `after:-inset-2` overlay
+  for the bordered timer "Hide" pill.
+- **`/api/health`**: 200 when a `SELECT 1` answers within 5s, 503 otherwise —
+  for the Owner's uptime monitor. Public, says nothing beyond ok and a
+  database round-trip time, never cached.
+- **Load test** (`scripts/load-test/`): `seed.ts` creates a fictional school
+  and N students on `loadtest.example.com` (refuses the production database
+  host from `.env.neon`; the password is an argument, never committed), and
+  `run.mjs` signs them all in at once through Auth.js's credentials
+  endpoint, loads the student and admin pages at a chosen concurrency, and
+  drives real browsers through Diagnostic answers (server actions can't be
+  called from a plain HTTP client). It refuses prephubtp.com. Meant for a
+  deploy preview pointed at a Neon branch; locally against `next start` with
+  60 students and 30 concurrent, pages had a median around 1s on one process.

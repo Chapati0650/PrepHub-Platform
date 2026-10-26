@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { headers } from "next/headers";
+import { logServerError } from "@/lib/logger";
 
 export type RateLimitConfig = { limit: number; windowMs: number };
 
@@ -29,8 +31,13 @@ export type RateLimitConfig = { limit: number; windowMs: number };
 export const RATE_LIMITS = {
   /** One account under attack. Tight: no real person needs an eleventh try. */
   LOGIN_PER_EMAIL: { limit: 10, windowMs: 5 * 60 * 1000 },
-  /** One network. A 30-seat lab where everyone mistypes once is 60. */
-  LOGIN_PER_IP: { limit: 300, windowMs: 5 * 60 * 1000 },
+  /**
+   * One network. Sized for a 2,000-student campus at the first bell, where
+   * most of the school signs in from one address within a few minutes — a
+   * number that only became a real ceiling once counts were shared across
+   * server instances (below); a per-instance count was quietly far looser.
+   */
+  LOGIN_PER_IP: { limit: 1_500, windowMs: 5 * 60 * 1000 },
 
   /**
    * Account creation has no per-identity dimension to key on — an address can
@@ -39,6 +46,14 @@ export const RATE_LIMITS = {
    * homerooms back to back, with retries.
    */
   ACCOUNT_CREATION_PER_IP: { limit: 200, windowMs: 60 * 60 * 1000 },
+
+  /**
+   * The same, for an address on a partner district's domain: a rollout day,
+   * when a whole school creates accounts from one network in the same hour.
+   * Bulk fake signups gain nothing from a partner domain, because an account
+   * there unlocks nothing until its inbox confirms it.
+   */
+  ACCOUNT_CREATION_PER_IP_PARTNER: { limit: 3_000, windowMs: 60 * 60 * 1000 },
 
   /** Stops one student's inbox being flooded with reset mail. */
   PASSWORD_RESET_PER_EMAIL: { limit: 5, windowMs: 15 * 60 * 1000 },
@@ -53,22 +68,20 @@ export const RATE_LIMITS = {
 
 type Bucket = { count: number; resetAt: number };
 
-// A single process-local, in-memory limiter — deliberately "lightweight"
-// (GER §3) for this single-instance monolith (see CLAUDE.md). If this ever
-// runs across multiple instances, swap this Map for a shared store (e.g.
-// Redis) behind the same `checkRateLimit` signature; no call site would need
-// to change.
+// Two stores, and the choice is made by "are the Upstash variables set", the
+// same way storage.ts chooses R2.
 //
-// Worth being straight about what this does and does not do in production as
-// deployed: the app runs on serverless functions, so each warm instance keeps
-// its own Map and a cold start begins with an empty one. The effective limit
-// is therefore per-instance and resets unpredictably — a determined attacker
-// spread across instances gets more than the numbers above suggest. It still
-// does the job it is actually needed for, which is making a naive scripted
-// loop against one account or one endpoint unproductive, and it is why the
-// per-identity limits are kept tight rather than relying on the IP side.
-// A shared store is the upgrade path, and the signature above is already the
-// seam for it.
+// The fallback is a process-local, in-memory Map. On serverless each warm
+// instance keeps its own Map and a cold start begins with an empty one, so
+// the effective limit is per-instance and resets unpredictably — a
+// determined attacker spread across instances gets more than the numbers
+// above suggest. It still makes a naive scripted loop against one account
+// unproductive, which is why the per-identity limits are kept tight.
+//
+// With UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN set, counts live
+// in Redis and every instance shares them, so the numbers above mean what
+// they say. A store that is slow or down never blocks a login: the request
+// is counted locally instead and the failure logged.
 const buckets = new Map<string, Bucket>();
 
 // Opportunistic sweep triggered by size rather than a timer, so an
@@ -115,9 +128,67 @@ export function isRateLimitingEnforced(): boolean {
   return process.env.NODE_ENV === "production";
 }
 
-export function checkRateLimitEnforced(key: string, config: RateLimitConfig): RateLimitResult {
+export async function checkRateLimitEnforced(key: string, config: RateLimitConfig): Promise<RateLimitResult> {
   if (!isRateLimitingEnforced()) return { allowed: true, retryAfterMs: 0 };
+  const store = sharedStore();
+  if (store) {
+    const shared = await checkRateLimitShared(key, config, store);
+    if (shared) return shared;
+    logServerError("Rate-limit store unreachable; counted on this instance instead", { errorType: "RateLimitStore" });
+  }
   return checkRateLimit(key, config);
+}
+
+export type SharedStore = { url: string; token: string };
+
+function sharedStore(): SharedStore | null {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  return url && token ? { url: url.replace(/\/+$/, ""), token } : null;
+}
+
+/** Long enough for a healthy round trip, short enough that a login never waits on a sick store. */
+const SHARED_STORE_TIMEOUT_MS = 1_500;
+
+/**
+ * A fixed-window count in Redis: one key per bucket per window, incremented
+ * and given an expiry in a single round trip. Returns null when the store
+ * can't answer in time, which the caller treats as "count locally".
+ *
+ * Keys are hashed before they leave the app. They contain email addresses
+ * and IP addresses, and a rate-limit counter has no need to hold either in
+ * readable form in a third party's database.
+ */
+export async function checkRateLimitShared(
+  key: string,
+  config: RateLimitConfig,
+  store: SharedStore,
+  now: number = Date.now(),
+  fetchImpl: typeof fetch = fetch,
+): Promise<RateLimitResult | null> {
+  const window = Math.floor(now / config.windowMs);
+  const windowKey = `rl:${createHash("sha256").update(key).digest("base64url").slice(0, 32)}:${config.windowMs}:${window}`;
+  try {
+    const response = await fetchImpl(`${store.url}/pipeline`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${store.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify([
+        ["INCR", windowKey],
+        ["PEXPIRE", windowKey, String(config.windowMs)],
+      ]),
+      signal: AbortSignal.timeout(SHARED_STORE_TIMEOUT_MS),
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const [incremented] = (await response.json()) as { result?: unknown }[];
+    if (typeof incremented?.result !== "number") return null;
+    if (incremented.result > config.limit) {
+      return { allowed: false, retryAfterMs: (window + 1) * config.windowMs - now };
+    }
+    return { allowed: true, retryAfterMs: 0 };
+  } catch {
+    return null;
+  }
 }
 
 // Test-only escape hatch — production code never needs to clear buckets mid-process.

@@ -63,15 +63,17 @@ export default async function AssignmentResultsPage({
             No students in this class yet. Share the class code and they&apos;ll see this homework when they join.
           </p>
         ) : (
+          // On a phone the finish date gives way, so status, score and the
+          // questions missed fit across without scrolling sideways.
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[34rem] border-y border-border text-sm">
+            <table className="w-full border-y border-border text-sm sm:min-w-[34rem]">
               <thead>
                 <tr className="text-left text-xs text-muted-foreground">
                   <th scope="col" className="py-2 pr-4 font-medium">Student</th>
                   <th scope="col" className="py-2 pr-4 font-medium">Status</th>
                   <th scope="col" className="py-2 pr-4 text-right font-medium">Score</th>
                   <th scope="col" className="py-2 pr-4 font-medium">Missed</th>
-                  <th scope="col" className="py-2 text-right font-medium">Finished</th>
+                  <th scope="col" className="hidden py-2 text-right font-medium sm:table-cell">Finished</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -82,7 +84,7 @@ export default async function AssignmentResultsPage({
                         {s.firstName}
                         {!s.enrolled && <span className="font-normal text-muted-foreground"> · left the class</span>}
                       </span>
-                      <span className="block max-w-[14rem] truncate text-xs text-muted-foreground">{s.email}</span>
+                      <span className="block max-w-[9rem] truncate text-xs text-muted-foreground sm:max-w-[14rem]">{s.email}</span>
                     </td>
                     <td className="py-3 pr-4">
                       {STATUS_LABEL[s.status]}
@@ -101,7 +103,7 @@ export default async function AssignmentResultsPage({
                     <td className="py-3 pr-4 text-xs text-muted-foreground tabular-nums">
                       {s.missed.length === 0 ? (s.status === "NOT_STARTED" ? "" : "none") : s.missed.map((p) => `Q${p + 1}`).join(", ")}
                     </td>
-                    <td className="py-3 text-right text-xs text-muted-foreground">
+                    <td className="hidden py-3 text-right text-xs text-muted-foreground sm:table-cell">
                       {s.completedAt ? formatGoalDate(s.completedAt) : ""}
                     </td>
                   </tr>

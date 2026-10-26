@@ -156,29 +156,39 @@ export function StudentDirectoryTable({
             : "No students have registered through your school yet. Once students create their accounts using your school's access method, they will appear here automatically."}
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>First Name</TableHead>
-                <TableHead>School Email</TableHead>
-                <TableHead>Grad. Year</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Questions</TableHead>
-                <TableHead className="text-right">Sessions</TableHead>
-                <TableHead className="text-right">Study Time</TableHead>
-                <TableHead>Registered</TableHead>
-                <TableHead>Last Active</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {students.map((s) => (
-                <StudentRow key={s.membershipId} student={s} />
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <>
+          {/* On a phone the table's ten columns put everything past the email
+              off to the right, which hid the engagement figures the page
+              exists for. Below sm, one stacked entry per student instead. */}
+          <ul className="divide-y divide-border border-y border-border sm:hidden">
+            {students.map((s) => (
+              <StudentListItem key={s.membershipId} student={s} />
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto rounded-lg border border-border sm:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>First Name</TableHead>
+                  <TableHead>School Email</TableHead>
+                  <TableHead>Grad. Year</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Questions</TableHead>
+                  <TableHead className="text-right">Sessions</TableHead>
+                  <TableHead className="text-right">Study Time</TableHead>
+                  <TableHead>Registered</TableHead>
+                  <TableHead>Last Active</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {students.map((s) => (
+                  <StudentRow key={s.membershipId} student={s} />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </>
       )}
 
       {/* Paging lives in the URL, so a particular page of the directory is a
@@ -213,51 +223,72 @@ export function StudentDirectoryTable({
   );
 }
 
-function StudentRow({ student }: { student: StudentDirectoryEntry }) {
+function useStudentEditing() {
   const [editing, setEditing] = useState(false);
   const [state, formAction] = useActionState(updateStudentInfoAction, initialState);
 
   // The form is a plain <form action>, so Next.js auto-refreshes this route's
-  // server data after it resolves — only the still-open edit row needs closing.
+  // server data after it resolves — only the still-open edit form needs closing.
   useCloseDialogOnSuccess(state.success, setEditing);
+  return { editing, setEditing, state, formAction };
+}
+
+function StudentEditForm({
+  student,
+  state,
+  formAction,
+  onCancel,
+}: {
+  student: StudentDirectoryEntry;
+  state: ActionState;
+  formAction: (formData: FormData) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <form action={formAction} className="flex flex-wrap items-end gap-2">
+      <input type="hidden" name="membershipId" value={student.membershipId} />
+      {state.error && (
+        <Alert variant="destructive" className="w-full">
+          <AlertDescription>{state.error}</AlertDescription>
+        </Alert>
+      )}
+      <div className="flex flex-col gap-1">
+        <Label htmlFor={`fn-${student.membershipId}`} className="text-xs text-muted-foreground">
+          First Name
+        </Label>
+        <Input id={`fn-${student.membershipId}`} name="firstName" defaultValue={student.firstName} className="w-40" required />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor={`gy-${student.membershipId}`} className="text-xs text-muted-foreground">
+          Graduation Year
+        </Label>
+        <Input
+          id={`gy-${student.membershipId}`}
+          name="expectedGraduationYear"
+          type="number"
+          defaultValue={student.graduationYear}
+          className="w-28"
+          required
+        />
+      </div>
+      <Button type="submit" size="sm">
+        Save
+      </Button>
+      <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+        Cancel
+      </Button>
+    </form>
+  );
+}
+
+function StudentRow({ student }: { student: StudentDirectoryEntry }) {
+  const { editing, setEditing, state, formAction } = useStudentEditing();
 
   if (editing) {
     return (
       <TableRow>
         <TableCell colSpan={10}>
-          <form action={formAction} className="flex flex-wrap items-end gap-2">
-            <input type="hidden" name="membershipId" value={student.membershipId} />
-            {state.error && (
-              <Alert variant="destructive" className="w-full">
-                <AlertDescription>{state.error}</AlertDescription>
-              </Alert>
-            )}
-            <div className="flex flex-col gap-1">
-              <Label htmlFor={`fn-${student.membershipId}`} className="text-xs text-muted-foreground">
-                First Name
-              </Label>
-              <Input id={`fn-${student.membershipId}`} name="firstName" defaultValue={student.firstName} className="w-40" required />
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label htmlFor={`gy-${student.membershipId}`} className="text-xs text-muted-foreground">
-                Graduation Year
-              </Label>
-              <Input
-                id={`gy-${student.membershipId}`}
-                name="expectedGraduationYear"
-                type="number"
-                defaultValue={student.graduationYear}
-                className="w-28"
-                required
-              />
-            </div>
-            <Button type="submit" size="sm">
-              Save
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>
-              Cancel
-            </Button>
-          </form>
+          <StudentEditForm student={student} state={state} formAction={formAction} onCancel={() => setEditing(false)} />
         </TableCell>
       </TableRow>
     );
@@ -286,5 +317,52 @@ function StudentRow({ student }: { student: StudentDirectoryEntry }) {
         </Button>
       </TableCell>
     </TableRow>
+  );
+}
+
+/** The same student, as one stacked entry for a phone. */
+function StudentListItem({ student }: { student: StudentDirectoryEntry }) {
+  const { editing, setEditing, state, formAction } = useStudentEditing();
+
+  if (editing) {
+    return (
+      <li className="py-3">
+        <StudentEditForm student={student} state={state} formAction={formAction} onCancel={() => setEditing(false)} />
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex flex-col gap-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-medium">{student.firstName}</p>
+          <p className="truncate text-sm text-muted-foreground">{student.schoolEmail}</p>
+        </div>
+        <Badge variant={student.status === "ACTIVE" ? "default" : "secondary"}>{STATUS_LABELS[student.status]}</Badge>
+      </div>
+      <dl className="grid grid-cols-3 divide-x divide-border text-sm">
+        <div className="pr-3">
+          <dt className="text-xs text-muted-foreground">Questions</dt>
+          <dd className="tabular-nums">{student.activity.questionsAnswered.toLocaleString()}</dd>
+        </div>
+        <div className="px-3">
+          <dt className="text-xs text-muted-foreground">Sessions</dt>
+          <dd className="tabular-nums">{student.activity.sessionsCompleted}</dd>
+        </div>
+        <div className="pl-3">
+          <dt className="text-xs text-muted-foreground">Study Time</dt>
+          <dd className="tabular-nums">{formatStudyTime(student.activity.studyHours)}</dd>
+        </div>
+      </dl>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          Class of {student.graduationYear} · Last active {formatDate(student.lastActiveAt)}
+        </p>
+        <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+          Edit
+        </Button>
+      </div>
+    </li>
   );
 }

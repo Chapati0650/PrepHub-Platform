@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { sendDailyReminders, sendFinishDiagnosticNudges } from "./emails";
+import { finishDiagnosticMessage, queueDailyReminders, queueFinishDiagnosticNudges } from "./emails";
 import { prisma } from "@/lib/prisma";
-import { sendEmail } from "@/lib/email";
+import { studentsActiveSince } from "@/lib/school/student-activity";
+
+const tx = {
+  emailSend: { createManyAndReturn: vi.fn() },
+  queuedEmail: { createMany: vi.fn() },
+};
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -9,64 +14,68 @@ vi.mock("@/lib/prisma", () => ({
     emailSend: { create: vi.fn() },
     predictionHistoryEntry: { findFirst: vi.fn() },
     categoryState: { findMany: vi.fn() },
+    $transaction: vi.fn(),
   },
 }));
 vi.mock("@/lib/email", () => ({ sendEmail: vi.fn() }));
+vi.mock("@/lib/school/student-activity", () => ({ studentsActiveSince: vi.fn() }));
 
 const users = prisma.user.findMany as ReturnType<typeof vi.fn>;
-const claim = prisma.emailSend.create as ReturnType<typeof vi.fn>;
-const send = sendEmail as ReturnType<typeof vi.fn>;
+const transaction = prisma.$transaction as unknown as ReturnType<typeof vi.fn>;
+const activeSince = studentsActiveSince as ReturnType<typeof vi.fn>;
+
+/** What the queue was given, across every page and transaction. */
+function queued(): { kind: string; to: string; subject: string; body: string }[] {
+  return tx.queuedEmail.createMany.mock.calls.flatMap((call) => call[0].data);
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
-  claim.mockResolvedValue({});
-  send.mockResolvedValue(undefined);
+  transaction.mockImplementation((fn: (t: typeof tx) => unknown) => fn(tx));
+  // By default every claim is new: the insert hands back every row it was given.
+  tx.emailSend.createManyAndReturn.mockImplementation(({ data }: { data: { userId: string }[] }) =>
+    Promise.resolve(data.map(({ userId }) => ({ userId }))),
+  );
+  tx.queuedEmail.createMany.mockResolvedValue({ count: 0 });
+  activeSince.mockResolvedValue(new Set());
 });
 
-describe("sendFinishDiagnosticNudges", () => {
-  it("emails each candidate once, with their progress in the subject", async () => {
+const answered = (category: string, difficulty: string) => ({
+  id: `${category}-${difficulty}`,
+  category,
+  difficulty,
+  submittedAt: new Date(),
+  isCorrect: true,
+  waivedAt: null,
+});
+const open = (category: string, difficulty: string) => ({ ...answered(category, difficulty), submittedAt: null, isCorrect: null });
+
+describe("finishDiagnosticMessage", () => {
+  it("puts the student's progress in the subject", () => {
     // Three core questions answered, out of the staged Diagnostic's fourteen.
-    const answered = (category: string, difficulty: string) => ({
-      id: `${category}-${difficulty}`,
-      category,
-      difficulty,
-      submittedAt: new Date(),
-      isCorrect: true,
-      waivedAt: null,
+    const message = finishDiagnosticMessage({
+      email: "a@x.com",
+      firstName: "Ada",
+      diagnosticSession: {
+        attempts: [
+          answered("ADVANCED_MATH", "EASY"),
+          answered("VOCABULARY", "EASY"),
+          answered("ALGEBRA", "EASY"),
+          open("GRAMMAR", "EASY"),
+          open("ALGEBRA", "MEDIUM"),
+        ],
+      } as never,
     });
-    const open = (category: string, difficulty: string) => ({
-      ...answered(category, difficulty),
-      submittedAt: null,
-      isCorrect: null,
-    });
-    users.mockResolvedValue([
-      {
-        id: "u1",
-        email: "a@x.com",
-        firstName: "Ada",
-        diagnosticSession: {
-          attempts: [
-            answered("ADVANCED_MATH", "EASY"),
-            answered("VOCABULARY", "EASY"),
-            answered("ALGEBRA", "EASY"),
-            open("GRAMMAR", "EASY"),
-            open("ALGEBRA", "MEDIUM"),
-          ],
-        },
-      },
-      { id: "u2", email: "b@x.com", firstName: "Ben", diagnosticSession: null },
-    ]);
-    const sent = await sendFinishDiagnosticNudges(new Date("2026-09-21T22:00:00Z"));
-    expect(sent).toBe(2);
-    expect(send).toHaveBeenCalledTimes(2);
-    expect(send.mock.calls[0][0].subject).toBe("You're 3 of 14 questions in");
-    expect(send.mock.calls[0][0].text).toContain("remaining 11");
-    expect(send.mock.calls[1][0].subject).toBe("Your predicted SAT score is 14 questions away");
-    // the claim is written before the send, once per user, for "once"
-    expect(claim).toHaveBeenCalledWith({ data: { userId: "u1", kind: "finish_diagnostic", day: "once" } });
+    expect(message.subject).toBe("You're 3 of 14 questions in");
+    expect(message.text).toContain("remaining 11");
   });
 
-  it("tells a student who finished the core that a bonus round is waiting", async () => {
+  it("invites a student who never started", () => {
+    const message = finishDiagnosticMessage({ email: "b@x.com", firstName: "Ben", diagnosticSession: null });
+    expect(message.subject).toBe("Your predicted SAT score is 14 questions away");
+  });
+
+  it("tells a student who finished the core that a bonus round is waiting", () => {
     // Every Easy and Medium answered, Algebra's Medium right: Algebra's Hard
     // question was earned and is still to answer.
     const categories = [
@@ -79,42 +88,124 @@ describe("sendFinishDiagnosticNudges", () => {
       "PROBLEM_SOLVING_DATA_ANALYSIS",
     ];
     const attempts = categories.flatMap((category) => [
-      { id: `${category}-E`, category, difficulty: "EASY", submittedAt: new Date(), isCorrect: true, waivedAt: null },
-      {
-        id: `${category}-M`,
-        category,
-        difficulty: "MEDIUM",
-        submittedAt: new Date(),
-        isCorrect: category === "ALGEBRA",
-        waivedAt: null,
-      },
-      { id: `${category}-H`, category, difficulty: "HARD", submittedAt: null, isCorrect: null, waivedAt: null },
+      { ...answered(category, "EASY") },
+      { ...answered(category, "MEDIUM"), isCorrect: category === "ALGEBRA" },
+      { ...open(category, "HARD") },
     ]);
-    users.mockResolvedValue([{ id: "u1", email: "a@x.com", firstName: "Ada", diagnosticSession: { attempts } }]);
-
-    await sendFinishDiagnosticNudges(new Date("2026-09-21T22:00:00Z"));
-
-    expect(send.mock.calls[0][0].subject).toBe("Your bonus round is waiting");
-  });
-
-  it("skips anyone whose claim row already exists (a re-run)", async () => {
-    users.mockResolvedValue([{ id: "u1", email: "a@x.com", firstName: "Ada", diagnosticSession: null }]);
-    claim.mockRejectedValueOnce(new Error("unique"));
-    expect(await sendFinishDiagnosticNudges()).toBe(0);
-    expect(send).not.toHaveBeenCalled();
+    const message = finishDiagnosticMessage({ email: "a@x.com", firstName: "Ada", diagnosticSession: { attempts } as never });
+    expect(message.subject).toBe("Your bonus round is waiting");
   });
 });
 
-describe("sendDailyReminders", () => {
-  it("points paid students at practice and free students at the Daily Challenge, keyed by day", async () => {
-    users.mockResolvedValue([
-      { id: "p", email: "p@x.com", firstName: "Pat", subscription: { status: "ACTIVE" } },
-      { id: "f", email: "f@x.com", firstName: "Fay", subscription: null },
+describe("queueFinishDiagnosticNudges", () => {
+  it("claims each candidate once and queues their message, sending nothing itself", async () => {
+    users.mockResolvedValueOnce([
+      { id: "u1", email: "a@x.com", firstName: "Ada", diagnosticSession: null },
+      { id: "u2", email: "b@x.com", firstName: "Ben", diagnosticSession: null },
     ]);
-    const sent = await sendDailyReminders(new Date("2026-09-21T22:00:00Z"));
-    expect(sent).toBe(2);
-    expect(send.mock.calls[0][0].text).toContain("/practice");
-    expect(send.mock.calls[1][0].text).toContain("/daily");
-    expect(claim).toHaveBeenCalledWith({ data: { userId: "f", kind: "daily_reminder", day: "2026-09-21" } });
+
+    expect(await queueFinishDiagnosticNudges(new Date("2026-09-21T22:00:00Z"))).toBe(2);
+
+    expect(tx.emailSend.createManyAndReturn).toHaveBeenCalledWith({
+      data: [
+        { userId: "u1", kind: "finish_diagnostic", day: "once" },
+        { userId: "u2", kind: "finish_diagnostic", day: "once" },
+      ],
+      skipDuplicates: true,
+      select: { userId: true },
+    });
+    expect(queued().map((r) => [r.kind, r.to])).toEqual([
+      ["finish_diagnostic", "a@x.com"],
+      ["finish_diagnostic", "b@x.com"],
+    ]);
+  });
+
+  it("queues nothing for a student whose claim already existed (a re-run)", async () => {
+    users.mockResolvedValueOnce([
+      { id: "u1", email: "a@x.com", firstName: "Ada", diagnosticSession: null },
+      { id: "u2", email: "b@x.com", firstName: "Ben", diagnosticSession: null },
+    ]);
+    tx.emailSend.createManyAndReturn.mockResolvedValueOnce([{ userId: "u2" }]);
+
+    expect(await queueFinishDiagnosticNudges()).toBe(1);
+    expect(queued().map((r) => r.to)).toEqual(["b@x.com"]);
+  });
+
+  it("reads the next page after the last id when a page comes back full", async () => {
+    const full = Array.from({ length: 1000 }, (_, i) => ({
+      id: `u${String(i).padStart(4, "0")}`,
+      email: `s${i}@x.com`,
+      firstName: "S",
+      diagnosticSession: null,
+    }));
+    users.mockResolvedValueOnce(full).mockResolvedValueOnce([{ id: "u9999", email: "last@x.com", firstName: "L", diagnosticSession: null }]);
+
+    expect(await queueFinishDiagnosticNudges()).toBe(1001);
+    expect(users).toHaveBeenCalledTimes(2);
+    expect(users.mock.calls[1][0].where.id).toEqual({ gt: "u0999" });
+  });
+});
+
+describe("queueDailyReminders", () => {
+  // The entitlement rule reads the real clock, so the contract spans it widely.
+  const future = new Date("2099-08-01T00:00:00Z");
+  const past = new Date("2000-08-01T00:00:00Z");
+  const base = { role: "STUDENT", subscription: null, studentMembership: null };
+
+  it("points paid students at practice and free students at the Daily Challenge, keyed by day", async () => {
+    users.mockResolvedValueOnce([
+      { ...base, id: "p", email: "p@x.com", firstName: "Pat", subscription: { status: "ACTIVE" } },
+      { ...base, id: "f", email: "f@x.com", firstName: "Fay" },
+    ]);
+
+    expect(await queueDailyReminders(new Date("2026-09-21T22:00:00Z"))).toBe(2);
+
+    const [paid, free] = queued();
+    expect(paid.body).toContain("/practice");
+    expect(free.body).toContain("/daily");
+    expect(tx.emailSend.createManyAndReturn.mock.calls[0][0].data).toContainEqual({
+      userId: "f",
+      kind: "daily_reminder",
+      day: "2026-09-21",
+    });
+  });
+
+  it("points a student their district covers at practice, not the free Daily Challenge", async () => {
+    users.mockResolvedValueOnce([
+      {
+        ...base,
+        id: "d",
+        email: "d@school.edu",
+        firstName: "Dee",
+        studentMembership: {
+          status: "ACTIVE",
+          expectedGraduationYear: 2099,
+          organization: { status: "ACTIVE", contractStartDate: past, contractEndDate: future },
+        },
+      },
+    ]);
+
+    await queueDailyReminders(new Date("2026-09-21T22:00:00Z"));
+
+    expect(queued()[0].body).toContain("/practice");
+  });
+
+  it("skips a student who answered anything today, in any mode", async () => {
+    users.mockResolvedValueOnce([
+      { ...base, id: "busy", email: "busy@x.com", firstName: "Bo" },
+      { ...base, id: "idle", email: "idle@x.com", firstName: "Ida" },
+    ]);
+    activeSince.mockResolvedValueOnce(new Set(["busy"]));
+
+    expect(await queueDailyReminders(new Date("2026-09-21T22:00:00Z"))).toBe(1);
+
+    expect(activeSince).toHaveBeenCalledWith(["busy", "idle"], new Date("2026-09-21T00:00:00Z"));
+    expect(queued().map((r) => r.to)).toEqual(["idle@x.com"]);
+  });
+
+  it("asks for nothing more when there is nobody to remind", async () => {
+    users.mockResolvedValueOnce([]);
+    expect(await queueDailyReminders()).toBe(0);
+    expect(transaction).not.toHaveBeenCalled();
   });
 });

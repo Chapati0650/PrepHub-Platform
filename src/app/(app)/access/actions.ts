@@ -33,7 +33,7 @@ export async function requestSchoolVerificationAction(
   // GER §3: this action is already authenticated, so it's rate-limited by
   // internal account id rather than IP/email — GER §5 prefers internal
   // account ids over emails in general logs/keys where one is available.
-  const rateLimit = checkRateLimitEnforced(
+  const rateLimit = await checkRateLimitEnforced(
     `school-verification:${session.user.id}`,
     RATE_LIMITS.SCHOOL_EMAIL_VERIFICATION_REQUEST,
   );
@@ -98,7 +98,7 @@ export async function resendDistrictVerificationAction(): Promise<ResendState> {
   const session = await auth();
   if (!session?.user.id) redirect("/login");
 
-  const rateLimit = checkRateLimitEnforced(
+  const rateLimit = await checkRateLimitEnforced(
     `account-email-verification:${session.user.id}`,
     RATE_LIMITS.SCHOOL_EMAIL_VERIFICATION_REQUEST,
   );
