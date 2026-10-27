@@ -337,7 +337,7 @@ export function QuestionDetail({ loaded, isCorrect }: { loaded: LoadedQuestion; 
         <DistractorNote text={loaded.feedback.distractorExplanationsByChoiceId[loaded.studentAnswer]} />
       )}
       {loaded.feedback && loaded.feedback.explanationSteps.length > 0 ? (
-        <ExplanationSteps steps={loaded.feedback.explanationSteps} mediaBasePath="/api/media" />
+        <ExplanationSteps steps={loaded.feedback.explanationSteps} mediaBasePath="/api/media" walkthrough={loaded.feedback.walkthrough} />
       ) : (
         loaded.feedback?.writtenExplanation && (
           <div className="rounded-md bg-muted p-3">

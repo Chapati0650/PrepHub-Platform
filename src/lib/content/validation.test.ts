@@ -60,6 +60,7 @@ function makeRevision(overrides: Partial<RevisionForValidation> = {}): RevisionF
     questionId: "q1",
     questionText: "What is 2 + 2?",
     passageText: null,
+    walkthrough: null,
     questionImageId: null,
     calculatorSetting: "NOT_ALLOWED",
     suggestedTimeSeconds: 60,

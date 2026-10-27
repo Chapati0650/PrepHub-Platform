@@ -50,7 +50,7 @@ export function AnswerKey({ content, feedback }: { content: StudentQuestionConte
         </p>
       )}
       {feedback.explanationSteps.length > 0 ? (
-        <ExplanationSteps steps={feedback.explanationSteps} mediaBasePath="/api/media" />
+        <ExplanationSteps steps={feedback.explanationSteps} mediaBasePath="/api/media" walkthrough={feedback.walkthrough} />
       ) : (
         feedback.writtenExplanation && (
           <div className="rounded-md bg-muted p-3">

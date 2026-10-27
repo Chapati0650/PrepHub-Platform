@@ -35,6 +35,7 @@ const LOADED: LoadedQuestion = {
     explanationSteps: [],
     explanationVideoId: null,
     distractorExplanationsByChoiceId: {},
+    walkthrough: null,
   },
   studentAnswer: "a",
 };

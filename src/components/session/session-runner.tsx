@@ -768,7 +768,7 @@ export function SessionRunner(props: SessionRunnerProps) {
                       <DistractorNote text={loaded.feedback.distractorExplanationsByChoiceId[currentItem.studentAnswer]} />
                     )}
                   {loaded.feedback && loaded.feedback.explanationSteps.length > 0 ? (
-                    <ExplanationSteps steps={loaded.feedback.explanationSteps} mediaBasePath="/api/media" />
+                    <ExplanationSteps steps={loaded.feedback.explanationSteps} mediaBasePath="/api/media" walkthrough={loaded.feedback.walkthrough} />
                   ) : (
                     loaded.feedback?.writtenExplanation && (
                       <div className="rounded-md bg-muted p-3 text-sm">

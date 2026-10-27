@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import type { CalculatorSetting, QuestionType } from "@/generated/prisma/client";
+import type { WalkthroughView } from "@/lib/content/walkthrough";
+import { walkthroughViewFor } from "@/lib/content/walkthrough-validate";
+import { logServerError } from "@/lib/logger";
 
 // What a student sees BEFORE submitting — never includes which choice is
 // correct or the accepted numeric answers, so the client can't cheat by
@@ -43,6 +46,9 @@ export type StudentQuestionFeedback = {
   // each step optionally carrying its own diagram/chart image) — the
   // renderer prefers this over writtenExplanation when non-empty.
   explanationSteps: { text: string; imageId: string | null }[];
+  // The same steps as a step-through visual, when the question has one that
+  // still matches its content; null shows the plain list.
+  walkthrough: WalkthroughView | null;
   explanationVideoId: string | null;
   // MULTIPLE_CHOICE only — keyed by QuestionAnswerChoice id, one entry per
   // WRONG choice that has a distractor note written (see
@@ -57,7 +63,7 @@ export async function getStudentQuestionFeedback(questionRevisionId: string): Pr
   const revision = await prisma.questionRevision.findUniqueOrThrow({
     where: { id: questionRevisionId },
     include: {
-      answerChoices: true,
+      answerChoices: { orderBy: { order: "asc" } },
       explanationSteps: { orderBy: { order: "asc" } },
       standaloneVideo: true,
       question: { include: { family: { include: { sharedVideo: true } } } },
@@ -75,11 +81,26 @@ export async function getStudentQuestionFeedback(questionRevisionId: string): Pr
     }
   }
 
+  const { view: walkthrough, problems } = walkthroughViewFor({
+    walkthrough: revision.walkthrough,
+    passageText: revision.passageText,
+    answerChoices: revision.answerChoices,
+    explanationStepCount: revision.explanationSteps.length,
+  });
+  if (problems.length > 0) {
+    // Shown as the plain list instead; logged so a stale walkthrough is found.
+    logServerError("A stored walkthrough failed validation and was not shown", {
+      affectedResourceId: revision.id,
+      problems: problems.slice(0, 5),
+    });
+  }
+
   return {
     correctChoiceId: revision.answerChoices.find((c) => c.isCorrect)?.id ?? null,
     acceptedAnswers: revision.acceptedAnswers,
     writtenExplanation: revision.writtenExplanation,
     explanationSteps: revision.explanationSteps.map((s) => ({ text: s.text, imageId: s.imageId })),
+    walkthrough,
     explanationVideoId: video?.status === "READY" ? video.id : null,
     distractorExplanationsByChoiceId,
   };

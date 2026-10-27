@@ -686,6 +686,13 @@ model QuestionRevision {
   aiReviewedAt      DateTime?
   aiAnswerReasoning String?   @db.Text
 
+  // The explanation as a step-through visual (src/lib/content/walkthrough.ts):
+  // panels plus what each explanation step changes on them. Written once when
+  // the question is added; null means the plain step list. Presentation only,
+  // validated against this revision's own passage, choices and step count
+  // every time it is served, so a stale one falls back rather than misleads.
+  walkthrough Json?
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   publishedAt DateTime?

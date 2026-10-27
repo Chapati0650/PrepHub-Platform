@@ -1,5 +1,6 @@
 import "katex/dist/katex.min.css";
 import katex from "katex";
+import { renderMarks } from "@/lib/content/passage-marks";
 
 // PRD-013 §12: full LaTeX rendering in question text, answer choices, and
 // written explanations, using $...$ (inline) and $$...$$ (block) delimiters —
@@ -61,7 +62,8 @@ function renderSegments(source: string): string {
         // Recurse so math delimiters still work inside an underlined span.
         return `<u>${renderSegments(segment.slice(2, -2))}</u>`;
       }
-      return escapeHtml(segment).replaceAll(MONEY, "$").replace(/\n/g, "<br />");
+      // A walkthrough's highlights arrive as private-use markers (passage-marks.ts).
+      return renderMarks(escapeHtml(segment).replaceAll(MONEY, "$").replace(/\n/g, "<br />"));
     })
     .join("");
 }

@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { walkthroughViewFor } from "@/lib/content/walkthrough-validate";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -118,6 +119,16 @@ export function QuestionEditor({
         })),
   );
   const [generatingDistractors, setGeneratingDistractors] = useState(false);
+  const walkthrough = useMemo(
+    () =>
+      walkthroughViewFor({
+        walkthrough: revision.walkthrough,
+        passageText: passageText.trim() ? passageText : null,
+        answerChoices: question.questionType === "MULTIPLE_CHOICE" ? choices.map((c, order) => ({ ...c, order })) : [],
+        explanationStepCount: explanationSteps.length,
+      }),
+    [revision.walkthrough, passageText, choices, explanationSteps.length, question.questionType],
+  );
   const [questionImageId, setQuestionImageId] = useState<string | null>(revision.questionImageId);
   const [standaloneVideoId, setStandaloneVideoId] = useState<string | null>(revision.standaloneVideoId);
 
@@ -972,6 +983,17 @@ export function QuestionEditor({
         {/* Read-only rendered preview of the current (saved) content */}
         <div className="flex flex-col gap-2">
           <Label>Preview</Label>
+          {/* A walkthrough is attached at import and checked against the
+              content on every render; editing the passage, choices or the
+              number of steps can make it stop matching, and the Owner should
+              hear that here rather than find students on the plain list. */}
+          {revision.walkthrough !== null && (
+            <p className={`text-sm ${walkthrough.view ? "text-muted-foreground" : "text-destructive"}`}>
+              {walkthrough.view
+                ? `Has a step-through walkthrough (${explanationSteps.length} steps).`
+                : `The step-through walkthrough no longer matches this question, so students see the plain steps: ${walkthrough.problems[0] ?? ""}`}
+            </p>
+          )}
           <div className="rounded-lg border border-border p-4">
             <QuestionStatement
               text={questionText || "(no question text yet)"}
@@ -992,7 +1014,7 @@ export function QuestionEditor({
             )}
             {explanationSteps.length > 0 ? (
               <div className="mt-4">
-                <ExplanationSteps steps={explanationSteps} mediaBasePath="/api/owner/media" />
+                <ExplanationSteps steps={explanationSteps} mediaBasePath="/api/owner/media" walkthrough={walkthrough.view} />
               </div>
             ) : (
               writtenExplanation && (

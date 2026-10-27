@@ -22,6 +22,8 @@ folder under `C:\Users\neele\Downloads\PrepHub\Question imports\`.
    agents (each writes its own part, then the parts are merged), so no single
    context has to hold all eighty pages. Look at the page images, not the
    PDF's text layer: underlines, figures and math live in the picture.
+   Each question also gets its **walkthrough** (see "Walkthroughs" below),
+   written by the same helper right after its explanation.
 4. **Check**: `npx tsx scripts/question-import/import.ts "<folder>"`. It
    validates every question, reports any already in the bank, and crops every
    figure into `<folder>\figures\`. **Look at every crop** and adjust the box
@@ -67,7 +69,8 @@ folder under `C:\Users\neele\Downloads\PrepHub\Question imports\`.
       "answerKey": "B",
       "explanationSteps": ["…", "…"],
       "distractorExplanations": ["…", null, "…", "…"],
-      "figure": null
+      "figure": null,
+      "walkthrough": { "version": 1, "panels": [], "steps": [] }
     }
   ]
 }
@@ -100,6 +103,17 @@ folder under `C:\Users\neele\Downloads\PrepHub\Question imports\`.
 - **Money is `\$`**: `costs \$4.50 each`, or `$\$4.50$` inside math. A bare
   `$` starts math. (The renderer learned `\$` on 2026-10-26; before that,
   prices broke the question.)
+- **Every backslash is doubled in the JSON file**: `"$\\frac{1}{2}$"`,
+  `"\\$4"`. A single one is a JSON escape that parses without error:
+  `\frac` becomes a form feed, `\times` a tab, `\neq` a line break. The check
+  flags control characters and line breaks inside math for this reason.
+- **Line breaks** (`\n`) render as breaks: notes as `• ` lines, poems line by
+  line, `Text 1`/`Text 2` blocks separated by a blank line. There is no
+  italic syntax, so titles and species names are plain text.
+- **Tables**: a math table in the stem is a KaTeX array in `$$…$$`; a table
+  that *is* an answer choice must be typed the same way inside `$…$`,
+  because choices can't carry images. A data table in a Reading passage is
+  the figure.
 - **Underlined text in `[[…]]`**, even across sentences. Many Reading &
   Writing questions ask about "the underlined portion" and are unanswerable
   without it, so look for underlines carefully.
@@ -142,8 +156,11 @@ As the SAT calibrates it, by steps and depth, not length:
 - **HARD**: multi-step reasoning, an unusual approach, or a precise grasp of
   a nuanced idea.
 
-A Bluebook module 2 marked harder is a hint, not the answer. Give the reason
-in `difficultyReasoning`, which is shown only to the reviewer.
+A Bluebook module 2 marked harder is a hint, not the answer. But when the PDF
+labels each question Easy/Medium/Hard itself (as compiled question-bank
+exports do), use its label: it is the source's calibration, not a guess.
+Give the reason in `difficultyReasoning`, which is shown only to the
+reviewer.
 
 ## The answer
 
@@ -163,3 +180,100 @@ the reviewer, not students.
   nearby question, misreading the passage), or say plainly that it matches no
   common mistake and point at the concept to review. Don't invent a mistake
   that probably isn't real.
+
+## Walkthroughs (every question gets one)
+
+A walkthrough turns the explanation into a step-through: Back / Next over a
+stage of panels, with each explanation step as the narration. It is data in
+the question's `walkthrough` field, validated by the check and drawn by the
+site's own components (`src/components/content/walkthrough/`), so it costs
+nothing per student. Write it **after** the explanation steps, because it has
+exactly one entry per step and must show what that step's text says.
+
+```json
+"walkthrough": {
+  "version": 1,
+  "panels": [{ "type": "passage" }, { "type": "choices" }],
+  "steps": [
+    { "passage": { "highlight": ["Few economists would have predicted"] } },
+    { "choices": { "eliminate": [1, 3] } },
+    { "passage": { "fill": { "text": "forecast", "verdict": "right" } }, "choices": { "eliminate": [0], "reveal": true } }
+  ]
+}
+```
+
+Each step is keyed by panel id (a panel's id is its type unless you give it
+one). **Highlights and focus last one step; crossed-out choices, added
+working, shown elements and set values carry forward.**
+
+### Panels
+
+| type | what it is | a step can say |
+|---|---|---|
+| `passage` | the question's own passage (never copy it) | `highlight` / `alt`: exact quotes, cyan / amber; `fill`: `{ text, verdict? }` puts text in the blank (`"right"` green, `"wrong"` red wavy), carries forward, `null` clears |
+| `choices` | the question's own choices | `focus`: index ("Checking"); `eliminate`: indices ("Ruled out"); `reveal: true` marks the answer green |
+| `work` | lines of math, KaTeX, no `$` | `add`: lines; `clear: true`. `\hl{…}` / `\hlalt{…}` mark what this step changed; `\cancel{…}` works |
+| `vars` | small "known so far" chips | `{ "name": "value" }` sets (LatexText, `$…$` allowed), `null` removes |
+| `plane` | coordinate grid: `x`, `y` ranges, `tick`, `labelEvery`, `xLabel`, `yLabel`, `elements` | `show` / `hide` / `focus`: element ids |
+| `diagram` | free drawing, `width` × `height`, y points **down** | `show` / `hide` / `focus` |
+| `numberline` | `min`, `max`, `tick`, `elements`; always full width, so list it first | `show` / `hide` / `focus` |
+| `table` | `title`, `header`, `rows` (LatexText cells) | `rows`, `cols`, `cells: [[r, c]]` |
+| `bars` | `title`, `categories`, `series: [{ name, values, shade? }]`, `yMax`, `yLabel` | `focus`: a category index, or `[series, category]` |
+
+Elements (each has an `id`; `hidden: true` starts it off-stage for a later
+`show`):
+
+- **plane**: `point {at, label}`, `line {through: [p, q], label, dashed}` (infinite),
+  `segment {from, to, label, dashed, arrow}`, `curve {points}` (sample a
+  function at enough x-values to look smooth), `region {points}` (shaded
+  polygon, for inequalities), `label {at, text}`.
+- **diagram**: `point {at, label, labelAt: n/s/e/w/ne/nw/se/sw}`, `segment`,
+  `polygon {points, filled}`, `circle {center, r, filled, cutout}` (a cutout
+  circle drawn over a filled one is a hole: a pipe, a washer), `angle {vertex,
+  from, to, label, right}`, `label {at, text}`.
+- **numberline**: `point {at, open, label}`, `interval {from, to, openFrom,
+  openTo}` (`null` runs off that end), `label {at, text}`.
+
+Figure labels take a small math subset inside `$…$`: italics, `^`, `_`,
+`\frac`, `\sqrt`, `\circ`, `\pi`, `\le`/`\ge`/`\ne`, `\approx`, `\cdot`,
+`\times`, `\angle`, `\ell`. Put anything heavier in the working panel.
+
+### What makes one good
+
+- **Every step changes something on the stage, and it is the thing the
+  narration names.** "The table gives 71.2% at site GC" lights that row; "the
+  slope is 5" adds that line with the 5 marked. A step with nothing to show
+  adds a `vars` chip or re-focuses what it is talking about.
+- **Focus, don't decorate.** Focusing elements dims the rest, which is what
+  makes a step readable at a glance. Focus the two or three things the step
+  is about, including the points a calculation uses.
+- **Redraw the figure, don't describe it.** A graph, chart, table or diagram
+  in the question is rebuilt as a panel with the same numbers and labels.
+  When the explanation names the source's colours ("the gray bar"), set
+  `shade` to match. A diagram can be a more useful view than the original
+  (the pipe's cross-section rather than its side): say "not to scale".
+- **The choices panel ends with `reveal: true`** (the check requires it).
+  Cross choices out at the step whose reasoning rules them out, never the
+  correct one (the check refuses that too). A grid-in has no choices panel.
+- **Reading & Writing**: `passage` + `choices`. Highlight the words each step
+  quotes; `alt` for the contrasting evidence. Quotes are copied exactly from
+  the passage, curly quotes included, and can't cross the edge of an
+  `[[underline]]` or math (split them in two). Vocabulary and grammar fill the
+  blank: try a wrong choice with `"verdict": "wrong"`, then the right one.
+  Notes questions highlight the bullet that answers the goal.
+- **Math**: `work` beside a `plane`, `diagram`, `numberline` or `table`, plus
+  `choices`. The working is the explanation's equations, one line per step,
+  with `\hl{}` on what changed. Use `vars` for the givens and results a
+  student should keep in view (`$R$ = 30 in`).
+- **Layout** follows the panel count: two panels sit side by side when there
+  is room, an odd one out takes the full width, `vars` sits beside the
+  narration. Three to four panels is plenty.
+- Local WIN1252 rule applies to stored text: write math in LaTeX, not
+  Unicode symbols.
+
+The check validates every walkthrough against its question (step count,
+quotes, indices, element ids, KaTeX, coordinates in range). To add
+walkthroughs to questions **already in the bank**, put them in that test's
+`questions.json` and run the same import with
+`--commit --attach-walkthroughs`: questions that exist get their walkthrough
+(checked against the content actually stored), nothing else is created.

@@ -2037,3 +2037,52 @@ bulk-uploaded ones.
   underline, a graph, and a priced word problem; a re-run reported all five as
   already in the bank. Local imports must stay within WIN1252 (see "Scale
   readiness"): write math as LaTeX (`$-2$`, not a Unicode minus).
+
+## Explanation walkthroughs (2026-10-27)
+
+The Owner saw an interactive step-through in a Claude chat (a trie insertion
+with Back / Next, the current line lit, a diagram changing per step) and
+asked for that quality on every question's explanation, attached when the
+question is uploaded. `src/lib/content/walkthrough.ts` (format, `stateAt`,
+passage marking; pure, client-safe), `walkthrough-validate.ts` (the checks,
+KaTeX included), `src/components/content/walkthrough/` (the stepper and its
+panels), `QuestionRevision.walkthrough` (JSONB, migration
+`20261027090000_question_walkthrough`).
+
+- **Data, not generated code.** A walkthrough is panels (the question's own
+  passage and choices, working, a plane, a diagram, a number line, a table,
+  bars, value chips) plus, per explanation step, what changes on them. It is
+  written once at import (by Claude, as part of the transcription, per
+  `scripts/question-import/README.md`'s "Walkthroughs") and drawn by the
+  site's components: no per-student generation, no model-written code in a
+  student's browser, no API cost.
+- **The step text is the narration**, so a walkthrough has exactly as many
+  steps as the explanation, and `ExplanationSteps` falls back to the plain
+  list when it doesn't, or when the stored walkthrough fails validation
+  against the revision's current content (checked on every serve in
+  `getStudentQuestionFeedback`, logged when it fails). The question editor
+  says so to the Owner. "All steps" always offers the list.
+- **Highlights are private-use markers** (`passage-marks.ts`) that
+  `LatexText` turns into spans, so underlines, math and `\$` money keep
+  working inside a highlighted passage. A quote must sit wholly in prose
+  (`locateQuote`): never across an `[[underline]]` edge or into math. Money
+  counts as prose, which a test caught.
+- **SVG figure labels use a small typesetter** (`svg-label.tsx`), not KaTeX
+  in a `foreignObject`, which older Safari positions wrongly in scaled SVG.
+  Bar colours skip the gold chart token (gold is achievement's); a series can
+  take a `shade` to match a source figure the explanation describes.
+- **Attaching to questions already live** (`import.ts
+  --attach-walkthroughs`) writes the walkthrough onto the live revision in
+  place, deliberately: it is presentation of the explanation, never the
+  question, and it is validated against exactly that revision's content.
+  Editing a question copies it into the new draft with everything else.
+- Layout follows the container (`@container`): panels pair up when there is
+  room, an odd one and every number line take the full width; "Expand" opens
+  the same state in a dialog. Arrow keys step when focus is inside; choices
+  carry words ("Checking", "Ruled out", "Correct answer"), not colour alone.
+- Verified in a real browser: eleven USV1 questions across every panel type,
+  narrow / full-screen / dark / phone, the Owner's Student Preview, and a new
+  student answering a Daily Challenge (server-validated walkthrough, arrow
+  keys, "All steps").
+- **Deploying needs migration `20261027090000_question_walkthrough` on Neon
+  first.**

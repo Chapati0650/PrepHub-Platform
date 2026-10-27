@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import type {
-  Prisma,
   QuestionCategory,
   QuestionDifficulty,
   QuestionType,
@@ -48,6 +48,9 @@ export type QuestionContentPatch = Partial<{
   difficulty: QuestionDifficulty;
   aiGenerated: boolean; // set once at bulk-upload creation time — see src/lib/content/bulk-upload.ts
   aiAnswerReasoning: string | null;
+  // The explanation as a step-through visual (walkthrough.ts). Callers
+  // validate it first (validateWalkthrough); null removes it.
+  walkthrough: unknown | null;
 }>;
 
 // PRD-013 §6.1 requires selecting a question type up front; we also collect
@@ -171,6 +174,7 @@ export async function ensureDraftRevision(tx: Client, question: QuestionWithCont
       acceptedAnswers: source.acceptedAnswers,
       writtenExplanation: source.writtenExplanation,
       standaloneVideoId: source.standaloneVideoId,
+      walkthrough: (source.walkthrough ?? undefined) as Prisma.InputJsonValue | undefined,
       answerChoices: {
         create: source.answerChoices.map((c) => ({
           order: c.order,
@@ -249,6 +253,9 @@ export async function updateDraftContent(
     if (patch.acceptedAnswers !== undefined) revisionData.acceptedAnswers = patch.acceptedAnswers;
     if (patch.aiGenerated !== undefined) revisionData.aiGenerated = patch.aiGenerated;
     if (patch.aiAnswerReasoning !== undefined) revisionData.aiAnswerReasoning = patch.aiAnswerReasoning;
+    if (patch.walkthrough !== undefined) {
+      revisionData.walkthrough = patch.walkthrough === null ? Prisma.DbNull : (patch.walkthrough as Prisma.InputJsonValue);
+    }
     if (!isFamilyMember && patch.standaloneVideoId !== undefined) {
       revisionData.standaloneVideo = patch.standaloneVideoId
         ? { connect: { id: patch.standaloneVideoId } }
@@ -473,6 +480,7 @@ export async function duplicateQuestionContent(questionId: string): Promise<Ques
         acceptedAnswers: sourceRevision.acceptedAnswers,
         writtenExplanation: sourceRevision.writtenExplanation,
         standaloneVideoId: source.familyId ? null : sourceRevision.standaloneVideoId,
+        walkthrough: (sourceRevision.walkthrough ?? undefined) as Prisma.InputJsonValue | undefined,
         answerChoices: {
           create: sourceRevision.answerChoices.map((c) => ({
             order: c.order,

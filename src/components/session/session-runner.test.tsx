@@ -28,6 +28,7 @@ const FEEDBACK: StudentQuestionFeedback = {
   explanationSteps: [],
   explanationVideoId: null,
   distractorExplanationsByChoiceId: {},
+  walkthrough: null,
 };
 
 function question(type: "MULTIPLE_CHOICE" | "OPEN_ENDED_NUMERIC", id = "q"): LoadedQuestion {

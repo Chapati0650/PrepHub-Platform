@@ -10,6 +10,7 @@ import { QuestionStatement } from "@/components/content/question-statement";
 import { ExplanationSteps } from "@/components/content/explanation-steps";
 import { DistractorNote } from "@/components/content/distractor-note";
 import { getPublishIssues } from "@/lib/content/validation";
+import { walkthroughViewFor } from "@/lib/content/walkthrough-validate";
 import { CALCULATOR_LABELS } from "@/lib/content/labels";
 import type { QuestionListRow } from "@/lib/content/list-questions";
 import { markPreviewCompletedAction } from "../actions";
@@ -74,6 +75,12 @@ export function StudentPreviewSheet({
       : revision.acceptedAnswers.some((a) => a.trim().toLowerCase() === numericAnswer.trim().toLowerCase());
 
   const explanationVideo = row.family?.sharedVideo ?? revision.standaloneVideo;
+  const walkthrough = walkthroughViewFor({
+    walkthrough: revision.walkthrough,
+    passageText: revision.passageText,
+    answerChoices: revision.answerChoices,
+    explanationStepCount: revision.explanationSteps.length,
+  }).view;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -210,7 +217,7 @@ export function StudentPreviewSheet({
                   <DistractorNote text={selectedChoice.distractorExplanation} />
                 )}
                 {revision.explanationSteps.length > 0 ? (
-                  <ExplanationSteps steps={revision.explanationSteps} mediaBasePath="/api/owner/media" />
+                  <ExplanationSteps steps={revision.explanationSteps} mediaBasePath="/api/owner/media" walkthrough={walkthrough} />
                 ) : (
                   revision.writtenExplanation && (
                     <div className="rounded-md bg-muted p-3 text-sm">

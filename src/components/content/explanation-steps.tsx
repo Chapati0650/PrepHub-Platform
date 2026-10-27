@@ -1,6 +1,8 @@
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { WalkthroughView } from "@/lib/content/walkthrough";
 import { LatexText } from "./latex-text";
+import { Walkthrough } from "./walkthrough/walkthrough";
 
 export type ExplanationStepData = { text: string; imageId: string | null };
 
@@ -20,15 +22,28 @@ export type ExplanationStepData = { text: string; imageId: string | null };
 // is exactly the "candy-colored SaaS" pattern this app's own design system
 // walked back elsewhere; restraint here means color on the border and badge
 // only, not the whole surface.
+//
+// With a walkthrough (a question imported with one, walkthrough.ts) the same
+// steps become a step-through with a visual stage, and this list is one press
+// away behind "All steps". The list stays the default for everything else.
 export function ExplanationSteps({
   steps,
   mediaBasePath,
+  walkthrough,
 }: {
   steps: ExplanationStepData[];
   mediaBasePath: string;
+  walkthrough?: WalkthroughView | null;
 }) {
   if (steps.length === 0) return null;
+  const list = <StepList steps={steps} mediaBasePath={mediaBasePath} />;
+  if (walkthrough && walkthrough.spec.steps.length === steps.length) {
+    return <Walkthrough view={walkthrough} steps={steps} mediaBasePath={mediaBasePath} list={list} />;
+  }
+  return list;
+}
 
+function StepList({ steps, mediaBasePath }: { steps: ExplanationStepData[]; mediaBasePath: string }) {
   return (
     <ol className="flex flex-col gap-3">
       {steps.map((step, i) => {

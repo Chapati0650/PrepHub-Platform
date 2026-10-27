@@ -19,6 +19,12 @@
  * and each is marked AI-generated with its reasoning for the reviewer, as a
  * bulk-uploaded question is.
  *
+ * Walkthroughs: a question may carry a `walkthrough` (the explanation as a
+ * step-through visual, src/lib/content/walkthrough.ts). It is validated
+ * against the question's own passage, choices and steps, and saved with it.
+ * `--attach-walkthroughs` (with --commit) adds them to questions that are
+ * already in the bank, checked against the content actually stored there.
+ *
  * Production: DATABASE_URL pointing anywhere but localhost needs
  * --production, and figures need the four R2_* variables (pass them with
  * `--env-file`), or their images would be written to this computer's disk,
@@ -40,6 +46,8 @@ import {
   updateDraftContent,
 } from "../../src/lib/content/questions";
 import { uploadImage } from "../../src/lib/content/media";
+import { validateWalkthrough, walkthroughViewFor } from "../../src/lib/content/walkthrough-validate";
+import type { Prisma } from "../../src/generated/prisma/client";
 
 const LETTERS = ["A", "B", "C", "D"];
 
@@ -70,6 +78,8 @@ const QuestionSchema = z.object({
   /** Index-aligned with `choices`: a note per wrong choice, null at the correct one. */
   distractorExplanations: z.array(z.string().min(1).nullable()).length(4).nullable(),
   figure: FigureSchema.nullable(),
+  /** The explanation as a step-through visual; see the README's "Walkthroughs". */
+  walkthrough: z.unknown().optional(),
 });
 
 const BatchSchema = z.object({
@@ -85,6 +95,7 @@ const folder = args.find((a) => !a.startsWith("--"));
 const commit = args.includes("--commit");
 const publish = args.includes("--publish");
 const production = args.includes("--production");
+const attachWalkthroughs = args.includes("--attach-walkthroughs");
 
 function fail(message: string): never {
   console.error(`\n${message}`);
@@ -94,7 +105,13 @@ function fail(message: string): never {
 /** Problems that would put a wrong or broken question in front of students. Any one blocks --commit. */
 function problemsWith(q: ImportQuestion): string[] {
   const problems: string[] = [];
-  const texts = [q.passageText ?? "", q.questionText, ...(q.choices ?? []), ...q.explanationSteps];
+  const texts = [
+    q.passageText ?? "",
+    q.questionText,
+    ...(q.choices ?? []),
+    ...q.explanationSteps,
+    ...(q.distractorExplanations ?? []).filter((note): note is string => note !== null),
+  ];
 
   if (q.questionType === "MULTIPLE_CHOICE") {
     if (!q.choices) problems.push("multiple choice needs four choices");
@@ -127,6 +144,17 @@ function problemsWith(q: ImportQuestion): string[] {
     if ((text.match(/\[\[/g) ?? []).length !== (text.match(/\]\]/g) ?? []).length) {
       problems.push(`unbalanced [[ ]] in: ${text.slice(0, 60)}…`);
     }
+    // A LaTeX command written in the JSON with one backslash is a JSON escape:
+    // \frac becomes a form feed, \times a tab, \begin a backspace, \right a
+    // carriage return, and \neq a line break, all silently. Every backslash
+    // in LaTeX must be doubled in questions.json.
+    if (/[\u0000-\u0009\u000B-\u001F]/.test(text)) {
+      problems.push(`a control character (a LaTeX command with one backslash in the JSON?) in: ${JSON.stringify(text.slice(0, 60))}…`);
+    }
+    const math = text.replace(/\\\$/g, "").match(/\$\$[^$]+\$\$|\$[^$]+\$/g) ?? [];
+    if (math.some((segment) => segment.includes("\n"))) {
+      problems.push(`a line break inside math (\\neq or \\nu with one backslash in the JSON?) in: ${JSON.stringify(text.slice(0, 60))}…`);
+    }
   }
   if (q.figure) {
     const [left, top, right, bottom] = q.figure.box;
@@ -134,6 +162,15 @@ function problemsWith(q: ImportQuestion): string[] {
       problems.push("figure box must be [left, top, right, bottom] within 0–1000");
     }
     if (!q.pages.includes(q.figure.page)) problems.push("the figure's page isn't one of the question's pages");
+  }
+  if (q.walkthrough !== undefined) {
+    const check = validateWalkthrough(q.walkthrough, {
+      passageText: q.passageText,
+      choiceCount: q.choices?.length ?? 0,
+      correctIndex: q.correctChoiceIndex,
+      stepCount: q.explanationSteps.length,
+    });
+    if (!check.ok) problems.push(...check.problems.map((p) => `walkthrough: ${p}`));
   }
   return problems;
 }
@@ -174,6 +211,7 @@ function reviewerNote(batch: z.infer<typeof BatchSchema>, q: ImportQuestion): st
 async function main() {
   if (!folder) fail('Usage: npx tsx scripts/question-import/import.ts "<test folder>" [--commit] [--publish] [--production]');
   if (publish && !commit) fail("--publish only makes sense with --commit.");
+  if (attachWalkthroughs && !commit) fail("--attach-walkthroughs only makes sense with --commit.");
 
   const databaseUrl = process.env.DATABASE_URL ?? "";
   const local = /@(localhost|127\.0\.0\.1)[:/]/.test(databaseUrl);
@@ -206,6 +244,7 @@ async function main() {
     },
   });
   const known = new Map<string, { id: string; status: string }>();
+  // ↑ the id is what --attach-walkthroughs writes to.
   for (const q of existing) {
     for (const revision of [q.currentPublishedRevision, q.currentDraftRevision]) {
       if (revision) known.set(contentKey(revision.passageText, revision.questionText), { id: q.id, status: q.status });
@@ -242,7 +281,7 @@ async function main() {
     const answer = q.correctChoiceIndex !== null ? LETTERS[q.correctChoiceIndex] : q.acceptedAnswers.join(" or ");
     const status = problems.length ? "PROBLEM" : duplicateOf ? "skip" : "ok";
     console.log(
-      `${status.padEnd(8)}${q.ref.padEnd(10)}${q.category.padEnd(31)}${q.difficulty.padEnd(8)}answer ${answer}${q.figure ? "  [figure]" : ""}${q.answerConfidence === "high" ? "" : `  (${q.answerConfidence} confidence)`}`,
+      `${status.padEnd(8)}${q.ref.padEnd(10)}${q.category.padEnd(31)}${q.difficulty.padEnd(8)}answer ${answer}${q.figure ? "  [figure]" : ""}${q.walkthrough !== undefined ? "  [walkthrough]" : ""}${q.answerConfidence === "high" ? "" : `  (${q.answerConfidence} confidence)`}`,
     );
     if (duplicateOf) console.log(`          already in the bank as ${duplicateOf}`);
     for (const p of problems) console.log(`          - ${p}`);
@@ -258,6 +297,10 @@ async function main() {
     return;
   }
   if (blocked.length > 0) fail("Not importing anything until every problem above is fixed.");
+
+  if (attachWalkthroughs) {
+    await attachToExisting(plan.filter((p) => p.duplicateOf && p.q.walkthrough !== undefined), known);
+  }
 
   const log: { ref: string; questionId?: string; error?: string }[] = [];
   for (const { q, figure } of toCreate) {
@@ -285,6 +328,7 @@ async function main() {
         explanationSteps: q.explanationSteps.map((text) => ({ text, imageId: null })),
         aiGenerated: true,
         aiAnswerReasoning: reviewerNote(batch, q),
+        ...(q.walkthrough !== undefined ? { walkthrough: q.walkthrough } : {}),
       });
       if (publish) await publishQuestion(questionId);
       log.push({ ref: q.ref, questionId });
@@ -301,6 +345,57 @@ async function main() {
   await writeFile(path.join(folder, "import-log.json"), JSON.stringify({ source: batch.source, at: new Date().toISOString(), production, results: log }, null, 2));
   const failed = log.filter((l) => l.error).length;
   console.log(`\nDone: ${log.length - failed} created${publish ? " and published" : " as Drafts"}, ${failed} failed. See import-log.json.`);
+}
+
+/**
+ * Adds walkthroughs to questions already in the bank. It writes to the live
+ * (and any draft) revision in place rather than through a new revision: a
+ * walkthrough is presentation of the explanation, never the question itself,
+ * and it is checked here against exactly the content stored on that revision
+ * (passage, choices, step count), the same check the site repeats every time
+ * it shows one. A practice set already pointing at the revision simply gains
+ * the visual.
+ */
+async function attachToExisting(
+  items: { q: ImportQuestion }[],
+  known: Map<string, { id: string; status: string }>,
+) {
+  let attached = 0;
+  let refused = 0;
+  for (const { q } of items) {
+    const match = known.get(contentKey(q.passageText, q.questionText));
+    if (!match) continue;
+    const question = await prisma.question.findUniqueOrThrow({
+      where: { id: match.id },
+      select: {
+        currentPublishedRevision: { include: { answerChoices: true, explanationSteps: true } },
+        currentDraftRevision: { include: { answerChoices: true, explanationSteps: true } },
+      },
+    });
+    const revisions = [question.currentPublishedRevision, question.currentDraftRevision].filter(
+      (r, i, all): r is NonNullable<typeof r> => !!r && all.findIndex((o) => o?.id === r.id) === i,
+    );
+    for (const revision of revisions) {
+      const { view, problems } = walkthroughViewFor({
+        walkthrough: q.walkthrough,
+        passageText: revision.passageText,
+        answerChoices: revision.answerChoices,
+        explanationStepCount: revision.explanationSteps.length,
+      });
+      if (!view) {
+        refused++;
+        console.log(`REFUSED ${q.ref} on ${revision.id}: ${problems.join("; ")}`);
+        continue;
+      }
+      await prisma.questionRevision.update({
+        where: { id: revision.id },
+        data: { walkthrough: q.walkthrough as Prisma.InputJsonValue },
+      });
+      attached++;
+      console.log(`walkthrough ${q.ref} → ${match.id} (revision ${revision.id})`);
+    }
+  }
+  console.log(`\nWalkthroughs attached to ${attached} existing revision(s), ${refused} refused.`);
 }
 
 main()
