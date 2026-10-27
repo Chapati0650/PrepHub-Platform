@@ -1993,3 +1993,47 @@ the Owner); thin content (Advanced Math easy 2 published, PSDA easy 3,
 Vocabulary hard 3, Geometry easy 4, unchanged since September); practice-set
 generation's per-slot queries; KaTeX shipping to every student client;
 caching published question content.
+
+## Importing practice tests through Claude (2026-10-26)
+
+The Owner's request: upload a whole practice test (an 80-page PDF) to Claude
+instead of the website's bulk upload, because the website's pipeline pays
+DeepSeek/Anthropic per token. `scripts/question-import/` does the same job
+with Claude reading the pages in a Claude Code session; **its README is the
+procedure and the transcription standard**, written from the site's own
+prompts (`transcribe.ts`, `classify-category.ts`, `classify-difficulty.ts`,
+`determine-answer.ts`, `generate-explanation.ts`) so imported questions match
+bulk-uploaded ones.
+
+- `render-pages.mjs` renders every page with pdfjs-dist inside headless
+  Chromium at the website's 2.5× scale (pdfjs needs a canvas; Chromium has one,
+  so no native package was added). pdfjs 6 takes `getDocument({ url })`, not a
+  bare string.
+- Claude transcribes into `questions.json` (passage and stem separate, the
+  test's answer key cross-checked, figures as 0–1000 boxes); `import.ts`
+  validates, finds duplicates already in the bank (passage + stem, so the
+  common Reading stems don't collide, and older bulk uploads that kept the
+  passage inside the stem still match), crops figures with sharp for review,
+  and with `--commit` creates them through `createQuestion` /
+  `updateDraftContent` (and `publishQuestion` with `--publish`) as
+  AI-generated Drafts, exactly what the website's bulk upload produces. Unlike
+  the website, which sees one page at a time and skips any question that
+  crosses a page, Claude reads the whole test.
+- **Guards**: a non-local `DATABASE_URL` needs `--production`; a production
+  batch with figures needs the four `R2_*` variables (the Owner's gitignored
+  `.env.r2`, never printed), or images would land on this computer's disk.
+  Test PDFs and transcriptions live in `Downloads\PrepHub\Question imports\`,
+  never in this public repo. Production imports need the Owner's go-ahead per
+  batch.
+- **Money is `\$`** (`latex-text.tsx`, tested): `$` is the math delimiter, and
+  the renderer used to break any price ("$\$49$" was a KaTeX error; the bank's
+  two priced word problems had been rewritten around it). `\$` is now a dollar
+  sign in text and in math.
+- **Student Preview shows the passage.** The CMS drawer rendered only
+  `questionText`, so every question with a separate passage (the field added
+  for the two-pane Reading layout) previewed without the text it asks about.
+- Verified end to end on a sample PDF: render, transcribe, check, crop (looked
+  at), import into the local database, Student Preview of a passage with an
+  underline, a graph, and a priced word problem; a re-run reported all five as
+  already in the bank. Local imports must stay within WIN1252 (see "Scale
+  readiness"): write math as LaTeX (`$-2$`, not a Unicode minus).

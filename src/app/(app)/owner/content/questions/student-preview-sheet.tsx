@@ -132,6 +132,18 @@ export function StudentPreviewSheet({
 
           <div className="rounded-lg border border-border p-4">
             <p className="mb-2 text-xs text-muted-foreground">{CALCULATOR_LABELS[revision.calculatorSetting]}</p>
+            {/* The passage, which students see beside the question (stacked
+                above it on a narrow screen, as here). The preview used to
+                leave it out, so a Reading question previewed without the
+                text it asks about, underlines included. */}
+            {(revision.passageText ?? "").trim() && (
+              <QuestionStatement
+                text={revision.passageText ?? ""}
+                imageId={null}
+                mediaBasePath="/api/owner/media"
+                className="mb-3"
+              />
+            )}
             <QuestionStatement
               text={revision.questionText}
               imageId={revision.questionImage?.id ?? null}

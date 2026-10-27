@@ -34,21 +34,34 @@ function renderMath(tex: string, displayMode: boolean): string {
   }
 }
 
+// A dollar sign that means money is written `\$`: "$\$49$" in math, or
+// "costs \$4" in text. `$` is also the math delimiter, and the split below
+// used to treat the escaped one as a delimiter too, so "$\$49$" rendered as a
+// KaTeX error (the question bank's two priced word problems were rewritten to
+// avoid it). It is swapped for a character that can't occur in content before
+// splitting, then put back: as `\$` inside math, which KaTeX draws as a dollar
+// sign, and as a plain "$" in text.
+const MONEY = "\u0000";
+
 export function renderLatexHtml(source: string): string {
+  return renderSegments(source.replace(/\\\$/g, MONEY));
+}
+
+function renderSegments(source: string): string {
   const segments = source.split(/(\$\$[^$]+\$\$|\$[^$]+\$|\[\[[^\]]+\]\])/g);
   return segments
     .map((segment) => {
       if (segment.startsWith("$$") && segment.endsWith("$$") && segment.length > 3) {
-        return renderMath(segment.slice(2, -2), true);
+        return renderMath(segment.slice(2, -2).replaceAll(MONEY, "\\$"), true);
       }
       if (segment.startsWith("$") && segment.endsWith("$") && segment.length > 1) {
-        return renderMath(segment.slice(1, -1), false);
+        return renderMath(segment.slice(1, -1).replaceAll(MONEY, "\\$"), false);
       }
       if (segment.startsWith("[[") && segment.endsWith("]]") && segment.length > 3) {
         // Recurse so math delimiters still work inside an underlined span.
-        return `<u>${renderLatexHtml(segment.slice(2, -2))}</u>`;
+        return `<u>${renderSegments(segment.slice(2, -2))}</u>`;
       }
-      return escapeHtml(segment).replace(/\n/g, "<br />");
+      return escapeHtml(segment).replaceAll(MONEY, "$").replace(/\n/g, "<br />");
     })
     .join("");
 }

@@ -55,4 +55,20 @@ describe("renderLatexHtml", () => {
     const html = renderLatexHtml("[[first]] and [[second]]");
     expect(html).toBe("<u>first</u> and <u>second</u>");
   });
+
+  it("shows an escaped dollar sign as money in plain text", () => {
+    expect(renderLatexHtml("Notebooks cost \\$4 each.")).toBe("Notebooks cost $4 each.");
+  });
+
+  it("shows an escaped dollar sign as money inside math instead of ending it", () => {
+    const html = renderLatexHtml("She spent $\\$49$ in total.");
+    expect(html).toContain("katex");
+    expect(html).not.toContain("katex-error");
+    expect(html.startsWith("She spent ")).toBe(true);
+    expect(html.endsWith(" in total.")).toBe(true);
+  });
+
+  it("keeps escaped dollars working inside an underlined span", () => {
+    expect(renderLatexHtml("[[a \\$5 fee]]")).toBe("<u>a $5 fee</u>");
+  });
 });
