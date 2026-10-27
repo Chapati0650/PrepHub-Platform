@@ -361,6 +361,7 @@ async function attachToExisting(
   known: Map<string, { id: string; status: string }>,
 ) {
   let attached = 0;
+  let rewritten = 0;
   let refused = 0;
   for (const { q } of items) {
     const match = known.get(contentKey(q.passageText, q.questionText));
@@ -368,10 +369,46 @@ async function attachToExisting(
     const question = await prisma.question.findUniqueOrThrow({
       where: { id: match.id },
       select: {
-        currentPublishedRevision: { include: { answerChoices: true, explanationSteps: true } },
-        currentDraftRevision: { include: { answerChoices: true, explanationSteps: true } },
+        familyId: true,
+        currentPublishedRevision: { include: { answerChoices: true, explanationSteps: { orderBy: { order: "asc" } } } },
+        currentDraftRevision: { include: { answerChoices: true, explanationSteps: { orderBy: { order: "asc" } } } },
       },
     });
+
+    // The explanation itself was rewritten (a step added, a rule stated):
+    // saved through the editor's own write path, as the Owner editing it in
+    // the CMS would, with the walkthrough in the same save so the two never
+    // disagree about how many steps there are.
+    const editable = question.currentDraftRevision ?? question.currentPublishedRevision;
+    const stored = editable?.explanationSteps ?? [];
+    const rewrittenText = stored.length !== q.explanationSteps.length || stored.some((s, i) => s.text !== q.explanationSteps[i]);
+    if (editable && rewrittenText) {
+      const { view, problems } = walkthroughViewFor({
+        walkthrough: q.walkthrough,
+        passageText: editable.passageText,
+        answerChoices: editable.answerChoices,
+        explanationStepCount: q.explanationSteps.length,
+      });
+      if (!view) {
+        refused++;
+        console.log(`REFUSED ${q.ref}: ${problems.join("; ")}`);
+      } else if (question.familyId) {
+        refused++;
+        console.log(`REFUSED ${q.ref}: it's in a Question Family; change its explanation from the CMS`);
+      } else if (stored.some((s) => s.imageId)) {
+        refused++;
+        console.log(`REFUSED ${q.ref}: its explanation has step images that a rewrite would drop; change it from the CMS`);
+      } else {
+        await updateDraftContent(match.id, {
+          explanationSteps: q.explanationSteps.map((text) => ({ text, imageId: null })),
+          walkthrough: q.walkthrough,
+        });
+        rewritten++;
+        console.log(`explanation + walkthrough ${q.ref} → ${match.id} (${stored.length} → ${q.explanationSteps.length} steps)`);
+      }
+      continue;
+    }
+
     const revisions = [question.currentPublishedRevision, question.currentDraftRevision].filter(
       (r, i, all): r is NonNullable<typeof r> => !!r && all.findIndex((o) => o?.id === r.id) === i,
     );
@@ -395,7 +432,7 @@ async function attachToExisting(
       console.log(`walkthrough ${q.ref} → ${match.id} (revision ${revision.id})`);
     }
   }
-  console.log(`\nWalkthroughs attached to ${attached} existing revision(s), ${refused} refused.`);
+  console.log(`\nWalkthroughs attached to ${attached} existing revision(s), ${rewritten} explanation(s) rewritten with theirs, ${refused} refused.`);
 }
 
 main()

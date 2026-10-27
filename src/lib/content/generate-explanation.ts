@@ -73,6 +73,7 @@ Rules:
 - ${LATEX_RULE}
 - Each step does exactly ONE thing: one substitution, one algebraic manipulation, one simplification, or one conclusion — never more than one. If you notice a step doing two things (e.g. simplifying an expression AND THEN stating what it implies, or combining two algebraic operations), split it into two separate steps instead. A student should never have to follow more than one new idea per step.
 - Most questions need 4-8 steps at this granularity. Do not compress steps together just to keep the count low — a longer, more granular explanation is easier to follow than a short one that skips around.
+- Never use a formula, definition, identity or rule without stating it first, in words and symbols, before the step that applies it: "The volume of a cylinder is $V = \\pi r^2 h$.", "The slope of a line through two points is $m = \\frac{y_2 - y_1}{x_2 - x_1}$.", "Sine is opposite over hypotenuse.", "Two complete sentences can't be joined by a comma alone." A student who doesn't already know it must be able to follow every step.
 - Explain why this specific correct answer is right. It has already been verified — do not independently re-derive an answer that might disagree with it; if your own reasoning seems to diverge, work backward from the given correct answer to find where your reasoning needs to change.
 
 Respond with ONLY a json object, no other text, in exactly this shape:

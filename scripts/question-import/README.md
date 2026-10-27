@@ -173,6 +173,16 @@ the reviewer, not students.
 - Brilliant.org-style numbered steps; **each step does exactly one thing**
   (one substitution, one manipulation, one conclusion). Most questions need
   4–8 steps. Don't compress to keep the count down.
+- **Never skip the rule.** Every formula, definition, identity or grammar
+  rule is stated, in words and symbols, before the step that uses it: "The
+  volume of a cylinder is $V = \pi r^2 h$." before "the wall's volume is
+  $\pi R^2 h - \pi r^2 h$"; "The slope through two points is $m =
+  \frac{y_2 - y_1}{x_2 - x_1}$." before computing it; "Sine is opposite over
+  hypotenuse." before $\sin A = \frac{BC}{AC}$. Write for a student who
+  doesn't already know it — that is who reads explanations. (The Owner's
+  review, 2026-10-27: the first walkthroughs used the cylinder formula, the
+  slope formula and $y = mx + b$ without ever saying them.) In the
+  walkthrough, the step that states a formula adds it to the working.
 - Explain why the correct answer is right, using the same `$…$`, `\$` and
   `[[…]]` rules.
 - **Distractor notes** (one short note per wrong choice): name the specific
@@ -321,3 +331,9 @@ walkthroughs to questions **already in the bank**, put them in that test's
 `questions.json` and run the same import with
 `--commit --attach-walkthroughs`: questions that exist get their walkthrough
 (checked against the content actually stored), nothing else is created.
+When a question's `explanationSteps` in `questions.json` differ from the ones
+stored (a step added to state a formula, a step reworded), the explanation is
+replaced along with the walkthrough, in one save through the editor's own
+`updateDraftContent`, exactly as an edit in the CMS. That is refused for a
+Question Family member and for an explanation with step images, which a
+rewrite would drop: change those in the CMS.

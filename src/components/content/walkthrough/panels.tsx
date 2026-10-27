@@ -160,9 +160,46 @@ function renderTex(tex: string): string {
  * The whole chain stays in view — no inner scroll — so the last step shows
  * every line that led to the answer.
  */
+const WORK_FONT_REM = 1.05;
+/** The smallest the working shrinks to before it scrolls sideways instead. */
+const WORK_MIN_SCALE = 0.7;
+
 export function WorkPanel({ title, state }: { title?: string; state: WorkState }) {
   const lines = state.lines.map((line) => ({ ...line, parts: splitAtRelation(line.tex) }));
   const aligned = lines.length > 0 && lines.every((l) => l.parts);
+  const box = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLOListElement>(null);
+  const linesKey = state.lines.map((l) => l.tex).join("\n");
+
+  // Working wider than its panel is shrunk to fit (KaTeX sizes in em, so the
+  // font size scales everything), down to WORK_MIN_SCALE; only past that does
+  // it scroll sideways. Every step starts at the left edge, where each line
+  // says what it is about (R =, V =), never scrolled past it.
+  useEffect(() => {
+    const outer = box.current;
+    const inner = list.current;
+    if (!outer || !inner) return;
+    const fit = () => {
+      inner.style.fontSize = "";
+      const natural = inner.scrollWidth;
+      const room = outer.clientWidth;
+      const scale = natural > room ? Math.max(WORK_MIN_SCALE, room / natural) : 1;
+      inner.style.fontSize = scale < 1 ? `${WORK_FONT_REM * scale}rem` : "";
+      outer.scrollLeft = 0;
+    };
+    fit();
+    if (typeof ResizeObserver === "undefined") return;
+    // Refit when the panel's width changes; its height follows the fit, and
+    // reacting to that would only refit to the same size.
+    let width = outer.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (outer.clientWidth === width) return;
+      width = outer.clientWidth;
+      fit();
+    });
+    observer.observe(outer);
+    return () => observer.disconnect();
+  }, [linesKey]);
 
   return (
     <div>
@@ -170,8 +207,8 @@ export function WorkPanel({ title, state }: { title?: string; state: WorkState }
       {lines.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">The working builds up here, one step at a time.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <ol className={cn("mx-auto grid w-fit gap-y-1 text-[1.05rem]", aligned ? "grid-cols-[auto_auto_auto]" : "grid-cols-1")}>
+        <div ref={box} className="overflow-x-auto">
+          <ol ref={list} className={cn("mx-auto grid w-fit gap-y-1 text-[1.05rem]", aligned ? "grid-cols-[auto_auto_auto]" : "grid-cols-1")}>
             {lines.map((line, i) => {
               // A line of working never wraps (an expression broken after
               // "132 ×" reads as two lines); a long one scrolls sideways.
