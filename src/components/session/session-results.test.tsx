@@ -12,7 +12,6 @@ vi.mock("@/components/content/question-statement", () => ({
   QuestionStatement: ({ text }: { text: string }) => <p>{text}</p>,
 }));
 vi.mock("@/components/content/explanation-steps", () => ({ ExplanationSteps: () => null }));
-vi.mock("@/components/content/distractor-note", () => ({ DistractorNote: () => null }));
 
 const LOADED: LoadedQuestion = {
   content: {
@@ -68,7 +67,22 @@ describe("the results review", () => {
   it("names the student's answer and the correct one in words, not colour alone", () => {
     render(<QuestionDetail loaded={LOADED} isCorrect={false} />);
 
-    expect(screen.getByText("Alpha").parentElement).toHaveTextContent("Your answer");
-    expect(screen.getByText("Bravo").parentElement).toHaveTextContent("Correct answer");
+    expect(screen.getByText("Alpha").closest("div")).toHaveTextContent("Your answer");
+    expect(screen.getByText("Bravo").closest("div")).toHaveTextContent("Correct answer");
+  });
+
+  it("says why a wrong answer is wrong under that answer, and shows the passage", () => {
+    const loaded: LoadedQuestion = {
+      ...LOADED,
+      content: { ...LOADED.content, passageText: "The text the question asks about." },
+      feedback: { ...LOADED.feedback!, distractorExplanationsByChoiceId: { a: "Alpha confuses the two values." } },
+    };
+    render(<QuestionDetail loaded={loaded} isCorrect={false} />);
+
+    expect(screen.getByText("The text the question asks about.")).toBeInTheDocument();
+    const note = screen.getByText("Alpha confuses the two values.");
+    // In the same group as the choice it explains, not in a box after the list.
+    expect(note.closest(".flex-col")).toHaveTextContent("Alpha");
+    expect(note.closest("p")).toHaveTextContent("Why it's wrong");
   });
 });

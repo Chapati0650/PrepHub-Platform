@@ -5,6 +5,7 @@ import {
   ChoicesStepSchema,
   ElementsStepSchema,
   locateQuote,
+  onWordBoundaries,
   panelId,
   PassageStepSchema,
   TableStepSchema,
@@ -100,8 +101,11 @@ function panelProblems(panel: Panel): string[] {
   if (panel.type === "numberline") {
     if (panel.max <= panel.min) problems.push(`${id}: max must be above min`);
     for (const e of panel.elements) {
-      const xs = e.kind === "interval" ? [e.from, e.to].filter((v): v is number => v !== null) : [e.at];
+      const xs =
+        e.kind === "interval" ? [e.from, e.to].filter((v): v is number => v !== null) : e.kind === "span" ? [e.from, e.to] : [e.at];
       if (xs.some((x) => x < panel.min || x > panel.max)) problems.push(`${id}: ${e.id} is off the number line`);
+      if (e.kind === "span" && e.from === e.to) problems.push(`${id}: ${e.id} is a distance of nothing (from and to are equal)`);
+      if ((e.kind === "span" || e.kind === "point") && e.label) problems.push(...latexTextProblems(e.label));
     }
   }
   if (panel.type === "table") {
@@ -188,8 +192,11 @@ export function validateWalkthrough(raw: unknown, context: WalkthroughContext): 
           }
           const source = context.passageText ?? "";
           for (const quote of [...(p.data.highlight ?? []), ...(p.data.alt ?? [])]) {
-            if (!locateQuote(source, quote)) {
+            const found = locateQuote(source, quote);
+            if (!found) {
               problems.push(`${at}: "${quote.slice(0, 50)}" isn't in the passage as plain text (copy it exactly; don't cross math or an underline's edge)`);
+            } else if (!onWordBoundaries(source, found[0], found[1])) {
+              problems.push(`${at}: "${quote.slice(0, 50)}" starts or ends partway through a word; highlight whole words`);
             }
           }
           if (p.data.fill) {
@@ -282,6 +289,27 @@ export function validateWalkthrough(raw: unknown, context: WalkthroughContext): 
   if (panels.size > 0 && [...panels.values()].some((p) => p.type === "choices") && !revealed) {
     problems.push("the choices panel never reveals the answer (add reveal: true to the last step)");
   }
+
+  const prompted = new Set<number>();
+  for (const prompt of spec.prompts ?? []) {
+    const at = `the prompt on step ${prompt.step}`;
+    if (prompt.step > spec.steps.length) problems.push(`${at}: there is no step ${prompt.step}`);
+    if (prompted.has(prompt.step)) problems.push(`${at}: a step can have one prompt`);
+    prompted.add(prompt.step);
+    const count = prompt.options === "choices" ? context.choiceCount : prompt.options.length;
+    if (prompt.options === "choices" && context.choiceCount === 0) problems.push(`${at}: asks about the choices, but the question has none`);
+    const answers = typeof prompt.answer === "number" ? [prompt.answer] : prompt.answer;
+    if (answers.some((a) => a >= count)) problems.push(`${at}: an answer past the last option`);
+    // "Which can you rule out?" accepts several choices, and the right answer
+    // is never one of them; asking for the right answer alone is fine.
+    if (prompt.options === "choices" && answers.length > 1 && context.correctIndex !== null && answers.includes(context.correctIndex)) {
+      problems.push(`${at}: mixes the correct choice in with choices to rule out`);
+    }
+    for (const text of [prompt.ask, prompt.hint ?? "", ...(prompt.options === "choices" ? [] : prompt.options)]) {
+      problems.push(...latexTextProblems(text).map((p) => `${at}: ${p}`));
+    }
+  }
+  if (spec.takeaway) problems.push(...latexTextProblems(spec.takeaway).map((p) => `takeaway: ${p}`));
 
   return problems.length > 0 ? { ok: false, problems } : { ok: true, spec };
 }

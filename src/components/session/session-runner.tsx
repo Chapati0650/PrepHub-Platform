@@ -9,7 +9,9 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LatexText } from "@/components/content/latex-text";
 import { QuestionStatement } from "@/components/content/question-statement";
 import { ExplanationSteps } from "@/components/content/explanation-steps";
-import { DistractorNote } from "@/components/content/distractor-note";
+import { QuestionWalkthrough, type WalkthroughFinish } from "@/components/content/walkthrough/context";
+import { WalkthroughDock } from "@/components/content/walkthrough/dock";
+import { ChoiceNote, PassageMarks, WithChoiceMarks, choiceMarkClasses, choiceMarkTag } from "@/components/content/walkthrough/on-question";
 import { CALCULATOR_LABELS } from "@/lib/content/labels";
 import type { StudentQuestionContent, StudentQuestionFeedback } from "@/lib/session/question-content";
 import type { DraftPatch } from "@/lib/session/draft";
@@ -139,6 +141,23 @@ export function SessionRunner(props: SessionRunnerProps) {
   const passageRef = useRef<HTMLDivElement | null>(null);
   const questionRef = useRef<HTMLDivElement | null>(null);
   const annotationRoots = useMemo(() => ({ passage: passageRef, question: questionRef }), []);
+
+  // The walkthrough's dock is pinned to the bottom of the screen, which on a
+  // page that scrolls is under this footer; it sits on top of it instead.
+  // Written straight to a CSS variable, so a resize costs no render.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const footerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const root = rootRef.current;
+    const footer = footerRef.current;
+    if (!root || !footer) return;
+    const sync = () => root.style.setProperty("--wt-dock-offset", `${footer.offsetHeight}px`);
+    sync();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(sync);
+    observer.observe(footer);
+    return () => observer.disconnect();
+  }, []);
 
   // The question on screen, for requests that resolve after the student has
   // moved on: their result still lands on the right question, but only the
@@ -448,6 +467,21 @@ export function SessionRunner(props: SessionRunnerProps) {
   // 350px each, with the rest empty.
   const columnWidth = hasPassage ? "max-w-screen-2xl" : "max-w-4xl";
 
+  // Once answered, the explanation's walkthrough runs on the question itself
+  // (QuestionWalkthrough): the passage highlighted, the choices ruled out in
+  // place, each with its reason.
+  const feedback = currentItem.submitted ? (loaded?.feedback ?? null) : null;
+  const answerChoices = loaded?.content.answerChoices ?? [];
+  const studentChoiceIndex = feedback ? answerChoices.findIndex((c) => c.id === currentItem.studentAnswer) : -1;
+  const choiceNotes = answerChoices.map((c) => feedback?.distractorExplanationsByChoiceId[c.id] ?? null);
+  // The walkthrough's last button goes where the footer's would.
+  const walkthroughFinish: WalkthroughFinish =
+    unansweredCount === 0
+      ? { label: props.finishLabel ?? "Finish", onClick: () => void handleFinish(false) }
+      : position === items.length - 1
+        ? { label: "Next unanswered question", onClick: () => void goToPosition(firstUnanswered!.position) }
+        : { label: "Next question", onClick: () => void goToPosition(position + 1) };
+
   return (
     // Laid out like Bluebook: a band at the top carrying the section label,
     // the clock and the tools, the question in the middle, and a band at the
@@ -458,7 +492,7 @@ export function SessionRunner(props: SessionRunnerProps) {
     // Brand colour is kept for the controls rather than Bluebook's blue. The
     // shape is what creates the familiarity; repainting the product another
     // organisation's blue is a separate decision and not one this makes.
-    <div className="flex flex-1 flex-col bg-background">
+    <div ref={rootRef} className="flex flex-1 flex-col bg-background">
       <header className="border-b border-dashed border-foreground/40 px-4 py-3 sm:px-8">
         <div className="mx-auto grid w-full max-w-screen-2xl grid-cols-[1fr_auto_1fr] items-center gap-4">
           <div className="min-w-0">
@@ -584,18 +618,31 @@ export function SessionRunner(props: SessionRunnerProps) {
             )}
 
             <div className="pt-5">
+              <QuestionWalkthrough
+                walkthrough={feedback?.walkthrough}
+                steps={feedback?.explanationSteps ?? []}
+                mediaBasePath="/api/media"
+                studentChoiceIndex={studentChoiceIndex >= 0 ? studentChoiceIndex : null}
+                choiceNotes={choiceNotes}
+                finish={walkthroughFinish}
+                resetKey={currentItem.id}
+              >
               <SplitPane
                 hasPassage={hasPassage}
                 left={
-                  <div ref={passageRef}>
-                    <QuestionStatement
-                      text={loaded.content.passageText ?? ""}
-                      imageId={null}
-                      mediaBasePath="/api/media"
-                      className="bg-transparent p-0"
-                      textClassName="text-lg leading-relaxed lg:text-xl lg:leading-relaxed"
-                    />
-                  </div>
+                  <>
+                    <div ref={passageRef}>
+                      <QuestionStatement
+                        text={loaded.content.passageText ?? ""}
+                        imageId={null}
+                        mediaBasePath="/api/media"
+                        className="bg-transparent p-0"
+                        textClassName="text-lg leading-relaxed lg:text-xl lg:leading-relaxed"
+                      />
+                    </div>
+                    {/* Outside the passage element: the annotator counts its text. */}
+                    <PassageMarks rootRef={passageRef} />
+                  </>
                 }
               >
               {/* No tinted panel behind the stem. Bluebook sets the question
@@ -630,7 +677,7 @@ export function SessionRunner(props: SessionRunnerProps) {
                     // red borders alone are the same border to a student who
                     // can't tell those colours apart. Part of the button's
                     // accessible name, so a screen reader hears it too.
-                    const tag = !currentItem.submitted
+                    const baseTag = !currentItem.submitted
                       ? null
                       : isSelected && showCorrect
                         ? "Your answer · Correct"
@@ -639,8 +686,17 @@ export function SessionRunner(props: SessionRunnerProps) {
                           : showCorrect
                             ? "Correct answer"
                             : null;
+                    // Why a wrong pick is wrong sits under that choice, not in
+                    // a box below the list.
+                    const yourWrongNote = showWrongSelection ? (loaded.feedback?.distractorExplanationsByChoiceId[choice.id] ?? null) : null;
                     return (
-                      <div key={choice.id} className="flex items-center gap-3">
+                      <WithChoiceMarks key={choice.id} index={choiceIndex}>
+                        {(marks) => {
+                          const markTag = choiceMarkTag(marks);
+                          const tag = [baseTag, markTag].filter(Boolean).join(" · ") || null;
+                          return (
+                      <div ref={marks?.ref} className="flex flex-col gap-1.5">
+                      <div className="flex items-center gap-3">
                         <button
                           type="button"
                           disabled={currentItem.submitted || submitting || !!blocked}
@@ -661,6 +717,7 @@ export function SessionRunner(props: SessionRunnerProps) {
                             showCorrect && "border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50",
                             showWrongSelection && "border-destructive bg-destructive/5",
                             isOut && "opacity-45",
+                            choiceMarkClasses(marks),
                           ]
                             .filter(Boolean)
                             .join(" ")}
@@ -676,7 +733,11 @@ export function SessionRunner(props: SessionRunnerProps) {
                           >
                             {letter}
                           </span>
-                          <span className={["min-w-0 flex-1", isOut && "line-through"].filter(Boolean).join(" ")}>
+                          <span
+                            className={["min-w-0 flex-1", (isOut || marks?.ruledOut) && "line-through decoration-foreground/50"]
+                              .filter(Boolean)
+                              .join(" ")}
+                          >
                             <LatexText text={choice.text} />
                             {choice.imageId && (
                               // eslint-disable-next-line @next/next/no-img-element
@@ -687,7 +748,15 @@ export function SessionRunner(props: SessionRunnerProps) {
                             <>
                               {" "}
                               <span
-                                className={`shrink-0 self-center text-sm font-semibold ${showWrongSelection ? "text-destructive" : "text-green-800 dark:text-green-300"}`}
+                                className={`shrink-0 self-center text-sm font-semibold ${
+                                  showWrongSelection
+                                    ? "text-destructive"
+                                    : showCorrect
+                                      ? "text-green-800 dark:text-green-300"
+                                      : marks?.checking && !marks.ruledOut
+                                        ? "text-primary"
+                                        : "font-medium text-muted-foreground"
+                                }`}
                               >
                                 {tag}
                               </span>
@@ -710,6 +779,11 @@ export function SessionRunner(props: SessionRunnerProps) {
                           </button>
                         )}
                       </div>
+                      <ChoiceNote marks={marks} yourWrongNote={yourWrongNote} className="ml-4 border-l-2 border-border pl-3 lg:ml-5" />
+                      </div>
+                          );
+                        }}
+                      </WithChoiceMarks>
                     );
                   })
                 ) : (
@@ -762,11 +836,6 @@ export function SessionRunner(props: SessionRunnerProps) {
                   {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && loaded.feedback && (
                     <p className="text-sm text-muted-foreground">Accepted answer {loaded.feedback.acceptedAnswers[0]}</p>
                   )}
-                  {!currentItem.isCorrect &&
-                    currentItem.studentAnswer &&
-                    loaded.feedback?.distractorExplanationsByChoiceId[currentItem.studentAnswer] && (
-                      <DistractorNote text={loaded.feedback.distractorExplanationsByChoiceId[currentItem.studentAnswer]} />
-                    )}
                   {loaded.feedback && loaded.feedback.explanationSteps.length > 0 ? (
                     <ExplanationSteps steps={loaded.feedback.explanationSteps} mediaBasePath="/api/media" walkthrough={loaded.feedback.walkthrough} />
                   ) : (
@@ -791,7 +860,13 @@ export function SessionRunner(props: SessionRunnerProps) {
                   contentKey={`${currentItem.id}:${loaded.content.questionRevisionId}:${hasPassage}`}
                 />
               )}
+
+              {/* Last in the question's column, so it stays pinned while any of
+                  the question is in view: to the bottom of the question pane
+                  beside a passage, above the footer on a page that scrolls. */}
+              <WalkthroughDock className={hasPassage ? "md:bottom-1.5" : undefined} />
               </SplitPane>
+              </QuestionWalkthrough>
             </div>
           </>
         )}
@@ -818,7 +893,11 @@ export function SessionRunner(props: SessionRunnerProps) {
           student moves through the test, and they used to sit below the fold
           on a laptop — the runner was min-h-screen beneath the focus bar, so it
           always overflowed by at least that bar's height. */}
-      <footer className="sticky bottom-0 z-10 border-t border-dashed border-foreground/40 bg-background px-4 py-3 sm:px-8">
+      <footer
+        ref={footerRef}
+        data-wt-cover=""
+        className="sticky bottom-0 z-10 border-t border-dashed border-foreground/40 bg-background px-4 py-3 sm:px-8"
+      >
         {/* In the pinned footer, so it's on screen wherever the student has
             scrolled to when a request fails, beside the controls it's about. */}
         {(blocked || failure) && (

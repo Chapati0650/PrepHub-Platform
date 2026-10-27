@@ -261,7 +261,7 @@ export function AppShell({
     const canExit = pathname !== "/onboarding";
     return (
       <div className="flex min-h-screen flex-col">
-        <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background/85 px-4 py-3 backdrop-blur-sm">
+        <header data-wt-cover="" className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background/85 px-4 py-3 backdrop-blur-sm">
           {canExit ? (
             <Link
               href="/home"
@@ -439,7 +439,7 @@ export function AppShell({
             </Link>
           </div>
         )}
-        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background/85 px-4 py-3 backdrop-blur-sm sm:hidden">
+        <header data-wt-cover="" className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background/85 px-4 py-3 backdrop-blur-sm sm:hidden">
           <Link href="/home" className="flex items-center">
             <LogoMark className="size-6 text-primary" />
           </Link>

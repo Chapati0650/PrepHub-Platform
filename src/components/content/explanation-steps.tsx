@@ -1,8 +1,11 @@
+"use client";
+
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { WalkthroughView } from "@/lib/content/walkthrough";
 import { LatexText } from "./latex-text";
-import { Walkthrough } from "./walkthrough/walkthrough";
+import { useOptionalWalkthrough } from "./walkthrough/context";
+import { HostedWalkthrough, Walkthrough } from "./walkthrough/walkthrough";
 
 export type ExplanationStepData = { text: string; imageId: string | null };
 
@@ -26,6 +29,9 @@ export type ExplanationStepData = { text: string; imageId: string | null };
 // With a walkthrough (a question imported with one, walkthrough.ts) the same
 // steps become a step-through with a visual stage, and this list is one press
 // away behind "All steps". The list stays the default for everything else.
+// On a question page that runs the walkthrough on the question itself (a
+// WalkthroughProvider around the question), this is only the stage; the page
+// places the dock.
 export function ExplanationSteps({
   steps,
   mediaBasePath,
@@ -35,8 +41,10 @@ export function ExplanationSteps({
   mediaBasePath: string;
   walkthrough?: WalkthroughView | null;
 }) {
+  const host = useOptionalWalkthrough();
   if (steps.length === 0) return null;
   const list = <StepList steps={steps} mediaBasePath={mediaBasePath} />;
+  if (host && walkthrough && host.view === walkthrough) return <HostedWalkthrough list={list} />;
   if (walkthrough && walkthrough.spec.steps.length === steps.length) {
     return <Walkthrough view={walkthrough} steps={steps} mediaBasePath={mediaBasePath} list={list} />;
   }

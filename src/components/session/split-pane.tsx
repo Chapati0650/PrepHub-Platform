@@ -57,7 +57,11 @@ export function SplitPane({
     // header, the question strip, the footer and their padding. It was 13rem,
     // which was about 100px short, so the panes pushed the footer off screen.
     <div ref={containerRef} className="flex flex-col md:h-[calc(100dvh-20rem)] md:flex-row">
-      <div className="min-w-0 overflow-y-auto md:pr-6" style={{ flexBasis: `${leftPercent}%` }}>
+      {/* Each pane scrolls on its own only once they sit side by side. Stacked
+          on a phone the page scrolls, and a pane that is a scroll box without
+          a height would trap position: sticky (the walkthrough's dock) inside
+          a box that never moves. */}
+      <div className="min-w-0 md:overflow-y-auto md:pr-6" style={{ flexBasis: `${leftPercent}%` }}>
         {left}
       </div>
 
@@ -82,7 +86,7 @@ export function SplitPane({
         <span aria-hidden className="h-full w-px bg-foreground/25" />
       </div>
 
-      <div className="mt-6 min-w-0 flex-1 overflow-y-auto md:mt-0 md:pl-6">{children}</div>
+      <div className="mt-6 min-w-0 flex-1 md:mt-0 md:overflow-y-auto md:pl-6">{children}</div>
     </div>
   );
 }

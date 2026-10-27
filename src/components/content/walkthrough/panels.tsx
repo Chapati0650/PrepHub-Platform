@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { LatexText } from "@/components/content/latex-text";
 import {
   markPassage,
+  splitAtRelation,
   WORK_TEX_MACROS,
   workTexTrust,
   type ChoicesState,
@@ -17,18 +18,15 @@ import {
 } from "@/lib/content/walkthrough";
 
 // The walkthrough's text panels. The passage and the choices are the
-// question's own, re-drawn with this step's highlights; nothing a student
-// reads here differs from what they answered.
+// question's own, re-drawn with this step's marks — used only where the
+// question isn't on the page beside the walkthrough (the full-screen view,
+// the editor's preview). Panels have no box of their own: the stage is one
+// box, and the panels in it are separated by rules.
 
 const LETTERS = ["A", "B", "C", "D", "E"];
 
-export function PanelFrame({ label, children, className }: { label?: string; children: React.ReactNode; className?: string }) {
-  return (
-    <div className={cn("min-w-0 rounded-lg border border-border bg-background p-3", className)}>
-      {label && <p className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</p>}
-      {children}
-    </div>
-  );
+export function PanelLabel({ children }: { children: React.ReactNode }) {
+  return <p className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">{children}</p>;
 }
 
 export function PassagePanel({ source, state, stepKey }: { source: string; state: PassageState; stepKey: number }) {
@@ -48,68 +46,104 @@ export function PassagePanel({ source, state, stepKey }: { source: string; state
   }, [stepKey]);
 
   return (
-    <PanelFrame label="Passage">
+    <div>
+      <PanelLabel>Passage</PanelLabel>
       <div ref={scroller} className="max-h-72 overflow-y-auto pr-1 text-[0.95rem] leading-relaxed @3xl:max-h-[26rem]">
         <LatexText text={markPassage(source, state)} />
       </div>
-    </PanelFrame>
+    </div>
   );
 }
 
-export function ChoicesPanel({ choices, correctIndex, state }: { choices: string[]; correctIndex: number | null; state: ChoicesState }) {
+export function ChoicesPanel({
+  choices,
+  correctIndex,
+  state,
+  studentIndex,
+  notes,
+  changedNow,
+}: {
+  choices: string[];
+  correctIndex: number | null;
+  state: ChoicesState;
+  studentIndex: number | null;
+  notes: (string | null)[];
+  /** Choices this step changed, so the eye is drawn to them. */
+  changedNow: number[];
+}) {
   return (
-    <PanelFrame label="Answer choices">
+    <div>
+      <PanelLabel>Answer choices</PanelLabel>
       <ol className="flex flex-col gap-2">
         {choices.map((text, i) => {
           const out = state.eliminated.includes(i);
           const correct = state.revealed && i === correctIndex;
           const focused = state.focus === i;
+          const yours = studentIndex === i;
+          const changed = changedNow.includes(i);
+          // Words, not only colour and a strike-through (WCAG 1.4.1).
+          const tag = correct ? (yours ? "Your answer · Correct" : "Correct answer") : out ? (yours ? "Your answer · Ruled out" : "Ruled out") : focused ? "Checking" : yours ? "Your answer" : null;
           return (
             <li
               key={i}
               className={cn(
-                "flex items-start gap-2.5 rounded-md border p-2 text-sm transition-colors duration-300",
+                "rounded-md border p-2 text-sm transition-colors duration-300",
                 correct
                   ? "border-2 border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50"
                   : focused
                     ? "border-primary bg-primary/5 ring-2 ring-primary/30"
-                    : "border-border",
-                out && !focused && "opacity-55",
+                    : yours
+                      ? "border-destructive/60"
+                      : "border-border",
+                out && !focused && "opacity-60",
+                changed && "motion-safe:animate-wt-pulse",
               )}
             >
-              <span
-                className={cn(
-                  "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
-                  correct ? "border-green-700 bg-green-700 text-white dark:border-green-400 dark:bg-green-500 dark:text-green-950" : "border-foreground/40",
-                  out && "line-through",
+              <div className="flex items-start gap-2.5">
+                <span
+                  className={cn(
+                    "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
+                    correct ? "border-green-700 bg-green-700 text-white dark:border-green-400 dark:bg-green-500 dark:text-green-950" : "border-foreground/40",
+                    out && "line-through",
+                  )}
+                  aria-hidden
+                >
+                  {LETTERS[i]}
+                </span>
+                <span className={cn("min-w-0 flex-1", out && "line-through decoration-foreground/50")}>
+                  <span className="sr-only">Choice {LETTERS[i]}: </span>
+                  <LatexText text={text} />
+                </span>
+                {tag && (
+                  <span
+                    className={cn(
+                      "shrink-0 text-xs",
+                      correct ? "font-semibold text-green-800 dark:text-green-300" : focused ? "font-medium text-primary" : yours ? "font-medium text-destructive" : "text-muted-foreground",
+                    )}
+                  >
+                    {tag}
+                  </span>
                 )}
-                aria-hidden
-              >
-                {LETTERS[i]}
-              </span>
-              <span className={cn("min-w-0 flex-1", out && "line-through decoration-foreground/50")}>
-                <span className="sr-only">Choice {LETTERS[i]}: </span>
-                <LatexText text={text} />
-              </span>
-              {/* Words, not only colour and a strike-through (WCAG 1.4.1). */}
-              {correct ? (
-                <span className="shrink-0 text-xs font-semibold text-green-800 dark:text-green-300">Correct answer</span>
-              ) : out ? (
-                <span className="shrink-0 text-xs text-muted-foreground">Ruled out</span>
-              ) : focused ? (
-                <span className="shrink-0 text-xs font-medium text-primary">Checking</span>
-              ) : null}
+              </div>
+              {out && changed && notes[i] && (
+                <p className="mt-1.5 pl-8 text-muted-foreground">
+                  <span className="font-semibold text-foreground">Ruled out: </span>
+                  <LatexText text={notes[i]!} />
+                </p>
+              )}
             </li>
           );
         })}
       </ol>
-    </PanelFrame>
+    </div>
   );
 }
 
-function renderWorkTex(tex: string): string {
-  return katex.renderToString(tex, {
-    displayMode: true,
+function renderTex(tex: string): string {
+  // Every line is set in display style, inline, so a line split into three
+  // cells keeps full-size fractions in each.
+  return katex.renderToString(`\\displaystyle ${tex}`, {
+    displayMode: false,
     throwOnError: false,
     strict: "ignore",
     macros: { ...WORK_TEX_MACROS },
@@ -118,36 +152,47 @@ function renderWorkTex(tex: string): string {
   });
 }
 
+/**
+ * The working, built up a line per step. When every line has a relation
+ * (=, <, ≈ …) the lines are set in three columns and line up on it, the way
+ * working is written on paper; otherwise they're left-aligned. The line this
+ * step added sits on a soft band; earlier lines are history, in muted ink.
+ * The whole chain stays in view — no inner scroll — so the last step shows
+ * every line that led to the answer.
+ */
 export function WorkPanel({ title, state }: { title?: string; state: WorkState }) {
-  const end = useRef<HTMLDivElement>(null);
-  const count = state.lines.length;
-  useEffect(() => {
-    const box = end.current?.parentElement;
-    if (box) box.scrollTop = box.scrollHeight;
-  }, [count]);
+  const lines = state.lines.map((line) => ({ ...line, parts: splitAtRelation(line.tex) }));
+  const aligned = lines.length > 0 && lines.every((l) => l.parts);
 
   return (
-    <PanelFrame label={title ?? "Working"}>
-      {count === 0 ? (
+    <div>
+      <PanelLabel>{title ?? "Working"}</PanelLabel>
+      {lines.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">The working builds up here, one step at a time.</p>
       ) : (
-        <div className="max-h-80 overflow-y-auto">
-          <ol className="flex flex-col">
-            {state.lines.map((line, i) => (
-              <li
-                key={i}
-                className={cn(
-                  "overflow-x-auto border-l-2 px-2 transition-colors duration-300 [&_.katex-display]:my-1.5",
-                  line.isNew ? "border-primary text-foreground motion-safe:animate-in motion-safe:fade-in-0" : "wt-work-old border-transparent text-muted-foreground",
-                )}
-                dangerouslySetInnerHTML={{ __html: renderWorkTex(line.tex) }}
-              />
-            ))}
+        <div className="overflow-x-auto">
+          <ol className={cn("mx-auto grid w-fit gap-y-1 text-[1.05rem]", aligned ? "grid-cols-[auto_auto_auto]" : "grid-cols-1")}>
+            {lines.map((line, i) => {
+              // A line of working never wraps (an expression broken after
+              // "132 ×" reads as two lines); a long one scrolls sideways.
+              const rowClass = cn(
+                "rounded-md px-3 py-1.5 whitespace-nowrap transition-colors duration-500",
+                line.isNew ? "bg-primary/8 text-foreground motion-safe:animate-in motion-safe:fade-in-0" : "wt-work-old text-muted-foreground",
+              );
+              return aligned && line.parts ? (
+                <li key={i} className={cn("col-span-3 grid grid-cols-subgrid items-baseline", rowClass)}>
+                  <span className="text-right" dangerouslySetInnerHTML={{ __html: renderTex(line.parts[0]) }} />
+                  <span className="px-2 text-center" dangerouslySetInnerHTML={{ __html: renderTex(line.parts[1]) }} />
+                  <span className="text-left" dangerouslySetInnerHTML={{ __html: renderTex(line.parts[2]) }} />
+                </li>
+              ) : (
+                <li key={i} className={rowClass} dangerouslySetInnerHTML={{ __html: renderTex(line.tex) }} />
+              );
+            })}
           </ol>
-          <div ref={end} />
         </div>
       )}
-    </PanelFrame>
+    </div>
   );
 }
 
@@ -180,8 +225,8 @@ export function TablePanel({ panel, state }: { panel: Extract<Panel, { type: "ta
     state.rows.includes(r) || state.cols.includes(c) || state.cells.some(([cr, cc]) => cr === r && cc === c);
   const any = state.rows.length + state.cols.length + state.cells.length > 0;
   return (
-    <PanelFrame label={panel.title ? undefined : "Table"}>
-      {panel.title && <p className="mb-2 text-center text-sm font-medium">{panel.title}</p>}
+    <div>
+      {panel.title ? <p className="mb-2 text-center text-sm font-medium">{panel.title}</p> : <PanelLabel>Table</PanelLabel>}
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
@@ -190,7 +235,7 @@ export function TablePanel({ panel, state }: { panel: Extract<Panel, { type: "ta
                 <th
                   key={c}
                   scope="col"
-                  className={cn("border border-border px-2 py-1.5 text-left font-semibold", state.cols.includes(c) && "bg-primary/12")}
+                  className={cn("border-b-2 border-border px-2 py-1.5 text-left font-semibold", state.cols.includes(c) && "bg-primary/12")}
                 >
                   <LatexText text={h} />
                 </th>
@@ -199,12 +244,12 @@ export function TablePanel({ panel, state }: { panel: Extract<Panel, { type: "ta
           </thead>
           <tbody>
             {panel.rows.map((row, r) => (
-              <tr key={r}>
+              <tr key={r} className="border-b border-border last:border-b-0">
                 {row.map((cell, c) => (
                   <td
                     key={c}
                     className={cn(
-                      "border border-border px-2 py-1.5 tabular-nums transition-colors duration-300",
+                      "px-2 py-1.5 tabular-nums transition-colors duration-300",
                       lit(r, c) ? "bg-primary/12 font-semibold" : any && "text-muted-foreground",
                     )}
                   >
@@ -216,6 +261,6 @@ export function TablePanel({ panel, state }: { panel: Extract<Panel, { type: "ta
           </tbody>
         </table>
       </div>
-    </PanelFrame>
+    </div>
   );
 }

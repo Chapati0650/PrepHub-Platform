@@ -17,7 +17,6 @@ vi.mock("@/components/content/question-statement", () => ({
   QuestionStatement: ({ text }: { text: string }) => <p>{text}</p>,
 }));
 vi.mock("@/components/content/explanation-steps", () => ({ ExplanationSteps: () => null }));
-vi.mock("@/components/content/distractor-note", () => ({ DistractorNote: () => null }));
 vi.mock("./annotator", () => ({ Annotator: () => null, highlightsSupported: () => false }));
 vi.mock("./timer-badge", () => ({ TimerBadge: () => null }));
 

@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
 import { Badge } from "@/components/ui/badge";
 import { LatexText } from "@/components/content/latex-text";
 import { QuestionStatement } from "@/components/content/question-statement";
 import { ExplanationSteps } from "@/components/content/explanation-steps";
-import { DistractorNote } from "@/components/content/distractor-note";
+import { QuestionWalkthrough } from "@/components/content/walkthrough/context";
+import { WalkthroughDock } from "@/components/content/walkthrough/dock";
+import { ChoiceNote, PassageMarks, WithChoiceMarks, choiceMarkClasses, choiceMarkTag } from "@/components/content/walkthrough/on-question";
 import { ScorePrediction } from "@/components/score-prediction";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
 import type { SessionResultsData } from "@/lib/session/session-results-data";
@@ -287,67 +289,113 @@ export function ReviewDetail({ review, id, isCorrect }: { review: QuestionReview
 }
 
 export function QuestionDetail({ loaded, isCorrect }: { loaded: LoadedQuestion; isCorrect: boolean }) {
+  const passageRef = useRef<HTMLDivElement | null>(null);
+  const passage = (loaded.content.passageText ?? "").trim() ? loaded.content.passageText! : null;
+  const feedback = loaded.feedback;
+  const choices = loaded.content.answerChoices;
+  const studentChoiceIndex = choices.findIndex((c) => c.id === loaded.studentAnswer);
   return (
-    <div className="flex flex-col gap-3 text-sm">
-      <QuestionStatement text={loaded.content.questionText} imageId={loaded.content.questionImageId} mediaBasePath="/api/media" />
-      {loaded.content.questionType === "MULTIPLE_CHOICE" && (
-        <div className="flex flex-col gap-1.5">
-          {loaded.content.answerChoices.map((choice) => {
-            const showCorrect = loaded.feedback?.correctChoiceId === choice.id;
-            const isYours = loaded.studentAnswer === choice.id;
-            const showWrongSelection = !showCorrect && isYours;
-            // Words as well as colour (WCAG 1.4.1), as in the runner.
-            const tag = isYours && showCorrect ? "Your answer · Correct" : isYours ? "Your answer" : showCorrect ? "Correct answer" : null;
-            return (
-              <div
-                key={choice.id}
-                className={`flex items-start justify-between gap-3 rounded-md border p-2 text-sm ${
-                  showCorrect
-                    ? "border-2 border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50"
-                    : showWrongSelection
-                      ? "border-destructive bg-destructive/5"
-                      : "border-border"
-                }`}
-              >
-                <span className="min-w-0">
-                  <LatexText text={choice.text} />
-                </span>
-                {tag && (
-                  <span
-                    className={`shrink-0 font-semibold ${showWrongSelection ? "text-destructive" : "text-green-800 dark:text-green-300"}`}
-                  >
-                    {tag}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && loaded.feedback && (
-        <p className="text-muted-foreground">
-          {loaded.studentAnswer && <>Your answer: {loaded.studentAnswer} · </>}
-          Accepted answer: {loaded.feedback.acceptedAnswers[0]}
-        </p>
-      )}
-      <p className={`font-medium ${isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
-        {isCorrect ? "Correct" : "Incorrect"}
-      </p>
-      {!isCorrect && loaded.studentAnswer && loaded.feedback?.distractorExplanationsByChoiceId[loaded.studentAnswer] && (
-        <DistractorNote text={loaded.feedback.distractorExplanationsByChoiceId[loaded.studentAnswer]} />
-      )}
-      {loaded.feedback && loaded.feedback.explanationSteps.length > 0 ? (
-        <ExplanationSteps steps={loaded.feedback.explanationSteps} mediaBasePath="/api/media" walkthrough={loaded.feedback.walkthrough} />
-      ) : (
-        loaded.feedback?.writtenExplanation && (
-          <div className="rounded-md bg-muted p-3">
-            <LatexText text={loaded.feedback.writtenExplanation} />
+    <QuestionWalkthrough
+      walkthrough={feedback?.walkthrough}
+      steps={feedback?.explanationSteps ?? []}
+      mediaBasePath="/api/media"
+      studentChoiceIndex={studentChoiceIndex >= 0 ? studentChoiceIndex : null}
+      choiceNotes={choices.map((c) => feedback?.distractorExplanationsByChoiceId[c.id] ?? null)}
+    >
+      <div className="flex flex-col gap-3 text-sm">
+        {/* The passage the question asks about. A review used to show the
+            question without it, so "the underlined sentence" pointed at
+            nothing; the walkthrough highlights it here as it does in a session. */}
+        {passage && (
+          <>
+            <div ref={passageRef} className="rounded-md border border-border p-4 text-[0.95rem] leading-relaxed">
+              <LatexText text={passage} />
+            </div>
+            <PassageMarks rootRef={passageRef} />
+          </>
+        )}
+        <QuestionStatement text={loaded.content.questionText} imageId={loaded.content.questionImageId} mediaBasePath="/api/media" />
+        {loaded.content.questionType === "MULTIPLE_CHOICE" && (
+          <div className="flex flex-col gap-1.5">
+            {choices.map((choice, i) => {
+              const showCorrect = feedback?.correctChoiceId === choice.id;
+              const isYours = loaded.studentAnswer === choice.id;
+              const showWrongSelection = !showCorrect && isYours;
+              const baseTag = isYours && showCorrect ? "Your answer · Correct" : isYours ? "Your answer" : showCorrect ? "Correct answer" : null;
+              return (
+                <WithChoiceMarks key={choice.id} index={i}>
+                  {(marks) => {
+                    // Words as well as colour (WCAG 1.4.1), as in the runner.
+                    const tag = [baseTag, choiceMarkTag(marks)].filter(Boolean).join(" · ") || null;
+                    return (
+                      <div ref={marks?.ref} className="flex flex-col gap-1">
+                        <div
+                          className={`flex items-start justify-between gap-3 rounded-md border p-2 text-sm ${
+                            showCorrect
+                              ? "border-2 border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50"
+                              : showWrongSelection
+                                ? "border-destructive bg-destructive/5"
+                                : "border-border"
+                          } ${choiceMarkClasses(marks)}`}
+                        >
+                          <span className="flex min-w-0 gap-2">
+                            <span className="font-semibold text-muted-foreground" aria-hidden>
+                              {String.fromCharCode(65 + i)}
+                            </span>
+                            <span className={marks?.ruledOut ? "line-through decoration-foreground/50" : undefined}>
+                              <LatexText text={choice.text} />
+                            </span>
+                          </span>
+                          {tag && (
+                            <span
+                              className={`shrink-0 font-semibold ${
+                                showWrongSelection
+                                  ? "text-destructive"
+                                  : showCorrect
+                                    ? "text-green-800 dark:text-green-300"
+                                    : marks?.checking && !marks.ruledOut
+                                      ? "text-primary"
+                                      : "font-medium text-muted-foreground"
+                              }`}
+                            >
+                              {tag}
+                            </span>
+                          )}
+                        </div>
+                        <ChoiceNote
+                          marks={marks}
+                          yourWrongNote={showWrongSelection ? (feedback?.distractorExplanationsByChoiceId[choice.id] ?? null) : null}
+                          className="ml-2 border-l-2 border-border pl-3"
+                        />
+                      </div>
+                    );
+                  }}
+                </WithChoiceMarks>
+              );
+            })}
           </div>
-        )
-      )}
-      {loaded.feedback?.explanationVideoId && (
-        <video controls className="w-full rounded" src={`/api/media/${loaded.feedback.explanationVideoId}`} />
-      )}
-    </div>
+        )}
+        {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && feedback && (
+          <p className="text-muted-foreground">
+            {loaded.studentAnswer && <>Your answer: {loaded.studentAnswer} · </>}
+            Accepted answer: {feedback.acceptedAnswers[0]}
+          </p>
+        )}
+        <p className={`font-medium ${isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
+          {isCorrect ? "Correct" : "Incorrect"}
+        </p>
+        {feedback && feedback.explanationSteps.length > 0 ? (
+          <ExplanationSteps steps={feedback.explanationSteps} mediaBasePath="/api/media" walkthrough={feedback.walkthrough} />
+        ) : (
+          feedback?.writtenExplanation && (
+            <div className="rounded-md bg-muted p-3">
+              <LatexText text={feedback.writtenExplanation} />
+            </div>
+          )
+        )}
+        {feedback?.explanationVideoId && <video controls className="w-full rounded" src={`/api/media/${feedback.explanationVideoId}`} />}
+        <WalkthroughDock />
+      </div>
+    </QuestionWalkthrough>
   );
 }

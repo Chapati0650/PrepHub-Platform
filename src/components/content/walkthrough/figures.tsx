@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import type { BarsState, ElementsState, Panel } from "@/lib/content/walkthrough";
 import { SvgLabelText } from "./svg-label";
@@ -9,6 +9,10 @@ import { SvgLabelText } from "./svg-label";
 // need no charting library. When a step focuses some elements the rest dim,
 // which is most of what makes a step read at a glance; an element a step
 // reveals fades or draws in, behind motion-safe.
+//
+// Every label carries a halo: a stroke in the stage's own background colour
+// painted under the text (paint-order: stroke), so a label that lands on a
+// grid line or an axis stays readable instead of being struck through.
 
 type PlanePanel = Extract<Panel, { type: "plane" }>;
 type DiagramPanel = Extract<Panel, { type: "diagram" }>;
@@ -62,6 +66,16 @@ function emphasis(id: string, state: ElementsState) {
 
 const INK = "stroke-foreground";
 const LOOK = "stroke-primary";
+
+/** The halo under a label, sized to its font. */
+function halo(fontSize: number): { stroke: string; strokeWidth: number; strokeLinejoin: "round"; style: CSSProperties } {
+  return {
+    stroke: "var(--wt-surface, var(--background))",
+    strokeWidth: fontSize * 0.3,
+    strokeLinejoin: "round",
+    style: { paintOrder: "stroke" },
+  };
+}
 
 function drawn(appeared: boolean, dashed?: boolean) {
   // A drawn-in line needs pathLength="1" with a dash pattern of 1; a dashed
@@ -125,26 +139,26 @@ export function PlaneFigure({ panel, state }: { panel: PlanePanel; state: Elemen
       {ticks(x0, x1, labelX)
         .filter((v) => v !== 0 || !originInView)
         .map((v) => (
-          <text key={`lx${v}`} x={X(v)} y={axisX + 17} textAnchor="middle" fontSize={13} className="fill-muted-foreground">
+          <text key={`lx${v}`} x={X(v)} y={axisX + 17} textAnchor="middle" fontSize={13} className="fill-muted-foreground" {...halo(13)}>
             {fmt(v)}
           </text>
         ))}
       {ticks(y0, y1, labelY)
         .filter((v) => v !== 0 || !originInView)
         .map((v) => (
-          <text key={`ly${v}`} x={axisY - 6} y={Y(v) + 4} textAnchor="end" fontSize={13} className="fill-muted-foreground">
+          <text key={`ly${v}`} x={axisY - 6} y={Y(v) + 4} textAnchor="end" fontSize={13} className="fill-muted-foreground" {...halo(13)}>
             {fmt(v)}
           </text>
         ))}
       {originInView && (
-        <text x={axisY - 6} y={axisX + 17} textAnchor="end" fontSize={13} fontStyle="italic" className="fill-muted-foreground">
+        <text x={axisY - 6} y={axisX + 17} textAnchor="end" fontSize={13} fontStyle="italic" className="fill-muted-foreground" {...halo(13)}>
           O
         </text>
       )}
-      <text x={padL + plotW} y={axisX - 6} textAnchor="end" fontSize={15} className="fill-foreground">
+      <text x={padL + plotW} y={axisX - 6} textAnchor="end" fontSize={15} className="fill-foreground" {...halo(15)}>
         <SvgLabelText label={panel.xLabel ?? "$x$"} />
       </text>
-      <text x={axisY + 6} y={padT + 10} fontSize={15} className="fill-foreground">
+      <text x={axisY + 6} y={padT + 10} fontSize={15} className="fill-foreground" {...halo(15)}>
         <SvgLabelText label={panel.yLabel ?? "$y$"} />
       </text>
 
@@ -232,7 +246,7 @@ export function PlaneFigure({ panel, state }: { panel: PlanePanel; state: Elemen
               {focused && <circle cx={px} cy={py} r={11} className="fill-primary/20" />}
               <circle cx={px} cy={py} r={focused ? 5.5 : 4.5} className={cn(focused ? "fill-primary" : "fill-foreground", pop)} />
               {e.label && (
-                <text x={px + (right ? -9 : 9)} y={py - 9} textAnchor={right ? "end" : "start"} fontSize={15} className={textTone}>
+                <text x={px + (right ? -9 : 9)} y={py - 9} textAnchor={right ? "end" : "start"} fontSize={15} className={textTone} {...halo(15)}>
                   <SvgLabelText label={e.label} />
                 </text>
               )}
@@ -241,7 +255,7 @@ export function PlaneFigure({ panel, state }: { panel: PlanePanel; state: Elemen
         }
         if (e.kind === "label") {
           return (
-            <text key={e.id} x={X(e.at[0])} y={Y(e.at[1])} textAnchor="middle" fontSize={15} className={cn(textTone, pop)}>
+            <text key={e.id} x={X(e.at[0])} y={Y(e.at[1])} textAnchor="middle" fontSize={15} className={cn(textTone, pop)} {...halo(15)}>
               <SvgLabelText label={e.text} />
             </text>
           );
@@ -269,6 +283,7 @@ export function PlaneFigure({ panel, state }: { panel: PlanePanel; state: Elemen
               textAnchor={right ? "end" : "start"}
               fontSize={15}
               className={textTone}
+              {...halo(15)}
             >
               <SvgLabelText label={e.label} />
             </text>
@@ -349,7 +364,7 @@ export function DiagramFigure({ panel, state }: { panel: DiagramPanel; state: El
                 vectorEffect="non-scaling-stroke"
                 className={cn(
                   stroke,
-                  e.cutout ? "fill-background" : e.filled ? (focused ? "fill-primary/15" : "fill-foreground/5") : "fill-none",
+                  e.cutout ? "fill-[var(--wt-surface,var(--background))]" : e.filled ? (focused ? "fill-primary/15" : "fill-foreground/5") : "fill-none",
                   pop,
                 )}
               />
@@ -381,6 +396,7 @@ export function DiagramFigure({ panel, state }: { panel: DiagramPanel; state: El
                     textAnchor="middle"
                     fontSize={font}
                     className={text}
+                    {...halo(font)}
                   >
                     <SvgLabelText label={e.label} />
                   </text>
@@ -433,7 +449,7 @@ export function DiagramFigure({ panel, state }: { panel: DiagramPanel; state: El
               <g key={e.id} className={pop}>
                 {mark}
                 {e.label && (
-                  <text x={labelAt[0]} y={labelAt[1] + font * 0.35} textAnchor="middle" fontSize={font} className={text}>
+                  <text x={labelAt[0]} y={labelAt[1] + font * 0.35} textAnchor="middle" fontSize={font} className={text} {...halo(font)}>
                     <SvgLabelText label={e.label} />
                   </text>
                 )}
@@ -452,6 +468,7 @@ export function DiagramFigure({ panel, state }: { panel: DiagramPanel; state: El
                     textAnchor={anchorFor(dir)}
                     fontSize={font}
                     className={text}
+                    {...halo(font)}
                   >
                     <SvgLabelText label={e.label} />
                   </text>
@@ -461,7 +478,7 @@ export function DiagramFigure({ panel, state }: { panel: DiagramPanel; state: El
           }
           case "label":
             return (
-              <text key={e.id} x={e.at[0]} y={e.at[1] + font * 0.35} textAnchor="middle" fontSize={font} className={cn(text, pop)}>
+              <text key={e.id} x={e.at[0]} y={e.at[1] + font * 0.35} textAnchor="middle" fontSize={font} className={cn(text, pop)} {...halo(font)}>
                 <SvgLabelText label={e.text} />
               </text>
             );
@@ -475,9 +492,14 @@ export function DiagramFigure({ panel, state }: { panel: DiagramPanel; state: El
 
 export function NumberLineFigure({ panel, state }: { panel: NumberLinePanel; state: ElementsState }) {
   const W = 420;
-  const H = 86;
+  // Distances are drawn as dimension lines above the labels, so a line that
+  // has any keeps a band of room above it for them.
+  const hasSpans = panel.elements.some((e) => e.kind === "span");
+  const lift = hasSpans ? 34 : 0;
+  const H = 86 + lift;
   const pad = 24;
-  const lineY = 50;
+  const lineY = 50 + lift;
+  const spanY = lineY - 40;
   const X = (v: number) => pad + ((v - panel.min) / (panel.max - panel.min)) * (W - 2 * pad);
   const step = panel.tick ?? niceStep(panel.max - panel.min, 10);
   const labels = ticks(panel.min, panel.max, step);
@@ -491,13 +513,19 @@ export function NumberLineFigure({ panel, state }: { panel: NumberLinePanel; sta
         <marker id={arrowId} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
           <path d="M0,0 L10,5 L0,10 z" className="fill-foreground" />
         </marker>
+        <marker id={`${arrowId}-look`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" className="fill-primary" />
+        </marker>
+        <marker id={`${arrowId}-ink`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" className="fill-foreground" />
+        </marker>
       </defs>
       <line x1={pad - 12} x2={W - pad + 12} y1={lineY} y2={lineY} strokeWidth={1.5} className={INK} markerEnd={`url(#${arrowId})`} markerStart={`url(#${arrowId})`} />
       {labels.map((v, i) => (
         <g key={v}>
           <line x1={X(v)} x2={X(v)} y1={lineY - 5} y2={lineY + 5} strokeWidth={1.2} className={INK} />
           {i % labelEvery === 0 && (
-            <text x={X(v)} y={lineY + 24} textAnchor="middle" fontSize={14} className="fill-muted-foreground">
+            <text x={X(v)} y={lineY + 24} textAnchor="middle" fontSize={14} className="fill-muted-foreground" {...halo(14)}>
               {fmt(v)}
             </text>
           )}
@@ -523,10 +551,50 @@ export function NumberLineFigure({ panel, state }: { panel: NumberLinePanel; sta
             />
           );
         })}
+      {visible
+        .filter((e) => e.kind === "span")
+        .map((e) => {
+          const { focused, dimmed, appeared } = emphasis(e.id, state);
+          const a = X(e.from);
+          const b = X(e.to);
+          const tone = focused ? "stroke-primary" : "stroke-foreground";
+          const marker = `url(#${arrowId}-${focused ? "look" : "ink"})`;
+          return (
+            <g key={e.id} className={cn(dimmed && "opacity-40", "transition-opacity duration-300")}>
+              {/* Thin guides down to the numbers measured between, then the
+                  dimension line itself with an arrow at each end. */}
+              <line x1={a} x2={a} y1={spanY - 6} y2={lineY - 8} strokeWidth={1} strokeDasharray="2 3" className="stroke-foreground/35" />
+              <line x1={b} x2={b} y1={spanY - 6} y2={lineY - 8} strokeWidth={1} strokeDasharray="2 3" className="stroke-foreground/35" />
+              <line
+                x1={a}
+                x2={b}
+                y1={spanY}
+                y2={spanY}
+                strokeWidth={focused ? 2.2 : 1.6}
+                markerStart={marker}
+                markerEnd={marker}
+                className={cn(tone, appeared && "motion-safe:animate-wt-appear")}
+              />
+              {e.label && (
+                <text
+                  x={(a + b) / 2}
+                  y={spanY - 7}
+                  textAnchor="middle"
+                  fontSize={15}
+                  className={cn(focused ? "fill-primary font-semibold" : "fill-foreground", appeared && "motion-safe:animate-wt-appear")}
+                  {...halo(15)}
+                >
+                  <SvgLabelText label={e.label} />
+                </text>
+              )}
+            </g>
+          );
+        })}
       {visible.map((e) => {
         const { focused, dimmed, appeared } = emphasis(e.id, state);
         const pop = appeared ? "motion-safe:animate-wt-appear [transform-box:fill-box] origin-center" : undefined;
         const text = cn(focused ? "fill-primary font-semibold" : "fill-foreground", dimmed && "opacity-55");
+        if (e.kind === "span") return null;
         if (e.kind === "interval") {
           return (
             <g key={`${e.id}-ends`}>
@@ -550,7 +618,7 @@ export function NumberLineFigure({ panel, state }: { panel: NumberLinePanel; sta
                 className={cn(focused ? "stroke-primary" : "stroke-foreground", e.open ? "fill-background" : focused ? "fill-primary" : "fill-foreground", pop)}
               />
               {e.label && (
-                <text x={X(e.at)} y={lineY - 15} textAnchor="middle" fontSize={16} className={text}>
+                <text x={X(e.at)} y={lineY - 15} textAnchor="middle" fontSize={16} className={text} {...halo(16)}>
                   <SvgLabelText label={e.label} />
                 </text>
               )}
@@ -558,7 +626,7 @@ export function NumberLineFigure({ panel, state }: { panel: NumberLinePanel; sta
           );
         }
         return (
-          <text key={e.id} x={X(e.at)} y={lineY - 15} textAnchor="middle" fontSize={16} className={cn(text, pop)}>
+          <text key={e.id} x={X(e.at)} y={lineY - 15} textAnchor="middle" fontSize={16} className={cn(text, pop)} {...halo(16)}>
             <SvgLabelText label={e.text} />
           </text>
         );
@@ -581,14 +649,16 @@ const SHADES = {
 const seriesFill = (series: { shade?: keyof typeof SHADES }, k: number) => (series.shade ? SHADES[series.shade] : SERIES[k % SERIES.length]);
 
 export function BarsFigure({ panel, state }: { panel: BarsPanel; state: BarsState }) {
-  const W = 420;
+  // 360 wide, like the plane, so the text is about its stated size in a
+  // half-width column and still about 12px on a phone.
+  const W = 360;
   const padL = 40;
-  const padR = 10;
-  const padT = 12;
+  const padR = 8;
+  const padT = 22;
   // Category names tilt only when they wouldn't fit flat under their group.
-  const long = panel.categories.some((c) => c.length * 6.4 > (W - 50) / panel.categories.length - 8);
-  const padB = long ? 64 : 30;
-  const plotH = 200;
+  const long = panel.categories.some((c) => c.length * 7 > (W - 50) / panel.categories.length - 8);
+  const padB = long ? 70 : 32;
+  const plotH = 190;
   const H = plotH + padT + padB;
   const plotW = W - padL - padR;
   const max = Math.max(...panel.series.flatMap((s) => s.values), 0);
@@ -599,8 +669,10 @@ export function BarsFigure({ panel, state }: { panel: BarsPanel; state: BarsStat
   const barW = (groupW * 0.72) / panel.series.length;
   const isFocused = (s: number, c: number) =>
     state.focus.some((f) => (typeof f === "number" ? f === c : f[0] === s && f[1] === c));
-  const anyFocus = state.focus.length > 0;
+  const categoryFocused = (c: number) => state.focus.some((f) => (typeof f === "number" ? f === c : f[1] === c));
 
+  // Focus is an outline and the bar's value, never transparency: fading a bar
+  // changes its colour, and the colour is what says which series it is.
   return (
     <figure className="mx-auto w-full max-w-[30rem]">
       {panel.title && <figcaption className="mb-1 text-center text-sm font-medium">{panel.title}</figcaption>}
@@ -608,14 +680,14 @@ export function BarsFigure({ panel, state }: { panel: BarsPanel; state: BarsStat
         {ticks(0, top, step).map((v) => (
           <g key={v}>
             <line x1={padL} x2={padL + plotW} y1={Y(v)} y2={Y(v)} className="stroke-foreground/10" strokeWidth={1} />
-            <text x={padL - 6} y={Y(v) + 4} textAnchor="end" fontSize={11} className="fill-muted-foreground">
+            <text x={padL - 6} y={Y(v) + 4} textAnchor="end" fontSize={12} className="fill-muted-foreground">
               {fmt(v)}
             </text>
           </g>
         ))}
         <line x1={padL} x2={padL + plotW} y1={Y(0)} y2={Y(0)} className={INK} strokeWidth={1.4} />
         {panel.yLabel && (
-          <text transform={`translate(11 ${padT + plotH / 2}) rotate(-90)`} textAnchor="middle" fontSize={11} className="fill-muted-foreground">
+          <text transform={`translate(11 ${padT + plotH / 2}) rotate(-90)`} textAnchor="middle" fontSize={12} className="fill-muted-foreground">
             {panel.yLabel}
           </text>
         )}
@@ -626,26 +698,40 @@ export function BarsFigure({ panel, state }: { panel: BarsPanel; state: BarsStat
               {panel.series.map((s, k) => {
                 const v = s.values[c] ?? 0;
                 const focused = isFocused(k, c);
+                const x = gx + k * barW;
                 return (
-                  <rect
-                    key={s.name}
-                    x={gx + k * barW}
-                    y={Y(v)}
-                    width={barW - 2}
-                    height={Math.max(0, Y(0) - Y(v))}
-                    style={{ fill: seriesFill(s, k) }}
-                    strokeWidth={focused ? 2.5 : 0}
-                    className={cn("stroke-primary transition-opacity duration-300", anyFocus && !focused && "opacity-30")}
-                  />
+                  <g key={s.name}>
+                    <rect
+                      x={x}
+                      y={Y(v)}
+                      width={barW - 2}
+                      height={Math.max(0, Y(0) - Y(v))}
+                      style={{ fill: seriesFill(s, k) }}
+                      strokeWidth={focused ? 3 : 0}
+                      className="stroke-primary transition-[stroke-width] duration-300"
+                    />
+                    {focused && (
+                      <text
+                        x={x + (barW - 2) / 2}
+                        y={Y(v) - 7}
+                        textAnchor="middle"
+                        fontSize={14}
+                        className="fill-primary font-semibold motion-safe:animate-wt-appear [transform-box:fill-box] origin-bottom"
+                        {...halo(14)}
+                      >
+                        {fmt(v)}
+                      </text>
+                    )}
+                  </g>
                 );
               })}
               <text
                 x={padL + c * groupW + groupW / 2}
-                y={Y(0) + 15}
+                y={Y(0) + 17}
                 textAnchor={long ? "end" : "middle"}
-                transform={long ? `rotate(-30 ${padL + c * groupW + groupW / 2} ${Y(0) + 15})` : undefined}
-                fontSize={11}
-                className={cn("fill-foreground", anyFocus && state.focus.some((f) => (typeof f === "number" ? f === c : f[1] === c)) && "font-semibold")}
+                transform={long ? `rotate(-30 ${padL + c * groupW + groupW / 2} ${Y(0) + 17})` : undefined}
+                fontSize={12.5}
+                className={cn("fill-foreground", categoryFocused(c) && "font-semibold")}
               >
                 {cat}
               </text>
@@ -654,10 +740,10 @@ export function BarsFigure({ panel, state }: { panel: BarsPanel; state: BarsStat
         })}
       </svg>
       {panel.series.length > 1 && (
-        <div className="mt-1 flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <div className="mt-1 flex flex-wrap justify-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
           {panel.series.map((s, k) => (
             <span key={s.name} className="inline-flex items-center gap-1.5">
-              <span className="inline-block size-2.5 rounded-sm" style={{ background: seriesFill(s, k) }} aria-hidden />
+              <span className="inline-block size-3 rounded-sm" style={{ background: seriesFill(s, k) }} aria-hidden />
               {s.name}
             </span>
           ))}

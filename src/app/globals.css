@@ -393,26 +393,56 @@
    piece of evidence, deliberately not the achievement gold, which is reserved
    for score improvement. Motion is two calm effects, an element appearing and
    a line being drawn, and both are used only behind motion-safe. */
+:root {
+  /* The two highlight colours, by meaning: --wt-hl is "this is what the step
+     is about", --wt-alt "the other side of it" (the contrast, the second
+     piece of evidence). The same values are written into the walkthrough's
+     ::highlight() rules (walkthrough/on-question.tsx), which can't be here
+     (see the annotator's note on Lightning CSS). */
+  --wt-hl: color-mix(in oklch, var(--marker) 38%, transparent);
+  --wt-alt: oklch(0.91 0.1 88 / 0.85);
+}
+.dark {
+  --wt-alt: oklch(0.5 0.1 80 / 0.55);
+}
+/* Highlights in text (a passage copy, the narration) sweep in left to right
+   like a highlighter pen: a background image whose width grows. Each line of
+   a wrapped highlight sweeps at once (box-decoration-break: clone). */
 .wt-hl,
+.wt-alt {
+  background-image: linear-gradient(var(--wt-hl), var(--wt-hl));
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  border-radius: 0.2em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.wt-alt {
+  background-image: linear-gradient(var(--wt-alt), var(--wt-alt));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .wt-hl,
+  .wt-alt {
+    animation: wt-sweep 420ms cubic-bezier(0.3, 0.7, 0.2, 1) both;
+  }
+}
+@keyframes wt-sweep {
+  from {
+    background-size: 0% 100%;
+  }
+  to {
+    background-size: 100% 100%;
+  }
+}
 .wt-tex-hl {
-  background-color: color-mix(in oklch, var(--marker) 38%, transparent);
-  box-shadow: 0 0 0 0.12em color-mix(in oklch, var(--marker) 38%, transparent);
+  background-color: var(--wt-hl);
+  box-shadow: 0 0 0 0.12em var(--wt-hl);
   border-radius: 0.2em;
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
 }
-.wt-alt,
 .wt-tex-alt {
-  background-color: oklch(0.91 0.1 88 / 0.85);
-  box-shadow: 0 0 0 0.12em oklch(0.91 0.1 88 / 0.85);
+  background-color: var(--wt-alt);
+  box-shadow: 0 0 0 0.12em var(--wt-alt);
   border-radius: 0.2em;
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
-}
-.dark .wt-alt,
-.dark .wt-tex-alt {
-  background-color: oklch(0.5 0.1 80 / 0.55);
-  box-shadow: 0 0 0 0.12em oklch(0.5 0.1 80 / 0.55);
 }
 .wt-fill {
   font-weight: 600;
@@ -436,10 +466,65 @@
   text-decoration: underline wavy var(--destructive);
   text-underline-offset: 0.22em;
 }
+/* The same fill shown in the question's own passage. LatexText wraps every
+   blank (latex-text.tsx); the walkthrough sets data-wt-fill on it and the
+   choice appears through ::after, so the underscores stay in the text and a
+   student's saved highlights keep their places. */
+.latex-blank[data-wt-fill] > .latex-blank-line {
+  display: none;
+}
+.latex-blank[data-wt-fill]::after {
+  content: attr(data-wt-fill);
+  font-weight: 600;
+  padding: 0 0.2em;
+  border-radius: 0.2em;
+  background-color: var(--muted);
+  box-shadow: inset 0 -2px 0 currentColor;
+}
+.latex-blank[data-wt-verdict="right"]::after {
+  color: var(--color-green-800);
+  background-color: var(--color-green-100);
+}
+.dark .latex-blank[data-wt-verdict="right"]::after {
+  color: var(--color-green-300);
+  background-color: color-mix(in oklch, var(--color-green-900) 70%, transparent);
+}
+.latex-blank[data-wt-verdict="wrong"]::after {
+  color: var(--destructive);
+  background-color: color-mix(in oklch, var(--destructive) 10%, transparent);
+  box-shadow: none;
+  text-decoration: underline wavy var(--destructive);
+  text-underline-offset: 0.22em;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .latex-blank[data-wt-fill]::after {
+    animation: wt-appear-soft 260ms ease-out both;
+  }
+}
+@keyframes wt-appear-soft {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
 
 @theme {
   --animate-wt-appear: wt-appear 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   --animate-wt-draw: wt-draw 650ms ease-out both;
+  /* A panel (or an answer choice) a step just changed: one ring that fades,
+     so the eye finds the change without hunting across the stage. */
+  --animate-wt-pulse: wt-pulse 1100ms ease-out both;
+
+  @keyframes wt-pulse {
+    0% {
+      box-shadow: inset 0 0 0 2px color-mix(in oklch, var(--primary) 70%, transparent);
+    }
+    100% {
+      box-shadow: inset 0 0 0 2px transparent;
+    }
+  }
 
   @keyframes wt-appear {
     0% {

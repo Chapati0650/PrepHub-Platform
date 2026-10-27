@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,9 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LatexText } from "@/components/content/latex-text";
 import { QuestionStatement } from "@/components/content/question-statement";
 import { ExplanationSteps } from "@/components/content/explanation-steps";
-import { DistractorNote } from "@/components/content/distractor-note";
+import { QuestionWalkthrough } from "@/components/content/walkthrough/context";
+import { WalkthroughDock } from "@/components/content/walkthrough/dock";
+import { ChoiceNote, PassageMarks, WithChoiceMarks, choiceMarkClasses, choiceMarkTag } from "@/components/content/walkthrough/on-question";
 import { getPublishIssues } from "@/lib/content/validation";
 import { walkthroughViewFor } from "@/lib/content/walkthrough-validate";
 import { CALCULATOR_LABELS } from "@/lib/content/labels";
@@ -39,6 +41,7 @@ export function StudentPreviewSheet({
   // resets the next time the sheet is opened fresh (adjusted during render,
   // same pattern as interactionResetKey below, rather than an effect).
   const [fullScreen, setFullScreen] = useState(false);
+  const passageRef = useRef<HTMLDivElement | null>(null);
   const [openResetKey, setOpenResetKey] = useState(open);
   if (openResetKey !== open) {
     setOpenResetKey(open);
@@ -81,6 +84,9 @@ export function StudentPreviewSheet({
     answerChoices: revision.answerChoices,
     explanationStepCount: revision.explanationSteps.length,
   }).view;
+  // In the walkthrough's order (by `order`), so its choice indices line up.
+  const choices = [...revision.answerChoices].sort((a, b) => a.order - b.order);
+  const studentChoiceIndex = choices.findIndex((c) => c.id === selectedChoiceId);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -137,6 +143,14 @@ export function StudentPreviewSheet({
             </Alert>
           )}
 
+          <QuestionWalkthrough
+            walkthrough={submitted ? walkthrough : null}
+            steps={revision.explanationSteps}
+            mediaBasePath="/api/owner/media"
+            studentChoiceIndex={studentChoiceIndex >= 0 ? studentChoiceIndex : null}
+            choiceNotes={choices.map((c) => c.distractorExplanation ?? null)}
+            resetKey={row.id}
+          >
           <div className="rounded-lg border border-border p-4">
             <p className="mb-2 text-xs text-muted-foreground">{CALCULATOR_LABELS[revision.calculatorSetting]}</p>
             {/* The passage, which students see beside the question (stacked
@@ -144,12 +158,17 @@ export function StudentPreviewSheet({
                 leave it out, so a Reading question previewed without the
                 text it asks about, underlines included. */}
             {(revision.passageText ?? "").trim() && (
-              <QuestionStatement
-                text={revision.passageText ?? ""}
-                imageId={null}
-                mediaBasePath="/api/owner/media"
-                className="mb-3"
-              />
+              <>
+                <div ref={passageRef}>
+                  <QuestionStatement
+                    text={revision.passageText ?? ""}
+                    imageId={null}
+                    mediaBasePath="/api/owner/media"
+                    className="mb-3"
+                  />
+                </div>
+                <PassageMarks rootRef={passageRef} />
+              </>
             )}
             <QuestionStatement
               text={revision.questionText}
@@ -159,32 +178,55 @@ export function StudentPreviewSheet({
 
             <div className="mt-4 flex flex-col gap-2">
               {row.questionType === "MULTIPLE_CHOICE" ? (
-                revision.answerChoices.map((choice) => {
+                choices.map((choice, i) => {
                   const isSelected = selectedChoiceId === choice.id;
                   const showCorrect = submitted && choice.isCorrect;
                   const showWrongSelection = submitted && isSelected && !choice.isCorrect;
                   return (
-                    <button
-                      key={choice.id}
-                      type="button"
-                      disabled={submitted}
-                      onClick={() => setSelectedChoiceId(choice.id)}
-                      className={`rounded-md border p-2 text-left text-sm transition-colors ${
-                        isSelected ? "border-primary bg-primary/5" : "border-border"
-                      } ${showCorrect ? "border-2 border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50" : ""} ${
-                        showWrongSelection ? "border-destructive bg-destructive/5" : ""
-                      }`}
-                    >
-                      <LatexText text={choice.text} />
-                      {choice.imageId && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={`/api/owner/media/${choice.imageId}`}
-                          alt=""
-                          className="mt-2 max-w-full rounded"
-                        />
-                      )}
-                    </button>
+                    <WithChoiceMarks key={choice.id} index={i}>
+                      {(marks) => {
+                        const tag = choiceMarkTag(marks);
+                        return (
+                          <div ref={marks?.ref} className="flex flex-col gap-1">
+                            <button
+                              type="button"
+                              disabled={submitted}
+                              onClick={() => setSelectedChoiceId(choice.id)}
+                              className={`flex items-start gap-2 rounded-md border p-2 text-left text-sm transition-colors ${
+                                isSelected ? "border-primary bg-primary/5" : "border-border"
+                              } ${showCorrect ? "border-2 border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50" : ""} ${
+                                showWrongSelection ? "border-destructive bg-destructive/5" : ""
+                              } ${choiceMarkClasses(marks)}`}
+                            >
+                              <span className="font-semibold text-muted-foreground" aria-hidden>
+                                {String.fromCharCode(65 + i)}
+                              </span>
+                              <span className={`min-w-0 flex-1 ${marks?.ruledOut ? "line-through decoration-foreground/50" : ""}`}>
+                                <LatexText text={choice.text} />
+                                {choice.imageId && (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={`/api/owner/media/${choice.imageId}`}
+                                    alt=""
+                                    className="mt-2 max-w-full rounded"
+                                  />
+                                )}
+                              </span>
+                              {tag && (
+                                <span className={`shrink-0 text-xs font-medium ${marks?.checking && !marks.ruledOut ? "text-primary" : "text-muted-foreground"}`}>
+                                  {tag}
+                                </span>
+                              )}
+                            </button>
+                            <ChoiceNote
+                              marks={marks}
+                              yourWrongNote={showWrongSelection ? (choice.distractorExplanation ?? null) : null}
+                              className="ml-2 border-l-2 border-border pl-3"
+                            />
+                          </div>
+                        );
+                      }}
+                    </WithChoiceMarks>
                   );
                 })
               ) : (
@@ -213,9 +255,6 @@ export function StudentPreviewSheet({
                 <p className={`text-sm font-medium ${isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
                   {isCorrect ? "Correct!" : "Incorrect."}
                 </p>
-                {!isCorrect && selectedChoice?.distractorExplanation && (
-                  <DistractorNote text={selectedChoice.distractorExplanation} />
-                )}
                 {revision.explanationSteps.length > 0 ? (
                   <ExplanationSteps steps={revision.explanationSteps} mediaBasePath="/api/owner/media" walkthrough={walkthrough} />
                 ) : (
@@ -241,7 +280,9 @@ export function StudentPreviewSheet({
                 </Button>
               </div>
             )}
+            <WalkthroughDock />
           </div>
+          </QuestionWalkthrough>
         </div>
       </SheetContent>
     </Sheet>

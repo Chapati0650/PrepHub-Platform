@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { renderLatexHtml } from "@/components/content/latex-text";
-import { locateQuote, markPassage, proseRanges, stateAt, type Walkthrough } from "./walkthrough";
+import {
+  changedPanelsAt,
+  choiceChangesAt,
+  locateQuote,
+  markNarration,
+  markPassage,
+  MARK,
+  onWordBoundaries,
+  promptAt,
+  proseRanges,
+  splitAtRelation,
+  stateAt,
+  type Walkthrough,
+} from "./walkthrough";
 import { validateWalkthrough, walkthroughViewFor } from "./walkthrough-validate";
 
 const passage = "Covering windows has a trade-off. [[In a classroom, for instance, film keeps rooms cool.]] Prices like \\$4 and $x^2$ stay. The design was ______: plain.";
@@ -65,6 +78,92 @@ describe("stateAt", () => {
     const broken: Walkthrough = { ...spec, steps: [{ choices: { eliminate: "no" } }, ...spec.steps.slice(1)] };
     expect(stateAt(broken, 0).get("choices")).toEqual({ type: "choices", state: { focus: null, eliminated: [], revealed: false } });
     expect(stateAt(spec, 99).get("choices")).toEqual(stateAt(spec, 2).get("choices"));
+  });
+
+  it("gives the stage before step 1 at index -1, for a question asked before the first step", () => {
+    const before = stateAt(spec, -1);
+    expect(before.get("passage")).toEqual({ type: "passage", state: { highlight: [], alt: [], fill: null } });
+    expect(before.get("work")).toEqual({ type: "work", state: { lines: [] } });
+    expect(before.get("vars")).toEqual({ type: "vars", state: { entries: [] } });
+    const plane = before.get("plane");
+    expect(plane?.type === "plane" && [...plane.state.visible]).toEqual(["a"]);
+  });
+});
+
+describe("what a step changes", () => {
+  it("names the panels a step touches, ignoring empty entries", () => {
+    expect([...changedPanelsAt(spec, 0)]).toEqual(["passage", "choices", "work", "vars"]);
+    expect([...changedPanelsAt({ ...spec, steps: [{ work: {} }, ...spec.steps.slice(1)] }, 0)]).toEqual([]);
+    expect([...changedPanelsAt(spec, 9)]).toEqual([]);
+  });
+
+  it("says what a step does to the choices", () => {
+    expect(choiceChangesAt(spec, 0)).toEqual({ focus: 1, eliminate: [], reveal: false });
+    expect(choiceChangesAt(spec, 2)).toEqual({ focus: null, eliminate: [3], reveal: true });
+  });
+
+  it("finds the prompt asked before a step, by the 1-based step it names", () => {
+    const prompted: Walkthrough = { ...spec, prompts: [{ step: 2, ask: "Which goes?", options: "choices", answer: 0 }] };
+    expect(promptAt(prompted, 1)?.ask).toBe("Which goes?");
+    expect(promptAt(prompted, 0)).toBeNull();
+    expect(promptAt(spec, 1)).toBeNull();
+  });
+});
+
+describe("marking the narration", () => {
+  const [hlOpen, hlClose] = MARK.hl;
+  const [altOpen, altClose] = MARK.alt;
+
+  it("colours the words a highlight shares with the narration, ignoring case and punctuation between words", () => {
+    expect(markNarration("It says few economists would have predicted that.", ["Few economists would have predicted"], [])).toBe(
+      `It says ${hlOpen}few economists would have predicted${hlClose} that.`,
+    );
+    expect(markNarration('It begins "In a classroom, for instance", which signals it.', ["In a classroom, for instance"], [])).toContain(
+      `${hlOpen}In a classroom, for instance${hlClose}`,
+    );
+  });
+
+  it("matches the longest shared run, keeps numbers like 1,200 whole, and uses the second colour for alt", () => {
+    expect(markNarration('"Comprising some 1,200 languages" describes it.', ["some 1,200 languages"], [])).toContain(
+      `${hlOpen}some 1,200 languages${hlClose}`,
+    );
+    expect(markNarration("prices would soar, it says", [], ["would soar in the late 2010s"])).toBe(`prices ${altOpen}would soar${altClose}, it says`);
+  });
+
+  it("never stops partway through a word, matches curly and straight apostrophes, and leaves filler and maths alone", () => {
+    // "of the world" inside "of the world's" is not a match on "world".
+    expect(markNarration("one-fifth of the world's languages", ["of the world"], [])).not.toContain(`world${hlClose}`);
+    expect(markNarration("one-fifth of the world's languages", ["of the world’s languages"], [])).toContain(`${hlOpen}of the world's languages${hlClose}`);
+    expect(markNarration("on the other hand", ["of the"], [])).toBe("on the other hand");
+    expect(markNarration("so $x$ equals two", ["x equals"], [])).toBe("so $x$ equals two");
+    expect(markNarration("A paraphrase entirely.", ["nothing alike here"], [])).toBe("A paraphrase entirely.");
+  });
+});
+
+describe("splitAtRelation", () => {
+  it("splits at the first top-level relation", () => {
+    expect(splitAtRelation("|x| - 38 = 0")).toEqual(["|x| - 38", "=", "0"]);
+    expect(splitAtRelation("y < 15x + 12")).toEqual(["y", "<", "15x + 12"]);
+    expect(splitAtRelation("V = 2{,}951.4375\\pi \\approx 9{,}272")).toEqual(["V", "=", "2{,}951.4375\\pi \\approx 9{,}272"]);
+    expect(splitAtRelation("a \\le b")).toEqual(["a", "\\le", "b"]);
+  });
+
+  it("skips relations inside braces or \\left…\\right, and lines without one", () => {
+    expect(splitAtRelation("\\hl{x = 3}")).toBeNull();
+    expect(splitAtRelation("\\left(a = b\\right) + c")).toBeNull();
+    expect(splitAtRelation("\\frac{1}{2}")).toBeNull();
+    expect(splitAtRelation("= 5")).toBeNull();
+    expect(splitAtRelation("\\left|x\\right| = 2")).toEqual(["\\left|x\\right|", "=", "2"]);
+  });
+});
+
+describe("onWordBoundaries", () => {
+  const text = "the world's languages and some 1,200 more";
+  it("accepts whole words and refuses a cut through one, a possessive included", () => {
+    expect(onWordBoundaries(text, 0, 3)).toBe(true);
+    expect(onWordBoundaries(text, 4, 9)).toBe(false); // "world" of "world's"
+    expect(onWordBoundaries(text, 4, 21)).toBe(true);
+    expect(onWordBoundaries(text, 1, 3)).toBe(false);
   });
 });
 
@@ -133,6 +232,59 @@ describe("validateWalkthrough", () => {
   it("refuses a passage panel on a question without a passage", () => {
     const check = validateWalkthrough(spec, { ...context, passageText: null });
     expect(!check.ok && check.problems.join()).toMatch(/no passage/);
+  });
+
+  it("refuses a highlight that stops partway through a word", () => {
+    const cut = { ...spec, steps: [{ passage: { highlight: ["trade-of"] } }, ...spec.steps.slice(1)] };
+    const check = validateWalkthrough(cut, context);
+    expect(!check.ok && check.problems.join()).toMatch(/partway through a word/);
+  });
+
+  it("accepts prompts and a takeaway, and refuses prompts that can't be asked", () => {
+    const good: Walkthrough = {
+      ...spec,
+      prompts: [
+        { step: 2, ask: "Which can you rule out?", options: "choices", answer: [0, 3] },
+        { step: 3, ask: "What is $x$?", options: ["$4$", "$5$"], answer: 1, hint: "Divide both sides by $3$." },
+      ],
+      takeaway: "Divide by the coefficient to isolate $x$.",
+    };
+    expect(validateWalkthrough(good, context).ok).toBe(true);
+
+    const bad: Walkthrough = {
+      ...spec,
+      prompts: [
+        { step: 9, ask: "Past the end?", options: ["a", "b"], answer: 0 },
+        { step: 2, ask: "Rule out?", options: "choices", answer: [0, 2] },
+        { step: 3, ask: "Which?", options: ["a", "b"], answer: 4 },
+        { step: 3, ask: "Twice?", options: ["a", "b"], answer: 0 },
+      ],
+      takeaway: "Broken $\\frac{1}{$ maths",
+    };
+    const check = validateWalkthrough(bad, context);
+    const all = !check.ok ? check.problems.join("\n") : "";
+    expect(all).toMatch(/there is no step 9/);
+    expect(all).toMatch(/mixes the correct choice in/);
+    expect(all).toMatch(/an answer past the last option/);
+    expect(all).toMatch(/a step can have one prompt/);
+    expect(all).toMatch(/takeaway: /);
+  });
+
+  it("checks a number line's distances", () => {
+    const line = (elements: unknown[]) =>
+      ({ ...spec, panels: [...spec.panels.slice(0, 4), { type: "numberline", min: -50, max: 50, elements }], steps: [spec.steps[0], spec.steps[0], { choices: { reveal: true } }] }) as unknown as Walkthrough;
+    expect(validateWalkthrough(line([{ kind: "span", id: "d", from: 0, to: -38, label: "$38$" }]), context).ok).toBe(true);
+    const off = validateWalkthrough(line([{ kind: "span", id: "d", from: 0, to: 60 }, { kind: "span", id: "z", from: 4, to: 4 }]), context);
+    expect(!off.ok && off.problems.join()).toMatch(/d is off the number line/);
+    expect(!off.ok && off.problems.join()).toMatch(/a distance of nothing/);
+  });
+});
+
+describe("LatexText blanks", () => {
+  it("wraps a blank in its own element without changing its text", () => {
+    const html = renderLatexHtml("Ecuador has ______ volcanoes and $x_1$ stays maths.");
+    expect(html).toContain('<span class="latex-blank"><span class="latex-blank-line">______</span></span>');
+    expect(html.match(/latex-blank"/g)).toHaveLength(1);
   });
 });
 

@@ -2076,13 +2076,67 @@ panels), `QuestionRevision.walkthrough` (JSONB, migration
   place, deliberately: it is presentation of the explanation, never the
   question, and it is validated against exactly that revision's content.
   Editing a question copies it into the new draft with everything else.
-- Layout follows the container (`@container`): panels pair up when there is
-  room, an odd one and every number line take the full width; "Expand" opens
-  the same state in a dialog. Arrow keys step when focus is inside; choices
-  carry words ("Checking", "Ruled out", "Correct answer"), not colour alone.
 - Verified in a real browser: eleven USV1 questions across every panel type,
   narrow / full-screen / dark / phone, the Owner's Student Preview, and a new
   student answering a Daily Challenge (server-validated walkthrough, arrow
   keys, "All steps").
 - **Deploying needs migration `20261027090000_question_walkthrough` on Neon
   first.**
+
+### On the question (the same day, second pass)
+
+A review of all 65 steps in the real session runner found the first version
+drawn as a separate box below the question: below the fold after Submit,
+controls at its top and narration at its bottom (scroll down to read, up to
+press Next, every step), the passage and choices drawn a second time, choices
+crossed out with no reason, and a number line that drew "distance 38 from 0"
+as the solution set of |x| <= 38. The Owner asked for every fix, taking the
+better version of each.
+
+- **It runs on the question itself.** A page wraps its question in
+  `QuestionWalkthrough` (`walkthrough/context.tsx`) — the runner, the shared
+  `QuestionDetail` (results reviews and the Daily Challenge), Student Preview,
+  the teacher answer key. `PassageMarks` paints the step's highlights on the
+  page's own passage with the CSS Custom Highlight API (the annotator's
+  technique, and for its reason: a student's saved highlights are character
+  offsets into that text, so nothing may change it), and a filled blank is a
+  `data-wt-fill` attribute on the `.latex-blank` element LatexText now wraps
+  every blank in, shown through `::after`. Answer choices are the page's own
+  rows (`WithChoiceMarks` / `ChoiceNote`). The stage draws only what the
+  question doesn't show; a Reading question usually has none. The provider
+  is always mounted and switched on at Submit, so the question isn't rebuilt
+  under it (that lost pane scroll and the passage pane's width). Without a
+  host (the editor's preview, the full-screen dialog) the walkthrough draws
+  the passage and choices itself, as before.
+- **The dock** (`dock.tsx`) is the narration and Back/Next in one bar, the
+  last child of the question's column, `position: sticky` at the bottom —
+  over the runner's footer via `--wt-dock-offset`, which the runner writes
+  from the footer's height. That is why `SplitPane`'s panes only scroll from
+  `md:` up: a stacked pane that was a scroll box without a height trapped the
+  sticky dock in a box that never moves.
+- **Each step scrolls to what it changed** (`reveal.ts`): every scroll box on
+  its own, only as far as needed, all of a step's changes together when they
+  fit and by priority (passage, stage, choices) when they don't, never the
+  first time it appears. Pinned bars (`data-wt-cover` on the app's top bars
+  and the session footer, and the dock) don't count as visible space.
+- **The reason a choice is wrong is on the choice.** The student's own wrong
+  answer says why straight away, with or without a walkthrough (this
+  replaced `DistractorNote`, now deleted); a choice the walkthrough rules out
+  shows its distractor explanation on that step, then folds to "Why was this
+  ruled out?". `QuestionDetail` now shows A–D letters and the passage, which
+  reviews never had.
+- **Learning**: `takeaway` (one transferable rule, "Remember", on the last
+  step and in "All steps") and `prompts` ("Your turn": a question before a
+  step, over the previous step's stage, a hint after a wrong try, "Show me"
+  to skip; nothing is recorded). The narration's words are coloured to match
+  the highlights they repeat (`markNarration`); highlights must be whole
+  words (`onWordBoundaries`); `span` is a number line's distance and
+  `interval` its sets. The 11 USV1 walkthroughs carry all of it.
+- **Looks**: one stage box with rules between panels, a fading ring on what a
+  step changed, highlights that sweep in, label halos on every figure,
+  working aligned on its first relation (`splitAtRelation`) with the new line
+  on a band and no inner scroll, bars that keep their colour and print their
+  value when in focus, "All steps" remembered per browser.
+- Verified in a real browser: all 11 in the runner at 1440×900 (light and
+  dark, keyboard only) and 390×844, the Daily Challenge (keyboard, a wrong
+  try on a prompt), Student Preview and its full-screen view, the editor.

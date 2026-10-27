@@ -108,9 +108,18 @@ test.describe("Diagnostic + Practice loop (PRD-012, PRD-005, PRD-006, PRD-007)",
     await expect(page.getByText("Mastery by Category")).toBeVisible();
     await expect(page.getByText("Correct", { exact: true }).first()).toBeVisible();
 
-    // Expand one question's detailed review.
+    // Expand one question's detailed review. Its explanation is whatever
+    // that question carries — a seeded question's one-line written
+    // explanation, an imported one's numbered steps, or a step-through —
+    // since the pool is shared with real content in a local database.
     await page.getByRole("button", { name: /Question 1\b/ }).click();
-    await expect(page.getByText("is correct because this is seeded practice content.")).toBeVisible();
+    await expect(
+      page
+        .getByText("is correct because this is seeded practice content.")
+        .or(page.getByText("Step 1", { exact: true }))
+        .or(page.getByRole("region", { name: "Step-by-step walkthrough" }))
+        .first(),
+    ).toBeVisible();
 
     // Continue Practice returns to the Practice page (PRD-005 §24), not
     // directly into a question — and Set 2 is where Premium starts.

@@ -63,7 +63,16 @@ function renderSegments(source: string): string {
         return `<u>${renderSegments(segment.slice(2, -2))}</u>`;
       }
       // A walkthrough's highlights arrive as private-use markers (passage-marks.ts).
-      return renderMarks(escapeHtml(segment).replaceAll(MONEY, "$").replace(/\n/g, "<br />"));
+      // A blank (three or more underscores) gets its own element, so a
+      // walkthrough can show a choice filled into it with an attribute and CSS
+      // alone. The underscores stay in the text, so a student's saved
+      // highlights, stored as character offsets, never shift.
+      return renderMarks(
+        escapeHtml(segment)
+          .replaceAll(MONEY, "$")
+          .replace(/\n/g, "<br />")
+          .replace(/_{3,}/g, '<span class="latex-blank"><span class="latex-blank-line">$&</span></span>'),
+      );
     })
     .join("");
 }

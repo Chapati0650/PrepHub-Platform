@@ -183,12 +183,20 @@ the reviewer, not students.
 
 ## Walkthroughs (every question gets one)
 
-A walkthrough turns the explanation into a step-through: Back / Next over a
-stage of panels, with each explanation step as the narration. It is data in
-the question's `walkthrough` field, validated by the check and drawn by the
-site's own components (`src/components/content/walkthrough/`), so it costs
-nothing per student. Write it **after** the explanation steps, because it has
-exactly one entry per step and must show what that step's text says.
+A walkthrough turns the explanation into a step-through: Back / Next, with
+each explanation step as the narration. It is data in the question's
+`walkthrough` field, validated by the check and drawn by the site's own
+components (`src/components/content/walkthrough/`), so it costs nothing per
+student. Write it **after** the explanation steps, because it has exactly one
+entry per step and must show what that step's text says.
+
+On a question page it runs **on the question itself**: highlights are
+painted on the real passage, the real answer choices are crossed out with
+their distractor explanation as the reason, and only the other panels (a
+graph, the working, a table) are drawn in a stage below. The narration and
+Back/Next sit in a dock pinned to the bottom of the screen. So the
+`distractorExplanations` are part of the walkthrough too: each is the reason
+shown when its choice is ruled out.
 
 ```json
 "walkthrough": {
@@ -198,7 +206,11 @@ exactly one entry per step and must show what that step's text says.
     { "passage": { "highlight": ["Few economists would have predicted"] } },
     { "choices": { "eliminate": [1, 3] } },
     { "passage": { "fill": { "text": "forecast", "verdict": "right" } }, "choices": { "eliminate": [0], "reveal": true } }
-  ]
+  ],
+  "prompts": [
+    { "step": 2, "ask": "Which choices does the prediction idea rule out?", "options": "choices", "answer": [1, 3], "hint": "Look for words that aren't about predicting." }
+  ],
+  "takeaway": "When the sentence after a blank gives an example, the blank must name exactly what that example shows."
 }
 ```
 
@@ -206,13 +218,33 @@ Each step is keyed by panel id (a panel's id is its type unless you give it
 one). **Highlights and focus last one step; crossed-out choices, added
 working, shown elements and set values carry forward.**
 
+**Every walkthrough has a `takeaway` and one prompt.**
+
+- `takeaway` (≤ 240 characters, `$…$` allowed) is shown under the last step
+  as "Remember". It is the rule to carry to the *next* question of this
+  type, never a recap of this one: no names, numbers or wording from this
+  question. ("Two complete sentences can't be joined by a comma alone; use a
+  period, a semicolon, or a comma with and/but/so.")
+- A prompt is "Your turn": before step `step` (1-based) is shown, the student
+  is asked to do it, over the previous step's stage. `options` are 2–5 short
+  answers (`$…$` allowed), or `"choices"` for the question's own choices;
+  `answer` is an index or a list of indices (any counts); `hint` is shown
+  after a wrong try. "Show me" always skips it. The step's own narration
+  then explains the answer, so pick a step whose text is exactly that
+  explanation. **By then the correct answer is already marked on the
+  question**, so never ask "which is correct": ask for the reasoning (an
+  intermediate value, what a signal word does, which choice *this* step
+  rules out). Not on step 1 or the last step. Wrong options are the real
+  mistakes, the ones the distractor explanations describe. Options are shown
+  in the order written, so vary where the right one sits.
+
 ### Panels
 
 | type | what it is | a step can say |
 |---|---|---|
-| `passage` | the question's own passage (never copy it) | `highlight` / `alt`: exact quotes, cyan / amber; `fill`: `{ text, verdict? }` puts text in the blank (`"right"` green, `"wrong"` red wavy), carries forward, `null` clears |
-| `choices` | the question's own choices | `focus`: index ("Checking"); `eliminate`: indices ("Ruled out"); `reveal: true` marks the answer green |
-| `work` | lines of math, KaTeX, no `$` | `add`: lines; `clear: true`. `\hl{…}` / `\hlalt{…}` mark what this step changed; `\cancel{…}` works |
+| `passage` | the question's own passage (never copy it) | `highlight` / `alt`: exact quotes of whole words, cyan / amber; `fill`: `{ text, verdict? }` puts text in the blank (`"right"` green, `"wrong"` red wavy), plain text only, carries forward, `null` clears |
+| `choices` | the question's own choices | `focus`: index ("Checking"); `eliminate`: indices ("Ruled out", with that choice's distractor explanation as the reason); `reveal: true` marks the answer green |
+| `work` | lines of math, KaTeX, no `$` | `add`: lines; `clear: true`. `\hl{…}` / `\hlalt{…}` mark what this step changed; `\cancel{…}` works. Lines are set in display style and line up on their first `=` (or `<`, `\le`, `\approx` …) when every line has one, so start each line with what it's about: `r = 30 - \frac{3}{8}`, not `30 - \frac{3}{8} = r`. A line never wraps |
 | `vars` | small "known so far" chips | `{ "name": "value" }` sets (LatexText, `$…$` allowed), `null` removes |
 | `plane` | coordinate grid: `x`, `y` ranges, `tick`, `labelEvery`, `xLabel`, `yLabel`, `elements` | `show` / `hide` / `focus`: element ids |
 | `diagram` | free drawing, `width` × `height`, y points **down** | `show` / `hide` / `focus` |
@@ -232,7 +264,11 @@ Elements (each has an `id`; `hidden: true` starts it off-stage for a later
   circle drawn over a filled one is a hole: a pipe, a washer), `angle {vertex,
   from, to, label, right}`, `label {at, text}`.
 - **numberline**: `point {at, open, label}`, `interval {from, to, openFrom,
-  openTo}` (`null` runs off that end), `label {at, text}`.
+  openTo}` (`null` runs off that end), `span {from, to, label}`, `label {at,
+  text}`. **An interval is a set of numbers** (the solutions of an
+  inequality); **a span is a distance**, drawn as a dimension line with an
+  arrow at each end. "The numbers 38 from 0" is two spans from 0, never an
+  interval from -38 to 38, which reads as $|x| \le 38$.
 
 Figure labels take a small math subset inside `$…$`: italics, `^`, `_`,
 `\frac`, `\sqrt`, `\circ`, `\pi`, `\le`/`\ge`/`\ne`, `\approx`, `\cdot`,
@@ -256,23 +292,31 @@ Figure labels take a small math subset inside `$…$`: italics, `^`, `_`,
   Cross choices out at the step whose reasoning rules them out, never the
   correct one (the check refuses that too). A grid-in has no choices panel.
 - **Reading & Writing**: `passage` + `choices`. Highlight the words each step
-  quotes; `alt` for the contrasting evidence. Quotes are copied exactly from
-  the passage, curly quotes included, and can't cross the edge of an
-  `[[underline]]` or math (split them in two). Vocabulary and grammar fill the
-  blank: try a wrong choice with `"verdict": "wrong"`, then the right one.
-  Notes questions highlight the bullet that answers the goal.
+  quotes; `alt` for the other side (the contrast, the second piece of
+  evidence) — the two colours always mean that. The narration's own words
+  are coloured to match a highlight they repeat (two or more words in a row,
+  ignoring case and punctuation), so quote the passage in the narration where
+  it helps. Quotes are copied exactly from the passage, curly quotes
+  included, start and end on whole words (the check refuses "world" out of
+  "world's"), and can't cross the edge of an `[[underline]]` or math (split
+  them in two). Vocabulary and grammar fill the blank: try a wrong choice
+  with `"verdict": "wrong"`, then the right one. Notes questions highlight
+  the bullet that answers the goal.
 - **Math**: `work` beside a `plane`, `diagram`, `numberline` or `table`, plus
   `choices`. The working is the explanation's equations, one line per step,
   with `\hl{}` on what changed. Use `vars` for the givens and results a
   student should keep in view (`$R$ = 30 in`).
 - **Layout** follows the panel count: two panels sit side by side when there
-  is room, an odd one out takes the full width, `vars` sits beside the
-  narration. Three to four panels is plenty.
+  is room, an odd one out takes the full width, `vars` runs across the top of
+  the stage. Three to four panels is plenty. On a question page the passage
+  and choices aren't in the stage at all (they're marked on the question), so
+  a Reading question often has no stage, just the dock.
 - Local WIN1252 rule applies to stored text: write math in LaTeX, not
   Unicode symbols.
 
 The check validates every walkthrough against its question (step count,
-quotes, indices, element ids, KaTeX, coordinates in range). To add
+quotes and whole words, indices, element ids, KaTeX, coordinates in range,
+prompts and their answers). To add
 walkthroughs to questions **already in the bank**, put them in that test's
 `questions.json` and run the same import with
 `--commit --attach-walkthroughs`: questions that exist get their walkthrough
