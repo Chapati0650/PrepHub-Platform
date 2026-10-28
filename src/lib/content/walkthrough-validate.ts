@@ -130,6 +130,8 @@ function panelProblems(panel: Panel): string[] {
  * walkthrough that can't be shown, so the caller can log it.
  */
 export function walkthroughViewFor(revision: {
+  /** Passed where a student is answering, so the walkthrough can ask "Did this make sense?". */
+  id?: string;
   walkthrough: unknown;
   passageText: string | null;
   answerChoices: { order: number; text: string; isCorrect: boolean }[];
@@ -147,7 +149,13 @@ export function walkthroughViewFor(revision: {
   });
   if (!check.ok) return { view: null, problems: check.problems };
   return {
-    view: { spec: check.spec, passageText: revision.passageText, choices: choices.map((c) => c.text), correctIndex },
+    view: {
+      spec: check.spec,
+      passageText: revision.passageText,
+      choices: choices.map((c) => c.text),
+      correctIndex,
+      ...(revision.id ? { revisionId: revision.id } : {}),
+    },
     problems: [],
   };
 }
@@ -225,10 +233,11 @@ export function validateWalkthrough(raw: unknown, context: WalkthroughContext): 
             problems.push(`${at}: work: ${p.error.issues[0]?.message}`);
             break;
           }
-          for (const tex of p.data.add ?? []) {
+          for (const tex of [...(p.data.formula ? [p.data.formula.tex] : []), ...(p.data.add ?? [])]) {
             const problem = texProblem(tex, true, true);
             if (problem) problems.push(`${at}: can't draw "${tex}": ${problem}`);
           }
+          if (p.data.formula) problems.push(...latexTextProblems(p.data.formula.name).map((q) => `${at}: formula name: ${q}`));
           break;
         }
         case "vars": {
@@ -311,5 +320,86 @@ export function validateWalkthrough(raw: unknown, context: WalkthroughContext): 
   }
   if (spec.takeaway) problems.push(...latexTextProblems(spec.takeaway).map((p) => `takeaway: ${p}`));
 
+  if (spec.goals) {
+    const starts = spec.goals.map((g) => g.step);
+    if (starts[0] !== 1) problems.push("goals: the first part must start at step 1");
+    if (starts.some((s, i) => i > 0 && s <= starts[i - 1])) problems.push("goals: parts must be in step order, each starting after the last");
+    if (starts.some((s) => s > spec.steps.length)) problems.push(`goals: a part starts after the last step (${spec.steps.length})`);
+    for (const g of spec.goals) problems.push(...latexTextProblems(g.label).map((p) => `goals: ${p}`));
+  }
+
   return problems.length > 0 ? { ok: false, problems } : { ok: true, spec };
+}
+
+const FIGURES = new Set(["plane", "diagram", "numberline", "bars", "table"]);
+
+function polygonMinAngle(points: [number, number][]): number {
+  let min = 180;
+  points.forEach((p, i) => {
+    const a = points[(i + points.length - 1) % points.length];
+    const b = points[(i + 1) % points.length];
+    const u = [a[0] - p[0], a[1] - p[1]];
+    const v = [b[0] - p[0], b[1] - p[1]];
+    const cos = (u[0] * v[0] + u[1] * v[1]) / ((Math.hypot(u[0], u[1]) || 1) * (Math.hypot(v[0], v[1]) || 1));
+    min = Math.min(min, (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI);
+  });
+  return min;
+}
+
+/**
+ * Advice for whoever writes a walkthrough, never a reason to refuse one: the
+ * things that make a walkthrough weaker without making it wrong. The import
+ * and bank checks print these; serving ignores them.
+ */
+export function lintWalkthrough(spec: Walkthrough): string[] {
+  const advice: string[] = [];
+  const steps = spec.steps.length;
+  if (!spec.goals && steps >= 4) advice.push("no goals: name the parts of the solution (2-5 short labels, e.g. \"Find the radius\")");
+
+  const work = spec.panels.find((p) => p.type === "work");
+  if (work) {
+    const lines = spec.steps.flatMap((s) => {
+      const p = WorkStepSchema.safeParse(s[panelId(work)] ?? {});
+      return p.success ? [p.data] : [];
+    });
+    if (!lines.some((l) => l.formula)) advice.push("no formula card: if any step states a formula, definition or rule, give it a `formula` card");
+    lines.forEach((l, i) => {
+      for (const tex of l.add ?? []) {
+        // A long chain breaks into rows by itself; a single side this long doesn't.
+        const sides = tex.split(/=|\\approx|\\le|\\ge|<|>/);
+        if (sides.some((s) => s.replace(/\\[a-zA-Z]+|[{}\s]/g, "").length > 46)) {
+          advice.push(`step ${i + 1}: a side of "${tex.slice(0, 40)}…" is very long; split it over two lines of working`);
+        }
+      }
+    });
+  }
+
+  for (const panel of spec.panels) {
+    const id = panelId(panel);
+    if (!FIGURES.has(panel.type)) continue;
+    const changing = spec.steps.slice(1).filter((s) => {
+      const entry = s[id];
+      return !!entry && typeof entry === "object" && Object.keys(entry).length > 0;
+    }).length;
+    if (steps >= 4 && changing < Math.ceil((steps - 1) / 3)) {
+      advice.push(`${id}: changes on ${changing} of steps 2-${steps}; make it follow the steps (focus what each step is about, show what it finds)`);
+    }
+    if (panel.type === "diagram") {
+      for (const e of panel.elements) {
+        if (e.kind === "polygon" && polygonMinAngle(e.points) < 12) {
+          advice.push(`${id}: ${e.id} has an angle under 12°; draw it not to scale so it's readable (and say so)`);
+        }
+      }
+    }
+    if (panel.type === "plane" || panel.type === "diagram") {
+      for (const e of panel.elements) {
+        const text = "label" in e && typeof e.label === "string" ? e.label : e.kind === "label" ? e.text : "";
+        const plain = text.replace(/\$[^$]*\$/g, "");
+        if (/\d\s*\/\s*\d/.test(plain) || /\d\s*\/\s*\d/.test(text.match(/\$[^$]*\$/g)?.join(" ") ?? "")) {
+          advice.push(`${id}: ${e.id}'s label writes a fraction with "/"; use $\\frac{a}{b}$ so it can't be misread`);
+        }
+      }
+    }
+  }
+  return advice;
 }

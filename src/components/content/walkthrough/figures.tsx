@@ -2,7 +2,8 @@ import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import type { BarsState, ElementsState, Panel } from "@/lib/content/walkthrough";
 import { LatexText } from "@/components/content/latex-text";
-import { SvgLabelText } from "./svg-label";
+import { LabelPlacer, alongPath, spotToward, textBox, type Spot } from "./label-place";
+import { labelWidth, SvgLabelText } from "./svg-label";
 
 // The walkthrough's drawn panels: a coordinate plane, a free diagram, a
 // number line and a bar chart. All plain SVG in the app's own tokens
@@ -95,28 +96,105 @@ export function PlaneFigure({ panel, state }: { panel: PlanePanel; state: Elemen
   // Drawn at 360 units wide: in a half-width column that is close to 1:1,
   // so the 13–15 unit labels stay readable on a laptop and a phone.
   const W = 360;
-  const padL = 34;
+  const TICK_FONT = 13;
+  const LABEL_FONT = 15;
   const padR = 14;
   const padT = 16;
   const padB = 28;
+
+  const originInView = x0 <= 0 && x1 >= 0 && y0 <= 0 && y1 >= 0;
+  const tickX = panel.tick ?? niceStep(x1 - x0);
+  const tickY = panel.tick ?? niceStep(y1 - y0);
+  const labelXs = ticks(x0, x1, panel.labelEvery ?? niceStep(x1 - x0, 6)).filter((v) => v !== 0 || !originInView);
+  const labelYs = ticks(y0, y1, panel.labelEvery ?? niceStep(y1 - y0, 6)).filter((v) => v !== 0 || !originInView);
+
+  // Room on the left for the y-axis numbers, however wide ("2000" needs more
+  // than "8"): they sit left of the y-axis, which is the plot's left edge
+  // unless 0 is in view.
+  const widestY = Math.max(0, ...labelYs.map((v) => labelWidth(fmt(v), TICK_FONT)));
+  let padL = 34;
+  for (let i = 0; i < 3; i++) {
+    const width = W - padL - padR;
+    const axis = x0 <= 0 && x1 >= 0 ? padL + ((0 - x0) / (x1 - x0)) * width : padL;
+    const spare = axis - 6 - widestY - 3;
+    if (spare >= 0) break;
+    padL += Math.ceil(-spare);
+  }
   const plotW = W - padL - padR;
   const plotH = plotW * Math.min(1.15, Math.max(0.55, (y1 - y0) / (x1 - x0)));
   const H = plotH + padT + padB;
   const X = (x: number) => padL + ((x - x0) / (x1 - x0)) * plotW;
   const Y = (y: number) => padT + ((y1 - y) / (y1 - y0)) * plotH;
-
-  const tickX = panel.tick ?? niceStep(x1 - x0);
-  const tickY = panel.tick ?? niceStep(y1 - y0);
-  const labelX = panel.labelEvery ?? niceStep(x1 - x0, 6);
-  const labelY = panel.labelEvery ?? niceStep(y1 - y0, 6);
   const axisX = y0 <= 0 && y1 >= 0 ? Y(0) : Y(y0);
   const axisY = x0 <= 0 && x1 >= 0 ? X(0) : X(x0);
-  const originInView = x0 <= 0 && x1 >= 0 && y0 <= 0 && y1 >= 0;
   const clipId = `wt-plane-${panel.id ?? "plane"}`;
 
   const visible = panel.elements.filter((e) => state.visible.has(e.id));
   const order = { region: 0, line: 1, curve: 1, segment: 1, point: 2, label: 3 } as const;
   visible.sort((a, b) => order[a.kind] - order[b.kind]);
+
+  // Each line as drawn, in SVG units, clipped to the plot.
+  const pathOf = (e: (typeof visible)[number]): Pt[] | null => {
+    if (e.kind === "segment") return [[X(e.from[0]), Y(e.from[1])], [X(e.to[0]), Y(e.to[1])]];
+    if (e.kind === "curve") return e.points.map(([x, y]) => [X(x), Y(y)] as Pt);
+    if (e.kind === "line") {
+      const [p, q] = e.through;
+      const d: Pt = [q[0] - p[0], q[1] - p[1]];
+      const t = clipLine(p, d, panel.x, panel.y);
+      if (!t) return null;
+      return [
+        [X(p[0] + d[0] * t[0]), Y(p[1] + d[1] * t[0])],
+        [X(p[0] + d[0] * t[1]), Y(p[1] + d[1] * t[1])],
+      ];
+    }
+    return null;
+  };
+
+  // Labels go where nothing else is: off the axis numbers, off the lines,
+  // off each other (label-place.ts).
+  const placer = new LabelPlacer({ x0: 0, y0: 0, x1: W, y1: H });
+  for (const v of labelXs) placer.block(textBox({ x: X(v), y: axisX + 17, anchor: "middle" }, labelWidth(fmt(v), TICK_FONT), TICK_FONT));
+  for (const v of labelYs) placer.block(textBox({ x: axisY - 6, y: Y(v) + 4, anchor: "end" }, labelWidth(fmt(v), TICK_FONT), TICK_FONT));
+  placer.block(textBox({ x: padL + plotW, y: axisX - 6, anchor: "end" }, labelWidth(panel.xLabel ?? "$x$", 15), 15));
+  placer.block(textBox({ x: axisY + 6, y: padT + 10, anchor: "start" }, labelWidth(panel.yLabel ?? "$y$", 15), 15));
+  placer.blockPath([
+    [padL, axisX],
+    [padL + plotW, axisX],
+  ]);
+  placer.blockPath([
+    [axisY, padT],
+    [axisY, padT + plotH],
+  ]);
+  for (const e of visible) {
+    if (e.kind === "label") placer.block(textBox({ x: X(e.at[0]), y: Y(e.at[1]), anchor: "middle" }, labelWidth(e.text, LABEL_FONT), LABEL_FONT));
+    if (e.kind === "point") placer.block({ x0: X(e.at[0]) - 6, x1: X(e.at[0]) + 6, y0: Y(e.at[1]) - 6, y1: Y(e.at[1]) + 6 });
+    const path = pathOf(e);
+    if (path) placer.blockPath(path);
+  }
+  const spots = new Map<string, Spot>();
+  for (const e of visible) {
+    if (e.kind !== "point" || !e.label) continue;
+    const p: Pt = [X(e.at[0]), Y(e.at[1])];
+    const right = p[0] > padL + plotW * 0.72;
+    const dirs: Pt[] = right
+      ? [[-1, -1], [1, -1], [-1, 1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]]
+      : [[1, -1], [-1, -1], [1, 1], [-1, 1], [1, 0], [-1, 0], [0, -1], [0, 1]];
+    spots.set(e.id, placer.place(dirs.map((d) => spotToward(p, d, 9, LABEL_FONT)), labelWidth(e.label, LABEL_FONT), LABEL_FONT));
+  }
+  for (const e of visible) {
+    if ((e.kind !== "line" && e.kind !== "segment" && e.kind !== "curve") || !e.label) continue;
+    const path = pathOf(e);
+    if (!path) continue;
+    // A segment is named beside its middle; a line or curve near its far end.
+    const along = e.kind === "segment" ? [0.5, 0.66, 0.34, 0.86, 0.14] : [0.86, 0.74, 0.62, 0.5, 0.38, 0.26, 0.14];
+    const candidates = along.flatMap((t) => {
+      const { at, dir } = alongPath(path, t);
+      const n: Pt = [-dir[1], dir[0]];
+      const up: Pt = n[1] <= 0 ? n : [-n[0], -n[1]];
+      return [spotToward(at, up, 9, LABEL_FONT), spotToward(at, [-up[0], -up[1]], 9, LABEL_FONT)];
+    });
+    spots.set(`${e.id}-label`, placer.place(candidates, labelWidth(e.label, LABEL_FONT), LABEL_FONT));
+  }
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="mx-auto block h-auto w-full max-w-[30rem]" role="img" aria-label="Coordinate plane">
@@ -137,22 +215,18 @@ export function PlaneFigure({ panel, state }: { panel: PlanePanel; state: Elemen
       ))}
       <line x1={padL} x2={padL + plotW} y1={axisX} y2={axisX} className={INK} strokeWidth={1.4} />
       <line y1={padT} y2={padT + plotH} x1={axisY} x2={axisY} className={INK} strokeWidth={1.4} />
-      {ticks(x0, x1, labelX)
-        .filter((v) => v !== 0 || !originInView)
-        .map((v) => (
-          <text key={`lx${v}`} x={X(v)} y={axisX + 17} textAnchor="middle" fontSize={13} className="fill-muted-foreground" {...halo(13)}>
-            {fmt(v)}
-          </text>
-        ))}
-      {ticks(y0, y1, labelY)
-        .filter((v) => v !== 0 || !originInView)
-        .map((v) => (
-          <text key={`ly${v}`} x={axisY - 6} y={Y(v) + 4} textAnchor="end" fontSize={13} className="fill-muted-foreground" {...halo(13)}>
-            {fmt(v)}
-          </text>
-        ))}
+      {labelXs.map((v) => (
+        <text key={`lx${v}`} x={X(v)} y={axisX + 17} textAnchor="middle" fontSize={TICK_FONT} className="fill-muted-foreground" {...halo(TICK_FONT)}>
+          {fmt(v)}
+        </text>
+      ))}
+      {labelYs.map((v) => (
+        <text key={`ly${v}`} x={axisY - 6} y={Y(v) + 4} textAnchor="end" fontSize={TICK_FONT} className="fill-muted-foreground" {...halo(TICK_FONT)}>
+          {fmt(v)}
+        </text>
+      ))}
       {originInView && (
-        <text x={axisY - 6} y={axisX + 17} textAnchor="end" fontSize={13} fontStyle="italic" className="fill-muted-foreground" {...halo(13)}>
+        <text x={axisY - 6} y={axisX + 17} textAnchor="end" fontSize={TICK_FONT} fontStyle="italic" className="fill-muted-foreground" {...halo(TICK_FONT)}>
           O
         </text>
       )}
@@ -168,69 +242,48 @@ export function PlaneFigure({ panel, state }: { panel: PlanePanel; state: Elemen
           const { focused, dimmed, appeared } = emphasis(e.id, state);
           const tone = cn(focused ? LOOK : INK, dimmed && "opacity-35", "transition-opacity duration-300");
           const width = focused ? 3.2 : 2.2;
-          switch (e.kind) {
-            case "region":
-              return (
-                <polygon
-                  key={e.id}
-                  points={e.points.map(([x, y]) => `${X(x)},${Y(y)}`).join(" ")}
-                  className={cn(focused ? "fill-primary/30" : "fill-primary/15", dimmed && "opacity-40", appeared && "motion-safe:animate-wt-appear")}
-                />
-              );
-            case "line": {
-              const [p, q] = e.through;
-              const d: Pt = [q[0] - p[0], q[1] - p[1]];
-              const t = clipLine(p, d, panel.x, panel.y);
-              if (!t) return null;
-              const a: Pt = [p[0] + d[0] * t[0], p[1] + d[1] * t[0]];
-              const b: Pt = [p[0] + d[0] * t[1], p[1] + d[1] * t[1]];
-              return (
-                <line
-                  key={e.id}
-                  x1={X(a[0])}
-                  y1={Y(a[1])}
-                  x2={X(b[0])}
-                  y2={Y(b[1])}
-                  strokeWidth={width}
-                  strokeLinecap="round"
-                  strokeDasharray={e.dashed ? "6 5" : undefined}
-                  {...drawn(appeared, e.dashed)}
-                  className={cn(tone, drawn(appeared, e.dashed).className)}
-                />
-              );
-            }
-            case "segment":
-              return (
-                <line
-                  key={e.id}
-                  x1={X(e.from[0])}
-                  y1={Y(e.from[1])}
-                  x2={X(e.to[0])}
-                  y2={Y(e.to[1])}
-                  strokeWidth={width}
-                  strokeLinecap="round"
-                  strokeDasharray={e.dashed ? "6 5" : undefined}
-                  markerEnd={e.arrow ? `url(#${clipId}-arrow)` : undefined}
-                  {...drawn(appeared, e.dashed)}
-                  className={cn(tone, drawn(appeared, e.dashed).className)}
-                />
-              );
-            case "curve":
-              return (
-                <polyline
-                  key={e.id}
-                  points={e.points.map(([x, y]) => `${X(x)},${Y(y)}`).join(" ")}
-                  fill="none"
-                  strokeWidth={width}
-                  strokeLinejoin="round"
-                  strokeDasharray={e.dashed ? "6 5" : undefined}
-                  {...drawn(appeared, e.dashed)}
-                  className={cn(tone, drawn(appeared, e.dashed).className)}
-                />
-              );
-            default:
-              return null;
+          if (e.kind === "region") {
+            return (
+              <polygon
+                key={e.id}
+                points={e.points.map(([x, y]) => `${X(x)},${Y(y)}`).join(" ")}
+                className={cn(focused ? "fill-primary/30" : "fill-primary/15", dimmed && "opacity-40", appeared && "motion-safe:animate-wt-appear")}
+              />
+            );
           }
+          const path = pathOf(e);
+          if (!path) return null;
+          const dash = "dashed" in e && e.dashed ? "6 5" : undefined;
+          const draw = drawn(appeared, !!dash);
+          if (e.kind === "curve") {
+            return (
+              <polyline
+                key={e.id}
+                points={path.map((p) => p.join(",")).join(" ")}
+                fill="none"
+                strokeWidth={width}
+                strokeLinejoin="round"
+                strokeDasharray={dash}
+                {...draw}
+                className={cn(tone, draw.className)}
+              />
+            );
+          }
+          return (
+            <line
+              key={e.id}
+              x1={path[0][0]}
+              y1={path[0][1]}
+              x2={path[1][0]}
+              y2={path[1][1]}
+              strokeWidth={width}
+              strokeLinecap="round"
+              strokeDasharray={dash}
+              markerEnd={e.kind === "segment" && e.arrow ? `url(#${clipId}-arrow)` : undefined}
+              {...draw}
+              className={cn(tone, draw.className)}
+            />
+          );
         })}
       </g>
 
@@ -241,13 +294,13 @@ export function PlaneFigure({ panel, state }: { panel: PlanePanel; state: Elemen
         if (e.kind === "point") {
           const px = X(e.at[0]);
           const py = Y(e.at[1]);
-          const right = px > padL + plotW * 0.72;
+          const spot = spots.get(e.id);
           return (
             <g key={e.id} className={cn(dimmed && "opacity-40", "transition-opacity duration-300")}>
               {focused && <circle cx={px} cy={py} r={11} className="fill-primary/20" />}
               <circle cx={px} cy={py} r={focused ? 5.5 : 4.5} className={cn(focused ? "fill-primary" : "fill-foreground", pop)} />
-              {e.label && (
-                <text x={px + (right ? -9 : 9)} y={py - 9} textAnchor={right ? "end" : "start"} fontSize={15} className={textTone} {...halo(15)}>
+              {e.label && spot && (
+                <text x={spot.x} y={spot.y} textAnchor={spot.anchor} fontSize={LABEL_FONT} className={cn(textTone, pop)} {...halo(LABEL_FONT)}>
                   <SvgLabelText label={e.label} />
                 </text>
               )}
@@ -256,35 +309,22 @@ export function PlaneFigure({ panel, state }: { panel: PlanePanel; state: Elemen
         }
         if (e.kind === "label") {
           return (
-            <text key={e.id} x={X(e.at[0])} y={Y(e.at[1])} textAnchor="middle" fontSize={15} className={cn(textTone, pop)} {...halo(15)}>
+            <text key={e.id} x={X(e.at[0])} y={Y(e.at[1])} textAnchor="middle" fontSize={LABEL_FONT} className={cn(textTone, pop)} {...halo(LABEL_FONT)}>
               <SvgLabelText label={e.text} />
             </text>
           );
         }
-        if ((e.kind === "line" || e.kind === "segment" || e.kind === "curve") && e.label) {
-          let at: Pt;
-          if (e.kind === "segment") at = e.to;
-          else if (e.kind === "curve") at = e.points[e.points.length - 1];
-          else {
-            const [p, q] = e.through;
-            const d: Pt = [q[0] - p[0], q[1] - p[1]];
-            const t = clipLine(p, d, panel.x, panel.y);
-            if (!t) return null;
-            const s = t[0] + (t[1] - t[0]) * 0.86;
-            at = [p[0] + d[0] * s, p[1] + d[1] * s];
-          }
-          // Toward the right edge the label hangs to the left of its anchor,
-          // so it never runs out of the plot.
-          const right = X(at[0]) > padL + plotW * 0.55;
+        const spot = spots.get(`${e.id}-label`);
+        if ((e.kind === "line" || e.kind === "segment" || e.kind === "curve") && e.label && spot) {
           return (
             <text
               key={`${e.id}-label`}
-              x={X(at[0]) + (right ? -8 : 8)}
-              y={Y(at[1]) - 8}
-              textAnchor={right ? "end" : "start"}
-              fontSize={15}
-              className={textTone}
-              {...halo(15)}
+              x={spot.x}
+              y={spot.y}
+              textAnchor={spot.anchor}
+              fontSize={LABEL_FONT}
+              className={cn(textTone, appeared && "motion-safe:animate-wt-appear")}
+              {...halo(LABEL_FONT)}
             >
               <SvgLabelText label={e.label} />
             </text>
@@ -313,10 +353,34 @@ function anchorFor([dx]: Pt): "start" | "middle" | "end" {
   return dx > 0.3 ? "start" : dx < -0.3 ? "end" : "middle";
 }
 
+/** The box every element of a diagram occupies, hidden ones included, so it doesn't change size between steps. */
+export function diagramBounds(panel: DiagramPanel): { x: number; y: number; w: number; h: number } {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  const add = ([x, y]: Pt) => {
+    xs.push(x);
+    ys.push(y);
+  };
+  for (const e of panel.elements) {
+    if (e.kind === "point" || e.kind === "label") add(e.at);
+    else if (e.kind === "segment") [e.from, e.to].forEach(add);
+    else if (e.kind === "polygon") e.points.forEach(add);
+    else if (e.kind === "circle") [[e.center[0] - e.r, e.center[1] - e.r] as Pt, [e.center[0] + e.r, e.center[1] + e.r] as Pt].forEach(add);
+    else if (e.kind === "angle") add(e.vertex);
+  }
+  if (xs.length === 0) return { x: 0, y: 0, w: panel.width, h: panel.height };
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, w: Math.max(1, Math.max(...xs) - x), h: Math.max(1, Math.max(...ys) - y) };
+}
+
 export function DiagramFigure({ panel, state }: { panel: DiagramPanel; state: ElementsState }) {
-  const size = Math.max(panel.width, panel.height);
-  const margin = size * 0.1;
+  // Framed on what's drawn, not on the canvas it was drawn in: a triangle in
+  // the middle of a 400 × 300 canvas used to be drawn small, in white space.
+  const box = diagramBounds(panel);
+  const size = Math.max(box.w, box.h, Math.max(panel.width, panel.height) * 0.45);
   const font = size * 0.064;
+  const margin = size * 0.06 + font * 1.5;
   const dot = size * 0.014;
   const gap = size * 0.05;
   const visible = panel.elements.filter((e) => state.visible.has(e.id));
@@ -326,8 +390,8 @@ export function DiagramFigure({ panel, state }: { panel: DiagramPanel; state: El
 
   return (
     <svg
-      viewBox={`${-margin} ${-margin} ${panel.width + 2 * margin} ${panel.height + 2 * margin}`}
-      className="mx-auto block h-auto w-full max-w-[28rem]"
+      viewBox={`${box.x - margin} ${box.y - margin} ${box.w + 2 * margin} ${box.h + 2 * margin}`}
+      className="mx-auto block h-auto max-h-[22rem] w-full max-w-[28rem]"
       role="img"
       aria-label="Diagram"
     >
@@ -363,8 +427,11 @@ export function DiagramFigure({ panel, state }: { panel: DiagramPanel; state: El
                 r={e.r}
                 strokeWidth={width}
                 vectorEffect="non-scaling-stroke"
+                // A hole stays a hole when the step looks elsewhere: only its
+                // edge dims, or the shape behind it would show through.
+                strokeOpacity={e.cutout && dimmed ? 0.35 : undefined}
                 className={cn(
-                  stroke,
+                  e.cutout ? cn(focused ? LOOK : INK, "transition-opacity duration-300") : stroke,
                   e.cutout ? "fill-[var(--wt-surface,var(--background))]" : e.filled ? (focused ? "fill-primary/15" : "fill-foreground/5") : "fill-none",
                   pop,
                 )}
@@ -574,7 +641,8 @@ export function NumberLineFigure({ panel, state }: { panel: NumberLinePanel; sta
                 strokeWidth={focused ? 2.2 : 1.6}
                 markerStart={marker}
                 markerEnd={marker}
-                className={cn(tone, appeared && "motion-safe:animate-wt-appear")}
+                // A distance stretches out from where it starts.
+                className={cn(tone, appeared && cn("motion-safe:animate-wt-grow-x [transform-box:fill-box]", a <= b ? "origin-left" : "origin-right"))}
               />
               {e.label && (
                 <text
@@ -713,7 +781,8 @@ export function BarsFigure({ panel, state }: { panel: BarsPanel; state: BarsStat
                       height={Math.max(0, Y(0) - Y(v))}
                       style={{ fill: seriesFill(s, k) }}
                       strokeWidth={focused ? 3 : 0}
-                      className="stroke-primary transition-[stroke-width] duration-300"
+                      // Bars rise from the baseline when the chart first appears.
+                      className="origin-bottom stroke-primary transition-[stroke-width] duration-300 [transform-box:fill-box] motion-safe:animate-wt-grow-y"
                     />
                     {focused && (
                       <text

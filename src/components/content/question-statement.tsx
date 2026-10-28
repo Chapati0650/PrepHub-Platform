@@ -1,4 +1,5 @@
 import { LatexText } from "./latex-text";
+import { QuestionFigure } from "./question-figure";
 import { cn } from "@/lib/utils";
 
 // Shared across every surface that renders a question's stem (session
@@ -27,10 +28,7 @@ export function QuestionStatement({
   return (
     <div className={cn("rounded-md bg-muted/50 p-4", className)}>
       <LatexText text={text} className={textClassName ?? "text-base"} />
-      {imageId && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={`${mediaBasePath}/${imageId}`} alt="" className="mt-3 max-w-full rounded" />
-      )}
+      {imageId && <QuestionFigure src={`${mediaBasePath}/${imageId}`} />}
     </div>
   );
 }

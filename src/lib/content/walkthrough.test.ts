@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { renderLatexHtml } from "@/components/content/latex-text";
 import {
+  chainRows,
   changedPanelsAt,
   choiceChangesAt,
+  formulasOf,
+  goalAt,
+  goalParts,
   locateQuote,
   markNarration,
   markPassage,
@@ -14,7 +18,7 @@ import {
   stateAt,
   type Walkthrough,
 } from "./walkthrough";
-import { validateWalkthrough, walkthroughViewFor } from "./walkthrough-validate";
+import { lintWalkthrough, validateWalkthrough, walkthroughViewFor } from "./walkthrough-validate";
 
 const passage = "Covering windows has a trade-off. [[In a classroom, for instance, film keeps rooms cool.]] Prices like \\$4 and $x^2$ stay. The design was ______: plain.";
 
@@ -315,5 +319,96 @@ describe("walkthroughViewFor", () => {
     const { view, problems } = walkthroughViewFor({ ...revision, explanationStepCount: 5 });
     expect(view).toBeNull();
     expect(problems.length).toBeGreaterThan(0);
+  });
+});
+
+describe("chainRows", () => {
+  it("puts each later relation of a chain on a row of its own, lined up on it", () => {
+    expect(chainRows("R^2 - r^2 = (R - r)(R + r) = 22.36")).toEqual([
+      ["R^2 - r^2", "=", "(R - r)(R + r)"],
+      ["", "=", "22.36"],
+    ]);
+    expect(chainRows("V = 2{,}951.4375\\pi \\approx 9{,}272")).toEqual([
+      ["V", "=", "2{,}951.4375\\pi"],
+      ["", "\\approx", "9{,}272"],
+    ]);
+  });
+
+  it("leaves a line with one relation as one row, and refuses one with an empty side", () => {
+    expect(chainRows("x = 5")).toEqual([["x", "=", "5"]]);
+    expect(chainRows("x = = 5")).toBeNull();
+    expect(chainRows("\\frac{1}{2}")).toBeNull();
+  });
+});
+
+describe("goals and formulas", () => {
+  const slope = "m = \\frac{y_2 - y_1}{x_2 - x_1}";
+  const withGoals: Walkthrough = {
+    ...spec,
+    goals: [
+      { step: 1, label: "Set it up" },
+      { step: 3, label: "Check the choices" },
+    ],
+    steps: [{ work: { formula: { name: "Slope", tex: slope }, add: ["m = 2"] } }, { work: { add: ["y = 2x"] } }, { work: { formula: { name: "Slope", tex: slope } } }],
+  };
+
+  it("splits the steps into named parts", () => {
+    expect(goalParts(withGoals)).toEqual([
+      { label: "Set it up", from: 0, to: 2 },
+      { label: "Check the choices", from: 2, to: 3 },
+    ]);
+    expect(goalAt(withGoals, 1)).toEqual({ label: "Set it up", part: 0, parts: 2 });
+    expect(goalAt(withGoals, 2)).toEqual({ label: "Check the choices", part: 1, parts: 2 });
+    expect(goalAt(spec, 0)).toBeNull();
+  });
+
+  it("puts a formula card before the step's working, and lists each formula once", () => {
+    expect(stateAt(withGoals, 0).get("work")).toEqual({
+      type: "work",
+      state: {
+        lines: [
+          { tex: slope, formula: "Slope", isNew: true },
+          { tex: "m = 2", isNew: true },
+        ],
+      },
+    });
+    expect(formulasOf(withGoals)).toEqual([{ name: "Slope", tex: slope }]);
+  });
+
+  it("refuses parts out of order, or not starting at step 1", () => {
+    const context = { passageText: passage, choiceCount: 4, correctIndex: 2, stepCount: 3 };
+    const ok = { ...spec, goals: [{ step: 1, label: "One" }, { step: 3, label: "Two" }] };
+    expect(validateWalkthrough(ok, context).ok).toBe(true);
+    const late = validateWalkthrough({ ...spec, goals: [{ step: 2, label: "One" }, { step: 3, label: "Two" }] }, context);
+    expect(!late.ok && late.problems.join()).toMatch(/must start at step 1/);
+    const backwards = validateWalkthrough({ ...spec, goals: [{ step: 1, label: "One" }, { step: 1, label: "Two" }] }, context);
+    expect(!backwards.ok && backwards.problems.join()).toMatch(/in step order/);
+  });
+});
+
+describe("lintWalkthrough", () => {
+  it("advises on a figure that stops changing, missing parts and formulas, a sliver of a triangle and a slashed fraction", () => {
+    const still: Walkthrough = {
+      version: 1,
+      panels: [
+        { type: "work" },
+        {
+          type: "diagram",
+          width: 300,
+          height: 100,
+          elements: [
+            { kind: "polygon", id: "t", points: [[0, 100], [300, 100], [0, 70]] },
+            { kind: "label", id: "f", at: [150, 50], text: "p = 3/4t" },
+          ],
+        },
+      ],
+      steps: [{ work: { add: ["a = 1"] }, diagram: { focus: ["t"] } }, { work: { add: ["b = 2"] } }, { work: { add: ["c = 3"] } }, { work: { add: ["d = 4"] } }],
+    };
+    const advice = lintWalkthrough(still).join("\n");
+    expect(advice).toMatch(/no goals/);
+    expect(advice).toMatch(/no formula card/);
+    expect(advice).toMatch(/diagram: changes on 0 of steps 2-4/);
+    expect(advice).toMatch(/t has an angle under 12°/);
+    expect(advice).toMatch(/fraction with "\/"/);
   });
 });

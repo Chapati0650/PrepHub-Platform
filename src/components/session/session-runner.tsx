@@ -24,6 +24,7 @@ import { SplitPane } from "./split-pane";
 import { Scratchpad } from "./scratchpad";
 import { Annotator, highlightsSupported } from "./annotator";
 import { hasSeenTip, markTipSeen, subscribeTips } from "./local-store";
+import { AcceptedAnswers, resultDetail } from "./answer-result";
 
 // False during the server render and hydration, true straight after — the
 // same idiom as the theme toggle (CLAUDE.md, next-themes gotcha). Saved
@@ -625,6 +626,7 @@ export function SessionRunner(props: SessionRunnerProps) {
                 studentChoiceIndex={studentChoiceIndex >= 0 ? studentChoiceIndex : null}
                 choiceNotes={choiceNotes}
                 finish={walkthroughFinish}
+                collectFeedback
                 resetKey={currentItem.id}
               >
               <SplitPane
@@ -829,12 +831,16 @@ export function SessionRunner(props: SessionRunnerProps) {
                     ref={focusResult}
                     role="status"
                     tabIndex={-1}
-                    className={`font-heading text-lg font-semibold focus:outline-none ${currentItem.isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}
+                    className="font-heading text-lg font-semibold focus:outline-none"
                   >
-                    {currentItem.isCorrect ? "Correct!" : "Incorrect."}
+                    <span className={currentItem.isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}>
+                      {currentItem.isCorrect ? "Correct!" : "Incorrect."}
+                    </span>
+                    {/* What was chosen and what's right, in words, before the walkthrough starts. */}
+                    {!currentItem.isCorrect && <span className="font-normal"> {resultDetail(loaded, shownAnswer)}</span>}
                   </p>
                   {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && loaded.feedback && (
-                    <p className="text-sm text-muted-foreground">Accepted answer {loaded.feedback.acceptedAnswers[0]}</p>
+                    <AcceptedAnswers answers={loaded.feedback.acceptedAnswers} />
                   )}
                   {loaded.feedback && loaded.feedback.explanationSteps.length > 0 ? (
                     <ExplanationSteps steps={loaded.feedback.explanationSteps} mediaBasePath="/api/media" walkthrough={loaded.feedback.walkthrough} />

@@ -85,7 +85,17 @@ function StagePanel({ panel, wt, wide }: { panel: Panel; wt: WalkthroughHost; wi
   const ref = useCallback(
     (el: HTMLDivElement | null) => {
       if (!el) return undefined;
-      return register(`panel-${id}`, () => el);
+      // In the working, what changed is the step's new lines, not the whole
+      // panel: on a phone the panel is taller than the screen, and scrolling
+      // to its top left the new line under the dock.
+      return register(`panel-${id}`, () => {
+        const fresh = [...el.querySelectorAll<HTMLElement>("[data-wt-new]")].filter((n) => n.getClientRects().length > 0);
+        if (fresh.length === 0) return el;
+        const range = document.createRange();
+        range.setStartBefore(fresh[0]);
+        range.setEndAfter(fresh[fresh.length - 1]);
+        return range;
+      });
     },
     [register, id],
   );
@@ -111,6 +121,12 @@ export function WalkthroughStage({ includeQuestion = false }: { includeQuestion?
     // the walkthrough's copy of it instead.
     if (p.type === "passage") return drawQuestion || !highlightsOk;
     if (p.type === "choices") return drawQuestion;
+    // The working joins the stage with its first line, rather than taking
+    // half of it to say that it will.
+    if (p.type === "work") {
+      const state = wt.states.get(panelId(p));
+      return state?.type === "work" && state.state.lines.length > 0;
+    }
     return true;
   });
   const varsPanel = wt.view.spec.panels.find((p) => p.type === "vars");

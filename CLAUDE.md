@@ -2140,3 +2140,54 @@ better version of each.
 - Verified in a real browser: all 11 in the runner at 1440×900 (light and
   dark, keyboard only) and 390×844, the Daily Challenge (keyboard, a wrong
   try on a prompt), Student Preview and its full-screen view, the editor.
+
+### Third pass (2026-10-28): parts, formula cards, feedback
+
+The Owner paused the bank backfill to get the format right first, since
+changing it after ~380 walkthroughs would mean redoing them. Format
+additions are optional fields, so every earlier walkthrough still validates.
+
+- **`goals`** names the parts of a solution (2–5, `{ step, label }`):
+  drawn over the dock's progress bar (`StepBar`), said in the dock's header
+  on a phone, and as `01 · …` headings in "All steps". Labelling the purpose
+  of each group of steps is the subgoal-labelling result from worked-example
+  research: it's what transfers to a new problem.
+- **Formula cards**: a `work` step's `formula: { name, tex }` is drawn as a
+  card ("Formula · Volume of a cylinder") before that step's lines, and
+  listed under "All steps" as "Formulas used". The Owner's never-skip-the-
+  formula rule, made visible.
+- **Working never shrinks to unreadable**: a line too wide for its panel
+  breaks onto rows at its later `=` signs (`chainRows`), per line, measured
+  in a layout effect that only flips `data-broken` attributes (no
+  re-render); only then does the font shrink, to 0.85 at least. Aligned
+  working is centred on its `=` column, so a formula card can't push the
+  columns apart. A step scrolls to its *new lines* (`data-wt-new`, a Range),
+  not the panel's top.
+- **Inline maths never breaks mid-expression**: LatexText keeps anything up
+  to 32 characters on one line (`.latex-nowrap`) and breaks longer ones only
+  after a top-level relation (`tex-relations.ts`). `displayInline` sets a
+  chip's or a button's fractions full size.
+- **Figures**: plane labels are placed by `label-place.ts` clear of the axis
+  numbers, the lines and each other; the y-axis margin grows for wide
+  numbers; `\frac` in a figure label is a case fraction (³⁄₄); diagrams are
+  framed on what's drawn (`diagramBounds`), not the canvas; bars rise and
+  distances stretch when they appear; a dimmed cutout circle dims only its
+  edge (it used to let the shape behind show through the hole).
+- **Personal**: the result line says "You chose A. The answer is D." (or
+  "You entered 5." beside a green `AcceptedAnswers` box, shared with reviews
+  and the teacher answer key), and the dock says "This is where your answer,
+  A, goes wrong" on the step that rules it out.
+- **The original figure folds** to a thumbnail (`QuestionFigure`) while a
+  walkthrough that redraws it (plane, diagram, bars, table) is running.
+- **"Did this make sense?"** on the last step, where a student is answering
+  (`collectFeedback`; never in previews or answer keys): `WalkthroughFeedback`
+  (unique per student per revision), `/owner/content/walkthroughs` ranks the
+  most confusing explanations and the step that lost students. Test accounts
+  are left out. The action is mocked globally in `vitest.setup.ts`.
+- **Phone**: the dock folds to its controls and two lines (remembered per
+  browser), and a horizontal swipe steps through.
+- **`lintWalkthrough`** is advice, never a refusal: no goals, no formula
+  card, a figure that stops changing, a polygon angle under 12°, a slashed
+  fraction in a label. `import.ts` and `bank.ts check` print it as `~` lines.
+- Deploying needs migration `20261028120000_walkthrough_feedback` on Neon
+  first.

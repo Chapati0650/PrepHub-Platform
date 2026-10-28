@@ -1,6 +1,7 @@
 import "katex/dist/katex.min.css";
 import katex from "katex";
 import { renderMarks } from "@/lib/content/passage-marks";
+import { breakAfterRelations } from "@/lib/content/tex-relations";
 
 // PRD-013 §12: full LaTeX rendering in question text, answer choices, and
 // written explanations, using $...$ (inline) and $$...$$ (block) delimiters —
@@ -27,9 +28,32 @@ function escapeHtml(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function renderMath(tex: string, displayMode: boolean): string {
+export type LatexOptions = {
+  /** Inline math set in display style: full-size fractions in a chip or a button, where a small one is hard to read. */
+  displayInline?: boolean;
+};
+
+// A short inline expression ("$(a - b)(a + b)$") is never broken across two
+// lines: KaTeX allows a break after any relation or operator, and on a phone
+// that left "(a −" at the end of one line and "b)(a + b)" on the next. Long
+// ones still may, or they would run off a narrow screen.
+const KEEP_TOGETHER = 32;
+
+function renderMath(tex: string, displayMode: boolean, options: LatexOptions = {}): string {
   try {
-    return katex.renderToString(tex, { displayMode, throwOnError: false, output: "htmlAndMathml" });
+    const render = (piece: string) =>
+      katex.renderToString(!displayMode && options.displayInline ? `\\displaystyle ${piece}` : piece, {
+        displayMode,
+        throwOnError: false,
+        output: "htmlAndMathml",
+      });
+    if (displayMode) return render(tex);
+    if (tex.length <= KEEP_TOGETHER) return `<span class="latex-nowrap">${render(tex)}</span>`;
+    // A long one may wrap, but only after an = (or <, ≈ …), the way it would
+    // be written on paper: each piece up to a relation is set whole.
+    const pieces = breakAfterRelations(tex);
+    if (pieces.length < 2) return render(tex);
+    return pieces.map((piece) => `<span class="latex-nowrap">${render(piece)}</span>`).join(" ");
   } catch {
     return escapeHtml(tex);
   }
@@ -44,23 +68,23 @@ function renderMath(tex: string, displayMode: boolean): string {
 // sign, and as a plain "$" in text.
 const MONEY = "\u0000";
 
-export function renderLatexHtml(source: string): string {
-  return renderSegments(source.replace(/\\\$/g, MONEY));
+export function renderLatexHtml(source: string, options: LatexOptions = {}): string {
+  return renderSegments(source.replace(/\\\$/g, MONEY), options);
 }
 
-function renderSegments(source: string): string {
+function renderSegments(source: string, options: LatexOptions): string {
   const segments = source.split(/(\$\$[^$]+\$\$|\$[^$]+\$|\[\[[^\]]+\]\])/g);
   return segments
     .map((segment) => {
       if (segment.startsWith("$$") && segment.endsWith("$$") && segment.length > 3) {
-        return renderMath(segment.slice(2, -2).replaceAll(MONEY, "\\$"), true);
+        return renderMath(segment.slice(2, -2).replaceAll(MONEY, "\\$"), true, options);
       }
       if (segment.startsWith("$") && segment.endsWith("$") && segment.length > 1) {
-        return renderMath(segment.slice(1, -1).replaceAll(MONEY, "\\$"), false);
+        return renderMath(segment.slice(1, -1).replaceAll(MONEY, "\\$"), false, options);
       }
       if (segment.startsWith("[[") && segment.endsWith("]]") && segment.length > 3) {
         // Recurse so math delimiters still work inside an underlined span.
-        return `<u>${renderSegments(segment.slice(2, -2))}</u>`;
+        return `<u>${renderSegments(segment.slice(2, -2), options)}</u>`;
       }
       // A walkthrough's highlights arrive as private-use markers (passage-marks.ts).
       // A blank (three or more underscores) gets its own element, so a
@@ -77,7 +101,7 @@ function renderSegments(source: string): string {
     .join("");
 }
 
-export function LatexText({ text, className }: { text: string; className?: string }) {
+export function LatexText({ text, className, displayInline }: { text: string; className?: string } & LatexOptions) {
   if (!text) return null;
-  return <span className={className} dangerouslySetInnerHTML={{ __html: renderLatexHtml(text) }} />;
+  return <span className={className} dangerouslySetInnerHTML={{ __html: renderLatexHtml(text, { displayInline }) }} />;
 }

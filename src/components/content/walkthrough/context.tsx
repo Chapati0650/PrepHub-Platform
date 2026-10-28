@@ -53,6 +53,11 @@ export type WalkthroughHost = {
   /** Why each wrong choice is wrong, by index, shown when a step rules it out. */
   choiceNotes: (string | null)[];
   finish: WalkthroughFinish | null;
+  /** True where a student is answering, so the last step can ask "Did this make sense?". */
+  collectFeedback: boolean;
+  /** The dock folded down to its controls and a line of narration (phones). */
+  folded: boolean;
+  setFolded: (folded: boolean) => void;
 
   index: number;
   total: number;
@@ -97,40 +102,47 @@ export function useOnQuestion(): WalkthroughHost | null {
   return wt && wt.onQuestion && wt.mode === "walkthrough" ? wt : null;
 }
 
-// "All steps" or the step-through, remembered per browser. Read through
-// useSyncExternalStore: the server snapshot is the step-through, so a page
+// Preferences remembered per browser: "All steps" or the step-through, and
+// whether the dock is folded down (on a phone). Read through
+// useSyncExternalStore: the server snapshot is the default, so a page
 // rendered on the server never disagrees with its first client render.
-const MODE_KEY = "prephub:pref:walkthrough-mode";
-const MODE_EVENT = "prephub:walkthrough-mode";
-let modeThisVisit: Mode | null = null;
-
-function readMode(): Mode {
-  if (modeThisVisit) return modeThisVisit;
-  try {
-    return window.localStorage.getItem(MODE_KEY) === "list" ? "list" : "walkthrough";
-  } catch {
-    return "walkthrough";
-  }
-}
-
-function writeMode(mode: Mode) {
-  modeThisVisit = mode;
-  try {
-    window.localStorage.setItem(MODE_KEY, mode);
-  } catch {
-    // Storage blocked: the in-memory choice holds for this visit.
-  }
-  window.dispatchEvent(new Event(MODE_EVENT));
-}
-
-function subscribeMode(onChange: () => void): () => void {
-  window.addEventListener(MODE_EVENT, onChange);
-  window.addEventListener("storage", onChange);
-  return () => {
-    window.removeEventListener(MODE_EVENT, onChange);
-    window.removeEventListener("storage", onChange);
+function browserPref<T extends string>(key: string, fallback: T, values: readonly T[]) {
+  const event = `prephub:${key}`;
+  let thisVisit: T | null = null;
+  return {
+    read(): T {
+      if (thisVisit) return thisVisit;
+      try {
+        const stored = window.localStorage.getItem(`prephub:pref:${key}`);
+        return values.includes(stored as T) ? (stored as T) : fallback;
+      } catch {
+        return fallback;
+      }
+    },
+    write(value: T) {
+      thisVisit = value;
+      try {
+        window.localStorage.setItem(`prephub:pref:${key}`, value);
+      } catch {
+        // Storage blocked: the in-memory choice holds for this visit.
+      }
+      window.dispatchEvent(new Event(event));
+    },
+    subscribe(onChange: () => void): () => void {
+      window.addEventListener(event, onChange);
+      window.addEventListener("storage", onChange);
+      return () => {
+        window.removeEventListener(event, onChange);
+        window.removeEventListener("storage", onChange);
+      };
+    },
+    server: () => fallback,
   };
 }
+
+const modePref = browserPref<Mode>("walkthrough-mode", "walkthrough", ["walkthrough", "list"]);
+const writeMode = (mode: Mode) => modePref.write(mode);
+const compactPref = browserPref<"open" | "folded">("walkthrough-dock", "open", ["open", "folded"]);
 
 // Stands in while a page's provider is switched off (the question isn't
 // answered yet, or has no walkthrough), so the hooks below always run.
@@ -150,6 +162,7 @@ export function WalkthroughProvider({
   studentChoiceIndex = null,
   choiceNotes = [],
   finish = null,
+  collectFeedback = false,
   resetKey = "",
   children,
 }: {
@@ -160,6 +173,7 @@ export function WalkthroughProvider({
   studentChoiceIndex?: number | null;
   choiceNotes?: (string | null)[];
   finish?: WalkthroughFinish | null;
+  collectFeedback?: boolean;
   resetKey?: string;
   children: ReactNode;
 }) {
@@ -174,7 +188,8 @@ export function WalkthroughProvider({
   const [finished, setFinished] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [changeOffscreen, setChangeOffscreen] = useState(false);
-  const mode = useSyncExternalStore(subscribeMode, readMode, () => "walkthrough" as Mode);
+  const mode = useSyncExternalStore(modePref.subscribe, modePref.read, modePref.server);
+  const folded = useSyncExternalStore(compactPref.subscribe, compactPref.read, compactPref.server) === "folded";
   const targets = useRef(new Map<string, () => RevealTarget | null>());
 
   // Another question (or the same one switched on): start over. Adjusted
@@ -205,6 +220,7 @@ export function WalkthroughProvider({
   );
 
   const moved = useCallback(() => setMoves((m) => m + 1), []);
+  const setFolded = useCallback((next: boolean) => compactPref.write(next ? "folded" : "open"), []);
 
   const go = useCallback(
     (next: number) => {
@@ -261,7 +277,9 @@ export function WalkthroughProvider({
       else if (onQuestion && panel.type === "choices") {
         for (const i of [...choiceChanges.eliminate, ...(choiceChanges.focus !== null ? [choiceChanges.focus] : [])]) choices.push(`choice-${i}`);
         if (choiceChanges.reveal && active.correctIndex !== null) choices.push(`choice-${active.correctIndex}`);
-      } else if (panel.type !== "vars") stage.push(`panel-${id}`);
+        // In the stage, the working's new line first: it's what the narration says.
+      } else if (panel.type === "work") stage.unshift(`panel-${id}`);
+      else if (panel.type !== "vars") stage.push(`panel-${id}`);
     }
     return [...passage, ...stage, ...choices];
   }, [active, spec, changed, choiceChanges, onQuestion, shownIndex]);
@@ -306,6 +324,9 @@ export function WalkthroughProvider({
       studentChoiceIndex,
       choiceNotes,
       finish,
+      collectFeedback,
+      folded,
+      setFolded,
       index,
       total,
       go,
@@ -336,6 +357,9 @@ export function WalkthroughProvider({
       studentChoiceIndex,
       choiceNotes,
       finish,
+      collectFeedback,
+      folded,
+      setFolded,
       index,
       total,
       go,
@@ -372,6 +396,7 @@ export function QuestionWalkthrough({
   studentChoiceIndex = null,
   choiceNotes = [],
   finish = null,
+  collectFeedback = false,
   resetKey,
   children,
 }: {
@@ -381,6 +406,8 @@ export function QuestionWalkthrough({
   studentChoiceIndex?: number | null;
   choiceNotes?: (string | null)[];
   finish?: WalkthroughFinish | null;
+  /** On where a student is answering (not a preview or an answer key): the last step asks "Did this make sense?". */
+  collectFeedback?: boolean;
   resetKey?: string;
   children: ReactNode;
 }) {
@@ -393,6 +420,7 @@ export function QuestionWalkthrough({
       studentChoiceIndex={studentChoiceIndex}
       choiceNotes={choiceNotes}
       finish={finish}
+      collectFeedback={collectFeedback}
       resetKey={resetKey}
     >
       {children}

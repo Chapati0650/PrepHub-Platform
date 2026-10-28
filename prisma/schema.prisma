@@ -106,6 +106,7 @@ model User {
   rushRuns                RushRun[]
   dailyChallengeAttempts  DailyChallengeAttempt[]
   analyticsEvents         AnalyticsEvent[]
+  walkthroughFeedback     WalkthroughFeedback[]
   emailSends              EmailSend[]
   announcementsCreated    Announcement[]
   emailVerificationTokens EmailVerificationToken[]
@@ -622,6 +623,7 @@ model Question {
   archivedAt  DateTime?
 
   revisions QuestionRevision[] @relation("QuestionRevisions")
+  walkthroughFeedback WalkthroughFeedback[]
 
   blueprintSlots      BlueprintSlot[]
   diagnosticAttempts  DiagnosticAttempt[]
@@ -1963,4 +1965,28 @@ model HomeworkSlot {
   @@unique([sessionId, position])
   @@index([questionId])
   @@map("homework_slots")
+}
+
+// "Did this make sense?" at the end of a question's walkthrough: one answer
+// per student per revision (they may change it), with the step that lost them
+// when it didn't. Read by the Owner at /owner/content/walkthroughs to find the
+// explanations that need rewriting. A revision is the unit because an edit
+// makes a new one, and feedback on the old text says nothing about the new.
+model WalkthroughFeedback {
+  id                 String   @id @default(cuid())
+  studentId          String
+  questionId         String
+  questionRevisionId String
+  helpful            Boolean
+  /// 1-based; set only when helpful is false and the student said which step.
+  confusingStep      Int?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  student  User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, questionRevisionId])
+  @@index([questionId])
+  @@map("walkthrough_feedback")
 }

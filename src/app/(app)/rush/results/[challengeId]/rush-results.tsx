@@ -36,6 +36,8 @@ export function RushQuestionReview({
           </p>
         )}
       </div>
+      {/* The rows read as a score table; this says they open. */}
+      <p className="-mt-2 text-sm text-muted-foreground">Tap any question to see it again with the full explanation.</p>
       <div className="flex flex-col divide-y divide-border border-y border-border">
         {data.questions.map((q) => {
           const mine = data.me.answers[q.position];

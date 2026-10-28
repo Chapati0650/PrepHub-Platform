@@ -5,6 +5,7 @@ import { LatexText } from "@/components/content/latex-text";
 import { QuestionStatement } from "@/components/content/question-statement";
 import { ExplanationSteps } from "@/components/content/explanation-steps";
 import { QuestionWalkthrough } from "@/components/content/walkthrough/context";
+import { AcceptedAnswers } from "@/components/session/answer-result";
 import { WalkthroughDock } from "@/components/content/walkthrough/dock";
 import { ChoiceNote, PassageMarks, WithChoiceMarks, choiceMarkClasses, choiceMarkTag } from "@/components/content/walkthrough/on-question";
 import type { StudentQuestionContent, StudentQuestionFeedback } from "@/lib/session/question-content";
@@ -76,10 +77,7 @@ export function AnswerKey({ content, feedback }: { content: StudentQuestionConte
             })}
           </ol>
         ) : (
-          <p>
-            <span className="font-medium">Accepted answer{feedback.acceptedAnswers.length === 1 ? "" : "s"}:</span>{" "}
-            {feedback.acceptedAnswers.join(", ")}
-          </p>
+          <AcceptedAnswers answers={feedback.acceptedAnswers} />
         )}
         {feedback.explanationSteps.length > 0 ? (
           <ExplanationSteps steps={feedback.explanationSteps} mediaBasePath="/api/media" walkthrough={feedback.walkthrough} />

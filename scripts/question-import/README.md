@@ -228,7 +228,23 @@ Each step is keyed by panel id (a panel's id is its type unless you give it
 one). **Highlights and focus last one step; crossed-out choices, added
 working, shown elements and set values carry forward.**
 
-**Every walkthrough has a `takeaway` and one prompt.**
+**Every walkthrough has a `takeaway` and one prompt, names the parts of its
+solution (`goals`), and puts every formula it states on a formula card.**
+
+- `goals`: 2–4 parts (5 at most), each `{ "step": n, "label": "…" }` starting
+  at step `n` and running to the next part; the first starts at step 1.
+  A label is what the part *achieves*, 2–4 words, plain text: "Find both
+  radii", "Write the wall's volume", "Calculate it"; for Reading, "Find the
+  clue", "Test each choice". They are drawn over the progress bar and as
+  headings in "All steps", so a student sees the shape of the solution
+  before reading it, which is what lets them reuse it on a new problem. Prefer
+  parts of two or more steps; a one-step part's label gets cut short.
+- Formula cards: a `work` step can carry `"formula": { "name": "Volume of a
+  cylinder", "tex": "V = \\pi r^2 h" }`, drawn above that step's working as a
+  card headed "Formula · Volume of a cylinder". Every formula, definition,
+  identity or rule a step states goes on one (the step's narration still says
+  it in words), and is then not repeated as an `add` line. The names are
+  listed again under "All steps" as "Formulas used". One per step.
 
 - `takeaway` (≤ 240 characters, `$…$` allowed) is shown under the last step
   as "Remember". It is the rule to carry to the *next* question of this
@@ -254,7 +270,7 @@ working, shown elements and set values carry forward.**
 |---|---|---|
 | `passage` | the question's own passage (never copy it) | `highlight` / `alt`: exact quotes of whole words, cyan / amber; `fill`: `{ text, verdict? }` puts text in the blank (`"right"` green, `"wrong"` red wavy), plain text only, carries forward, `null` clears |
 | `choices` | the question's own choices | `focus`: index ("Checking"); `eliminate`: indices ("Ruled out", with that choice's distractor explanation as the reason); `reveal: true` marks the answer green |
-| `work` | lines of math, KaTeX, no `$` | `add`: lines; `clear: true`. `\hl{…}` / `\hlalt{…}` mark what this step changed; `\cancel{…}` works. Lines are set in display style and line up on their first `=` (or `<`, `\le`, `\approx` …) when every line has one, so start each line with what it's about: `r = 30 - \frac{3}{8}`, not `30 - \frac{3}{8} = r`. A line never wraps |
+| `work` | lines of math, KaTeX, no `$` | `formula: { name, tex }` (a card, see above); `add`: lines; `clear: true`. `\hl{…}` / `\hlalt{…}` mark what this step changed; `\cancel{…}` works. Lines are set in display style and line up on their first `=` (or `<`, `\le`, `\approx` …) when every line has one, so start each line with what it's about: `r = 30 - \frac{3}{8}`, not `30 - \frac{3}{8} = r`. A line never wraps mid-expression: a chain too wide for the panel breaks onto rows at its later `=` signs, lined up under the first, so write a long calculation as one chain (`A = B = C = D`) rather than squeezing it |
 | `vars` | small "known so far" chips | `{ "name": "value" }` sets (LatexText, `$…$` allowed), `null` removes |
 | `plane` | coordinate grid: `x`, `y` ranges, `tick`, `labelEvery`, `xLabel`, `yLabel`, `elements` | `show` / `hide` / `focus`: element ids |
 | `diagram` | free drawing, `width` × `height`, y points **down** | `show` / `hide` / `focus` |
@@ -281,8 +297,13 @@ Elements (each has an `id`; `hidden: true` starts it off-stage for a later
   interval from -38 to 38, which reads as $|x| \le 38$.
 
 Figure labels take a small math subset inside `$…$`: italics, `^`, `_`,
-`\frac`, `\sqrt`, `\circ`, `\pi`, `\le`/`\ge`/`\ne`, `\approx`, `\cdot`,
-`\times`, `\angle`, `\ell`. Put anything heavier in the working panel.
+`\frac` (drawn as a case fraction, ³⁄₄), `\sqrt`, `\circ`, `\pi`,
+`\le`/`\ge`/`\ne`, `\approx`, `\cdot`, `\times`, `\angle`, `\ell`, and `{,}`
+for a thousands comma. Write fractions with `\frac`, never "3/4t", which reads
+as 3 over 4t. Put anything heavier in the working panel. Labels on a `plane`
+(points, lines, segments) are placed automatically clear of the axis
+numbers, the lines and each other, so give a point's label and let it land;
+a `diagram` point's `labelAt` is still yours to choose.
 
 ### What makes one good
 
@@ -290,6 +311,15 @@ Figure labels take a small math subset inside `$…$`: italics, `^`, `_`,
   narration names.** "The table gives 71.2% at site GC" lights that row; "the
   slope is 5" adds that line with the 5 marked. A step with nothing to show
   adds a `vars` chip or re-focuses what it is talking about.
+- **The figure follows the steps to the end**, not just the first few: when
+  the working computes the wall's volume, focus the wall (a focused filled
+  circle with a cutout over it lights the ring); when it uses both radii,
+  focus both. The check advises when a figure changes on fewer than a third
+  of the steps.
+- **Readable before exact.** A figure drawn to true proportions can be a
+  sliver (a right triangle with legs 3 and 13 has a 13° angle): draw it so
+  every side and angle can be seen and labelled, and add a `"not to scale"`
+  label. The check advises on any polygon angle under 12°.
 - **Focus, don't decorate.** Focusing elements dims the rest, which is what
   makes a step readable at a glance. Focus the two or three things the step
   is about, including the points a calculation uses.
@@ -323,6 +353,9 @@ Figure labels take a small math subset inside `$…$`: italics, `^`, `_`,
   a Reading question often has no stage, just the dock.
 - Local WIN1252 rule applies to stored text: write math in LaTeX, not
   Unicode symbols.
+- **Advice from the check** (lines starting `~`) is not an error: a
+  walkthrough can go live with it. Fix it anyway unless there's a reason
+  (a source figure that genuinely has nothing more to show).
 
 ### Questions already in the bank (`bank.ts`)
 

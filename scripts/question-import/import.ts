@@ -46,7 +46,7 @@ import {
   updateDraftContent,
 } from "../../src/lib/content/questions";
 import { uploadImage } from "../../src/lib/content/media";
-import { validateWalkthrough, walkthroughViewFor } from "../../src/lib/content/walkthrough-validate";
+import { lintWalkthrough, validateWalkthrough, walkthroughViewFor } from "../../src/lib/content/walkthrough-validate";
 import type { Prisma } from "../../src/generated/prisma/client";
 
 const LETTERS = ["A", "B", "C", "D"];
@@ -171,6 +171,8 @@ function problemsWith(q: ImportQuestion): string[] {
       stepCount: q.explanationSteps.length,
     });
     if (!check.ok) problems.push(...check.problems.map((p) => `walkthrough: ${p}`));
+    // Advice, not a reason to refuse the question: printed and moved past.
+    else for (const advice of lintWalkthrough(check.spec)) console.log(`   ~ ${q.ref}: ${advice}`);
   }
   return problems;
 }

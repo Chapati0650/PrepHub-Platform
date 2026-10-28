@@ -82,6 +82,7 @@ export async function getStudentQuestionFeedback(questionRevisionId: string): Pr
   }
 
   const { view: walkthrough, problems } = walkthroughViewFor({
+    id: revision.id,
     walkthrough: revision.walkthrough,
     passageText: revision.passageText,
     answerChoices: revision.answerChoices,

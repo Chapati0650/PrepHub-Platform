@@ -68,10 +68,14 @@ function mathRuns(tex: string, shift?: "sup" | "sub"): Run[] {
     }
     if (c === "\\") {
       const [cmd, next] = group(tex, i);
-      if (cmd === "\\frac") {
+      if (cmd === "\\frac" || cmd === "\\dfrac" || cmd === "\\tfrac") {
         const [num, a] = group(tex, next);
         const [den, b] = group(tex, a);
-        runs.push(...mathRuns(num, shift), { text: "/", shift }, ...mathRuns(den, shift));
+        // A case fraction, ³⁄₄, the way a printed figure sets one inline: a
+        // plain "3/4t" can be read as 3 over 4t. Inside a script there's no
+        // room to shrink further, so it falls back to a slash.
+        if (shift) runs.push(...mathRuns(num, shift), { text: "/", shift }, ...mathRuns(den, shift));
+        else runs.push(...mathRuns(num, "sup"), { text: "⁄" }, ...mathRuns(den, "sub"));
         i = b;
         continue;
       }
@@ -114,6 +118,22 @@ export function labelRuns(label: string): Run[] {
     else runs.push({ text: part });
   });
   return runs;
+}
+
+// Rough advance widths in em, for placing labels clear of each other. They
+// only have to rank positions, not set type, so a handful of classes will do.
+function charWidth(ch: string): number {
+  if (/[ilj.,:;'|!()[\]⁄]/.test(ch) || ch === " ") return 0.3;
+  if (/[mwMW]/.test(ch)) return 0.85;
+  if (/[A-Z]/.test(ch)) return 0.68;
+  if (/[0-9]/.test(ch)) return 0.56;
+  if (/[−+=<>≤≥≈×·]/.test(ch)) return 0.62;
+  return 0.54;
+}
+
+/** About how wide a label is drawn at `fontSize`, in the same units. */
+export function labelWidth(label: string, fontSize: number): number {
+  return labelRuns(label).reduce((sum, run) => sum + [...run.text].reduce((w, ch) => w + charWidth(ch), 0) * (run.shift ? 0.72 : 1), 0) * fontSize;
 }
 
 /** <tspan>s for a label; place inside a <text>. */

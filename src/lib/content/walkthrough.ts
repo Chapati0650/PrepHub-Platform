@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MARK } from "./passage-marks";
+import { relationCuts } from "./tex-relations";
 
 // A walkthrough is the animated form of a question's explanation: one stage
 // of panels (the passage, the answer choices, the working, a graph, a
@@ -187,7 +188,15 @@ export const ChoicesStepSchema = z.object({
   eliminate: z.array(z.number().int().min(0)).optional(),
   reveal: z.literal(true).optional(),
 });
-export const WorkStepSchema = z.object({ add: z.array(z.string().min(1)).optional(), clear: z.literal(true).optional() });
+// A formula the step states before using it ("The volume of a cylinder is
+// V = πr²h"), drawn as a card above the step's working so a student can tell
+// the rule from the arithmetic. `name` says in words what it is for.
+export const FormulaSchema = z.object({ name: z.string().min(1).max(60), tex: z.string().min(1) });
+export const WorkStepSchema = z.object({
+  formula: FormulaSchema.optional(),
+  add: z.array(z.string().min(1)).optional(),
+  clear: z.literal(true).optional(),
+});
 export const VarsStepSchema = z.record(z.string().min(1), z.string().nullable());
 export const ElementsStepSchema = z.object({
   show: z.array(Id).optional(),
@@ -217,10 +226,18 @@ export const PromptSchema = z.object({
   hint: z.string().min(1).max(200).optional(),
 });
 
+// The parts of a solution, each named by what it achieves ("Find the radius",
+// "Write the volume formula"): a part starts at its `step` (1-based) and runs
+// to the next. Labelling the purpose of each group of steps is what lets a
+// student reuse a worked example on a different problem, so the dock shows
+// them on its progress bar and "All steps" as headings.
+export const GoalSchema = z.object({ step: z.number().int().min(1), label: z.string().min(1).max(40) });
+
 export const WalkthroughSchema = z.object({
   version: z.literal(WALKTHROUGH_VERSION),
   panels: z.array(PanelSchema).min(1).max(5),
   steps: z.array(z.record(z.string(), z.unknown())).min(1),
+  goals: z.array(GoalSchema).min(2).max(5).optional(),
   prompts: z.array(PromptSchema).optional(),
   // The one thing to carry to the next question: a rule, not a recap of this
   // one ("Two complete sentences can't be joined by a comma alone").
@@ -228,6 +245,8 @@ export const WalkthroughSchema = z.object({
 });
 
 export type Prompt = z.infer<typeof PromptSchema>;
+export type Formula = z.infer<typeof FormulaSchema>;
+export type Goal = z.infer<typeof GoalSchema>;
 
 export type Walkthrough = z.infer<typeof WalkthroughSchema>;
 export type Panel = z.infer<typeof PanelSchema>;
@@ -247,6 +266,8 @@ export type WalkthroughView = {
   passageText: string | null;
   choices: string[];
   correctIndex: number | null;
+  /** The revision it was checked against, for "Did this make sense?"; absent in previews. */
+  revisionId?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -254,7 +275,9 @@ export type WalkthroughView = {
 
 export type PassageState = { highlight: string[]; alt: string[]; fill: { text: string; verdict?: "right" | "wrong" } | null };
 export type ChoicesState = { focus: number | null; eliminated: number[]; revealed: boolean };
-export type WorkState = { lines: { tex: string; isNew: boolean }[] };
+/** A line of working, or (with `formula`) a formula card naming the rule the next lines use. */
+export type WorkLine = { tex: string; isNew: boolean; formula?: string };
+export type WorkState = { lines: WorkLine[] };
 export type VarsState = { entries: { name: string; value: string; changed: boolean }[] };
 export type ElementsState = { visible: Set<string>; focus: Set<string>; appeared: Set<string> };
 export type TableState = { rows: number[]; cols: number[]; cells: [number, number][] };
@@ -321,12 +344,13 @@ export function stateAt(spec: Walkthrough, index: number): Map<string, PanelStat
         break;
       }
       case "work": {
-        let lines: { tex: string; isNew: boolean }[] = [];
+        let lines: WorkLine[] = [];
         entries.forEach((entry, i) => {
           const parsed = WorkStepSchema.safeParse(entry ?? {});
           if (!parsed.success) return;
           if (parsed.data.clear) lines = [];
           lines = lines.map((l) => ({ ...l, isNew: false }));
+          if (parsed.data.formula) lines.push({ tex: parsed.data.formula.tex, formula: parsed.data.formula.name, isNew: i === last });
           for (const tex of parsed.data.add ?? []) lines.push({ tex, isNew: i === last });
         });
         out.set(id, { type: "work", state: { lines } });
@@ -405,6 +429,33 @@ export function changedPanelsAt(spec: Walkthrough, index: number): Set<string> {
 /** The "your turn" question asked before step `index` (0-based), if there is one. */
 export function promptAt(spec: Walkthrough, index: number): Prompt | null {
   return spec.prompts?.find((p) => p.step === index + 1) ?? null;
+}
+
+/** The parts of the solution, as 0-based step ranges [from, to), or an empty list when it names none. */
+export function goalParts(spec: Walkthrough): { label: string; from: number; to: number }[] {
+  const goals = [...(spec.goals ?? [])].sort((a, b) => a.step - b.step);
+  return goals.map((g, i) => ({ label: g.label, from: g.step - 1, to: (goals[i + 1]?.step ?? spec.steps.length + 1) - 1 }));
+}
+
+/** Which part of the solution step `index` (0-based) belongs to, if the walkthrough names its parts. */
+export function goalAt(spec: Walkthrough, index: number): { label: string; part: number; parts: number } | null {
+  const parts = goalParts(spec);
+  const part = parts.findIndex((p) => index >= p.from && index < p.to);
+  return part === -1 ? null : { label: parts[part].label, part, parts: parts.length };
+}
+
+/** Every formula the walkthrough states, in order, once each. */
+export function formulasOf(spec: Walkthrough): Formula[] {
+  const out: Formula[] = [];
+  for (const panel of spec.panels) {
+    if (panel.type !== "work") continue;
+    for (const step of spec.steps) {
+      const parsed = WorkStepSchema.safeParse(step[panelId(panel)] ?? {});
+      const formula = parsed.success ? parsed.data.formula : undefined;
+      if (formula && !out.some((f) => f.tex === formula.tex)) out.push(formula);
+    }
+  }
+  return out;
 }
 
 /** Every index a prompt accepts. */
@@ -575,42 +626,49 @@ export function markNarration(text: string, highlight: string[], alt: string[]):
   return out;
 }
 
-const RELATIONS = new Set(["\\le", "\\leq", "\\ge", "\\geq", "\\ne", "\\neq", "\\approx", "\\lt", "\\gt", "\\equiv"]);
 
 /**
- * A line of working split at its first top-level relation (=, <, >, \le …),
- * so a column of lines can be lined up on it. Null when the line has none,
- * or the relation is inside braces or \left…\right, or a side is empty.
+ * A line of working split at every top-level relation (=, <, >, \le …):
+ * [first side, relation, side, relation, side …]. Null when the line has
+ * none, or a side is empty. Relations inside braces or \left…\right don't
+ * count.
+ */
+export function splitAtRelations(tex: string): string[] | null {
+  const cuts = relationCuts(tex);
+  if (cuts.length === 0) return null;
+  const parts: string[] = [];
+  let from = 0;
+  for (const cut of cuts) {
+    parts.push(tex.slice(from, cut.at).trim(), cut.relation);
+    from = cut.at + cut.length;
+  }
+  parts.push(tex.slice(from).trim());
+  return parts.every((p) => p) ? parts : null;
+}
+
+/**
+ * A line of working split at its first top-level relation, so a column of
+ * lines can be lined up on it: [left, relation, everything after it].
  */
 export function splitAtRelation(tex: string): [string, string, string] | null {
-  let depth = 0;
-  for (let i = 0; i < tex.length; i++) {
-    const ch = tex[i];
-    if (ch === "\\") {
-      const command = tex.slice(i).match(/^\\[a-zA-Z]+/)?.[0];
-      if (!command) {
-        i += 1; // an escaped character: \{, \$, \,
-        continue;
-      }
-      if (command === "\\left") depth++;
-      else if (command === "\\right") depth = Math.max(0, depth - 1);
-      else if (depth === 0 && RELATIONS.has(command)) {
-        const left = tex.slice(0, i).trim();
-        const right = tex.slice(i + command.length).trim();
-        return left && right ? [left, command, right] : null;
-      }
-      i += command.length - 1;
-      continue;
-    }
-    if (ch === "{") depth++;
-    else if (ch === "}") depth = Math.max(0, depth - 1);
-    else if (depth === 0 && (ch === "=" || ch === "<" || ch === ">")) {
-      const left = tex.slice(0, i).trim();
-      const right = tex.slice(i + 1).trim();
-      return left && right ? [left, ch, right] : null;
-    }
-  }
-  return null;
+  const first = relationCuts(tex)[0];
+  if (!first) return null;
+  const left = tex.slice(0, first.at).trim();
+  const right = tex.slice(first.at + first.length).trim();
+  return left && right ? [left, first.relation, right] : null;
+}
+
+/**
+ * A line of working broken the way it's written on paper when it's too wide:
+ * the first relation on the first row, each later one on a row of its own
+ * under it ("= (0.375)(59.625)", "= 22.36"), aligned on the relation.
+ */
+export function chainRows(tex: string): [string, string, string][] | null {
+  const parts = splitAtRelations(tex);
+  if (!parts) return null;
+  const rows: [string, string, string][] = [[parts[0], parts[1], parts[2]]];
+  for (let i = 3; i < parts.length; i += 2) rows.push(["", parts[i], parts[i + 1]]);
+  return rows;
 }
 
 // KaTeX settings for the working panel. \hl{…} and \hlalt{…} mark what a step

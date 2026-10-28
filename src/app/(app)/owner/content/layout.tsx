@@ -8,6 +8,7 @@ const TABS = [
   { href: "/owner/content/questions", label: "Questions" },
   { href: "/owner/content/families", label: "Question Families" },
   { href: "/owner/content/coverage", label: "Content Coverage" },
+  { href: "/owner/content/walkthroughs", label: "Walkthrough Feedback" },
   { href: "/owner/content/curriculum", label: "Curriculum" },
   { href: "/owner/content/supplements", label: "College Supplements" },
 ];

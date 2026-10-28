@@ -15,6 +15,7 @@ import { CATEGORY_LABELS } from "@/lib/content/labels";
 import type { SessionResultsData } from "@/lib/session/session-results-data";
 import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
 import type { LoadedQuestion } from "./session-runner";
+import { AcceptedAnswers, resultDetail } from "./answer-result";
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -301,6 +302,7 @@ export function QuestionDetail({ loaded, isCorrect }: { loaded: LoadedQuestion; 
       mediaBasePath="/api/media"
       studentChoiceIndex={studentChoiceIndex >= 0 ? studentChoiceIndex : null}
       choiceNotes={choices.map((c) => feedback?.distractorExplanationsByChoiceId[c.id] ?? null)}
+      collectFeedback
     >
       <div className="flex flex-col gap-3 text-sm">
         {/* The passage the question asks about. A review used to show the
@@ -375,14 +377,12 @@ export function QuestionDetail({ loaded, isCorrect }: { loaded: LoadedQuestion; 
             })}
           </div>
         )}
-        {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && feedback && (
-          <p className="text-muted-foreground">
-            {loaded.studentAnswer && <>Your answer: {loaded.studentAnswer} · </>}
-            Accepted answer: {feedback.acceptedAnswers[0]}
-          </p>
-        )}
-        <p className={`font-medium ${isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
-          {isCorrect ? "Correct" : "Incorrect"}
+        {loaded.content.questionType === "OPEN_ENDED_NUMERIC" && feedback && <AcceptedAnswers answers={feedback.acceptedAnswers} />}
+        <p className="font-medium">
+          <span className={isCorrect ? "text-green-700 dark:text-green-400" : "text-destructive"}>{isCorrect ? "Correct" : "Incorrect"}</span>
+          {(!isCorrect || loaded.content.questionType === "OPEN_ENDED_NUMERIC") && (
+            <span className="font-normal"> · {resultDetail(loaded, loaded.studentAnswer) || "Not answered."}</span>
+          )}
         </p>
         {feedback && feedback.explanationSteps.length > 0 ? (
           <ExplanationSteps steps={feedback.explanationSteps} mediaBasePath="/api/media" walkthrough={feedback.walkthrough} />

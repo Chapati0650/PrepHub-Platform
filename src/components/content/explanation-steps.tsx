@@ -2,7 +2,7 @@
 
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { WalkthroughView } from "@/lib/content/walkthrough";
+import { goalParts, type WalkthroughView } from "@/lib/content/walkthrough";
 import { LatexText } from "./latex-text";
 import { useOptionalWalkthrough } from "./walkthrough/context";
 import { HostedWalkthrough, Walkthrough } from "./walkthrough/walkthrough";
@@ -43,7 +43,8 @@ export function ExplanationSteps({
 }) {
   const host = useOptionalWalkthrough();
   if (steps.length === 0) return null;
-  const list = <StepList steps={steps} mediaBasePath={mediaBasePath} />;
+  const parts = walkthrough && walkthrough.spec.steps.length === steps.length ? goalParts(walkthrough.spec) : [];
+  const list = <StepList steps={steps} mediaBasePath={mediaBasePath} parts={parts} />;
   if (host && walkthrough && host.view === walkthrough) return <HostedWalkthrough list={list} />;
   if (walkthrough && walkthrough.spec.steps.length === steps.length) {
     return <Walkthrough view={walkthrough} steps={steps} mediaBasePath={mediaBasePath} list={list} />;
@@ -51,14 +52,29 @@ export function ExplanationSteps({
   return list;
 }
 
-function StepList({ steps, mediaBasePath }: { steps: ExplanationStepData[]; mediaBasePath: string }) {
+function StepList({
+  steps,
+  mediaBasePath,
+  parts = [],
+}: {
+  steps: ExplanationStepData[];
+  mediaBasePath: string;
+  parts?: { label: string; from: number }[];
+}) {
   return (
     <ol className="flex flex-col gap-3">
       {steps.map((step, i) => {
         const isFinal = i === steps.length - 1;
+        const part = parts.findIndex((p) => p.from === i);
         return (
-          <li
-            key={i}
+          <li key={i} className="flex flex-col gap-2">
+            {/* A walkthrough that names the parts of its solution names them here too. */}
+            {part !== -1 && (
+              <p className={cn("text-xs font-semibold tracking-wide text-primary uppercase", i > 0 && "mt-2")}>
+                <span className="tabular-nums">{String(part + 1).padStart(2, "0")}</span> · {parts[part].label}
+              </p>
+            )}
+          <div
             className={cn(
               "flex gap-3 rounded-md p-3 text-sm",
               isFinal ? "border border-primary/40 bg-card" : "bg-muted",
@@ -88,6 +104,7 @@ function StepList({ steps, mediaBasePath }: { steps: ExplanationStepData[]; medi
                 <img src={`${mediaBasePath}/${step.imageId}`} alt="" className="mt-2 max-w-full rounded" />
               )}
             </div>
+          </div>
           </li>
         );
       })}

@@ -45,7 +45,7 @@ import { createQuestion, publishQuestion, updateDraftContent } from "../../src/l
 import { uploadImage } from "../../src/lib/content/media";
 import { readFromStorage } from "../../src/lib/content/storage";
 import { markNarration, promptAt, type Walkthrough } from "../../src/lib/content/walkthrough";
-import { validateWalkthrough, walkthroughViewFor } from "../../src/lib/content/walkthrough-validate";
+import { lintWalkthrough, validateWalkthrough, walkthroughViewFor } from "../../src/lib/content/walkthrough-validate";
 import { splitStoredPassage, stripStepPrefix } from "../../src/lib/content/legacy-text";
 import type { Prisma } from "../../src/generated/prisma/client";
 import type { QuestionCategory, QuestionDifficulty, QuestionType } from "../../src/generated/prisma/enums";
@@ -247,6 +247,8 @@ async function check() {
       continue;
     }
     if (!entry.walkthrough.takeaway || !entry.walkthrough.prompts?.length) bad++;
+    // Advice, not errors: a walkthrough can go live with these, but is better without.
+    for (const advice of lintWalkthrough(result.spec)) console.log(`   ~ ${advice}`);
     const passageId = entry.walkthrough.panels.find((p) => p.type === "passage")?.id ?? "passage";
     entry.walkthrough.steps.forEach((step, i) => {
       const prompt = promptAt(entry.walkthrough, i);

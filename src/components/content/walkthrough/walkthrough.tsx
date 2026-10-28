@@ -4,7 +4,8 @@ import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { WalkthroughView } from "@/lib/content/walkthrough";
 import { useOptionalWalkthrough, WalkthroughProvider, type StepText } from "./context";
-import { WalkthroughDock, WalkthroughTakeaway } from "./dock";
+import { formulasOf } from "@/lib/content/walkthrough";
+import { FormulasUsed, WalkthroughDock, WalkthroughTakeaway } from "./dock";
 import { WalkthroughStage } from "./stage";
 
 // A question's explanation as a step-through. On a question page the
@@ -28,6 +29,7 @@ function AllSteps({ list }: { list: React.ReactNode }) {
       </div>
       {list}
       {wt?.view.spec.takeaway && <WalkthroughTakeaway text={wt.view.spec.takeaway} />}
+      {wt && <FormulasUsed formulas={formulasOf(wt.view.spec)} />}
     </div>
   );
 }
