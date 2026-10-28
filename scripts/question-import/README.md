@@ -324,6 +324,27 @@ Figure labels take a small math subset inside `$…$`: italics, `^`, `_`,
 - Local WIN1252 rule applies to stored text: write math in LaTeX, not
   Unicode symbols.
 
+### Questions already in the bank (`bank.ts`)
+
+Walkthroughs for questions that came in before this, in batches of about
+ten (Owner, 2026-10-27: the whole bank, keeping a fifth of the week's Claude
+usage free). Each batch is a folder under
+`Downloads\PrepHub\Question imports\Bank walkthroughs\`:
+
+1. `bank.ts export "<folder>" --production --per-category=N --limit=N`
+   (with `.env.neon`'s `DATABASE_URL` and `--env-file=.env.r2`, for the
+   figures): read-only, writes `batch.json` and `figures/`, never a question
+   already in a sibling batch folder.
+2. A helper writes `walkthroughs.json` (keyed by question id; add
+   `explanationSteps` only when the explanation is rewritten — most older
+   math explanations skip a formula) and runs `bank.ts check "<folder>"`
+   until it says "all valid".
+3. `bank.ts mirror "<folder>"` copies the batch into the local database;
+   `bank.ts apply "<folder>" --local --commit` writes the walkthroughs there;
+   look at them in the session runner.
+4. `bank.ts apply "<folder>" --production` reports, then `--commit` writes
+   live. A question changed since export is skipped, not overwritten.
+
 The check validates every walkthrough against its question (step count,
 quotes and whole words, indices, element ids, KaTeX, coordinates in range,
 prompts and their answers). To add

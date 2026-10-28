@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import type { BarsState, ElementsState, Panel } from "@/lib/content/walkthrough";
+import { LatexText } from "@/components/content/latex-text";
 import { SvgLabelText } from "./svg-label";
 
 // The walkthrough's drawn panels: a coordinate plane, a free diagram, a
@@ -675,8 +676,12 @@ export function BarsFigure({ panel, state }: { panel: BarsPanel; state: BarsStat
   // changes its colour, and the colour is what says which series it is.
   return (
     <figure className="mx-auto w-full max-w-[30rem]">
-      {panel.title && <figcaption className="mb-1 text-center text-sm font-medium">{panel.title}</figcaption>}
-      <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full" role="img" aria-label={panel.title ?? "Bar chart"}>
+      {panel.title && (
+        <figcaption className="mb-1 text-center text-sm font-medium">
+          <LatexText text={panel.title} />
+        </figcaption>
+      )}
+      <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full" role="img" aria-label={panel.title?.replace(/$/g, "") ?? "Bar chart"}>
         {ticks(0, top, step).map((v) => (
           <g key={v}>
             <line x1={padL} x2={padL + plotW} y1={Y(v)} y2={Y(v)} className="stroke-foreground/10" strokeWidth={1} />

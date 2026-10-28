@@ -263,7 +263,13 @@ export function TablePanel({ panel, state }: { panel: Extract<Panel, { type: "ta
   const any = state.rows.length + state.cols.length + state.cells.length > 0;
   return (
     <div>
-      {panel.title ? <p className="mb-2 text-center text-sm font-medium">{panel.title}</p> : <PanelLabel>Table</PanelLabel>}
+      {panel.title ? (
+        <p className="mb-2 text-center text-sm font-medium">
+          <LatexText text={panel.title} />
+        </p>
+      ) : (
+        <PanelLabel>Table</PanelLabel>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
