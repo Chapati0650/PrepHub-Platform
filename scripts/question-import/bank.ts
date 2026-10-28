@@ -4,12 +4,12 @@
  * The import (import.ts) writes walkthroughs as a test is brought in. This
  * does the same for the questions that came before it, in batches:
  *
- *   npx tsx scripts/question-import/bank.ts export "<batch folder>" [--per-category N] [--limit N] [--ids a,b] [--production]
+ *   npx tsx scripts/question-import/bank.ts export "<batch folder>" [--per-category=N] [--limit=N] [--section=rw|math] [--ids=a,b] [--production]
  *       Read-only. Writes batch.json (each question as students see it, with
  *       its explanation and distractor notes) and figures/<id>.png. Skips
  *       questions that already have a walkthrough, and any question already
  *       in another batch folder beside this one.
- *   npx tsx scripts/question-import/bank.ts check "<batch folder>"
+ *   npx tsx scripts/question-import/bank.ts check "<batch folder>" [--only=<id>]
  *       Offline: checks walkthroughs.json against batch.json with the site's
  *       own validator, and shows which highlighted words each narration will
  *       colour. No database.
@@ -133,6 +133,8 @@ async function exportBatch() {
   const ids = value("ids")?.split(",");
   const perCategory = Number(value("per-category") ?? Infinity);
   const limit = Number(value("limit") ?? Infinity);
+  const section = value("section");
+  if (section && section !== "rw" && section !== "math") fail("--section is rw or math");
 
   const rows = await prisma.question.findMany({
     where: { status: "PUBLISHED", ...(ids ? { id: { in: ids } } : {}) },
@@ -152,6 +154,7 @@ async function exportBatch() {
   for (const row of rows) {
     const revision = row.currentPublishedRevision;
     if (!revision || (!ids && (revision.walkthrough !== null || exclude.has(row.id)))) continue;
+    if (section && READING_AND_WRITING.has(row.category) !== (section === "rw")) continue;
     if ((counts.get(row.category) ?? 0) >= perCategory || picked.length >= limit) continue;
     counts.set(row.category, (counts.get(row.category) ?? 0) + 1);
     picked.push(row);
@@ -214,7 +217,9 @@ async function check() {
   const batch = await readJson<Batch>(path.join(folder, "batch.json"));
   const entries = await readJson<Record<string, Entry>>(path.join(folder, "walkthroughs.json"));
   let bad = 0;
+  const only = value("only");
   for (const q of batch.questions) {
+    if (only && q.id !== only) continue;
     const entry = entries[q.id];
     if (!entry) {
       console.log(`\n== ${q.id} (${q.category}): MISSING`);
@@ -256,7 +261,7 @@ async function check() {
       console.log(`   step ${i + 1} narration ${shown}`);
     });
   }
-  const extra = Object.keys(entries).filter((id) => !batch.questions.some((q) => q.id === id));
+  const extra = only ? [] : Object.keys(entries).filter((id) => !batch.questions.some((q) => q.id === id));
   for (const id of extra) console.log(`\n${id}: in walkthroughs.json but not in this batch`);
   console.log(`\n${bad === 0 && extra.length === 0 ? "all valid" : `${bad + extra.length} to fix`}`);
 }
