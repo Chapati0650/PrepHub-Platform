@@ -241,10 +241,19 @@ solution (`goals`), and puts every formula it states on a formula card.**
   parts of two or more steps; a one-step part's label gets cut short.
 - Formula cards: a `work` step can carry `"formula": { "name": "Volume of a
   cylinder", "tex": "V = \\pi r^2 h" }`, drawn above that step's working as a
-  card headed "Formula · Volume of a cylinder". Every formula, definition,
-  identity or rule a step states goes on one (the step's narration still says
-  it in words), and is then not repeated as an `add` line. The names are
-  listed again under "All steps" as "Formulas used". One per step.
+  card headed "Formula · Volume of a cylinder". A card is for what a student
+  should carry to the *next* question: a formula (area, volume, slope,
+  circumference, arc length, percent change, exponential growth), a form
+  (vertex, factored, slope-intercept), an identity, or a named rule a student
+  forgets (the discriminant, flipping an inequality when multiplying by a
+  negative, $|u| \ge 0$). Its narration still says it in words, and it is then
+  not repeated as an `add` line. **Not cards**: algebra moves (distributing,
+  factoring out a term, combining like terms, substitution, doing the same to
+  both sides, order of operations), a translation of this question's words
+  ("at least 12", "the total is the sum of the counts") and facts from a
+  passage; those stay `add` lines or narration. One per step, about two per
+  question at most, and none is fine: a Reading question almost never has one.
+  The names are listed again under "All steps" as "Formulas used".
 
 - `takeaway` (≤ 240 characters, `$…$` allowed) is shown under the last step
   as "Remember". It is the rule to carry to the *next* question of this

@@ -362,7 +362,12 @@ export function lintWalkthrough(spec: Walkthrough): string[] {
       const p = WorkStepSchema.safeParse(s[panelId(work)] ?? {});
       return p.success ? [p.data] : [];
     });
-    if (!lines.some((l) => l.formula)) advice.push("no formula card: if any step states a formula, definition or rule, give it a `formula` card");
+    // Advice only: a question may rightly have none, and a card made just to
+    // silence this is worse than no card (see the README's "Formula cards").
+    if (!lines.some((l) => l.formula))
+      advice.push(
+        "no formula card: if a step states a formula, form or named rule worth remembering for the next question (slope, the discriminant, vertex form), give it a card; algebra moves and facts from this question stay working lines, and none at all is fine",
+      );
     lines.forEach((l, i) => {
       for (const tex of l.add ?? []) {
         // A long chain breaks into rows by itself; a single side this long doesn't.

@@ -30,7 +30,8 @@
  * authoring rules are the README's "Explanations" and "Walkthroughs".
  *
  * A rewritten explanation is saved through updateDraftContent, exactly as an
- * edit in the CMS; a walkthrough alone is written onto the live revision, as
+ * edit in the CMS (which, outside a Question Family, changes the live
+ * revision directly); a walkthrough alone is written onto the live revision, as
  * import.ts --attach-walkthroughs does (it is presentation of the explanation,
  * checked against that revision's content). Either way the question must
  * still read as it did when exported, or it is skipped.
