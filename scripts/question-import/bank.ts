@@ -81,12 +81,15 @@ type Batch = { exportedAt: string; production: boolean; questions: BankQuestion[
  * keyFix corrects a wrong answer key found while writing the walkthrough (the
  * figure says otherwise). It is written only with apply --fix-keys, which the
  * Owner approves per batch: changing a live question's correct answer is a
- * different order of change from rewording its explanation.
+ * different order of change from rewording its explanation. choiceTexts
+ * repairs choices an older bulk upload stored garbled ("$-53$" for
+ * "$(-5, 3)$"), one per choice, in the same order.
  */
 type KeyFix = {
   correctChoiceIndex?: number;
   acceptedAnswers?: string[];
   distractorExplanations?: (string | null)[];
+  choiceTexts?: string[];
   why: string;
 };
 type Entry = { explanationSteps?: string[]; walkthrough: Walkthrough; keyFix?: KeyFix };
@@ -233,6 +236,14 @@ async function check() {
       const was = q.correctChoiceIndex !== null ? `choice ${"ABCD"[q.correctChoiceIndex]}` : q.acceptedAnswers.join(" or ");
       const now = key.correctChoiceIndex !== null ? `choice ${"ABCD"[key.correctChoiceIndex]}` : key.acceptedAnswers.join(" or ");
       console.log(`\n!! ${q.id}: ANSWER KEY CHANGE ${was} → ${now} (needs --fix-keys): ${entry.keyFix.why}`);
+      const texts = entry.keyFix.choiceTexts;
+      if (texts) {
+        if (texts.length !== q.choices.length) {
+          console.log(`   - choiceTexts has ${texts.length} entries for ${q.choices.length} choices`);
+          bad++;
+        }
+        texts.forEach((t, i) => console.log(`   choice ${"ABCD"[i]} text: ${q.choices[i]}  →  ${t}`));
+      }
     }
     const result = validateWalkthrough(entry.walkthrough, {
       passageText: q.passageText,
@@ -369,6 +380,7 @@ async function apply() {
     const key = keyOf(q, entry);
     const choices = revision.answerChoices.map((c, i) => ({
       ...c,
+      text: entry.keyFix?.choiceTexts?.[i] ?? c.text,
       isCorrect: key.correctChoiceIndex === null ? c.isCorrect : i === key.correctChoiceIndex,
     }));
     const { view, problems } = walkthroughViewFor({
