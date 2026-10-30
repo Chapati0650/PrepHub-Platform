@@ -177,9 +177,17 @@ function problemsWith(q: ImportQuestion): string[] {
   return problems;
 }
 
-/** Whitespace, case and math delimiters don't make two questions different. */
-function contentKey(passage: string | null, stem: string): string {
-  return `${passage ?? ""} ${stem}`.toLowerCase().replace(/\$/g, "").replace(/\s+/g, " ").trim();
+/**
+ * Whitespace, case and math delimiters don't make two questions different;
+ * different choices do. A stem like "The shaded region shown represents the
+ * solutions to which inequality?" is shared by unrelated questions that
+ * differ only in their figure and choices, so the choices are part of the
+ * key, compared on letters and digits alone ($\frac{2}{5}$ and (2/5) match).
+ */
+function contentKey(passage: string | null, stem: string, choices: string[] = []): string {
+  const text = `${passage ?? ""} ${stem}`.toLowerCase().replace(/\$/g, "").replace(/\s+/g, " ").trim();
+  const options = choices.map((c) => c.toLowerCase().replace(/\\[a-z]+/g, "").replace(/[^a-z0-9.-]/g, ""));
+  return options.length ? `${text} | ${options.join(" | ")}` : text;
 }
 
 function pagePath(page: number): string {
@@ -241,15 +249,18 @@ async function main() {
     select: {
       id: true,
       status: true,
-      currentPublishedRevision: { select: { questionText: true, passageText: true } },
-      currentDraftRevision: { select: { questionText: true, passageText: true } },
+      currentPublishedRevision: { select: { questionText: true, passageText: true, answerChoices: { orderBy: { order: "asc" }, select: { text: true } } } },
+      currentDraftRevision: { select: { questionText: true, passageText: true, answerChoices: { orderBy: { order: "asc" }, select: { text: true } } } },
     },
   });
   const known = new Map<string, { id: string; status: string }>();
   // ↑ the id is what --attach-walkthroughs writes to.
   for (const q of existing) {
     for (const revision of [q.currentPublishedRevision, q.currentDraftRevision]) {
-      if (revision) known.set(contentKey(revision.passageText, revision.questionText), { id: q.id, status: q.status });
+      if (revision) {
+        const key = contentKey(revision.passageText, revision.questionText, revision.answerChoices.map((c) => c.text));
+        known.set(key, { id: q.id, status: q.status });
+      }
     }
   }
 
@@ -259,7 +270,7 @@ async function main() {
 
   for (const q of batch.questions) {
     const problems = problemsWith(q);
-    const key = contentKey(q.passageText, q.questionText);
+    const key = contentKey(q.passageText, q.questionText, q.choices ?? []);
     if (seenInBatch.has(key)) problems.push("appears twice in this batch");
     seenInBatch.add(key);
     for (const page of q.pages) {
@@ -366,7 +377,7 @@ async function attachToExisting(
   let rewritten = 0;
   let refused = 0;
   for (const { q } of items) {
-    const match = known.get(contentKey(q.passageText, q.questionText));
+    const match = known.get(contentKey(q.passageText, q.questionText, q.choices ?? []));
     if (!match) continue;
     const question = await prisma.question.findUniqueOrThrow({
       where: { id: match.id },
