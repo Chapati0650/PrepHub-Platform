@@ -237,8 +237,20 @@ const DAY_MS = 86_400_000;
 // anything today, anywhere in the product, on the cadence reminderDue sets.
 // Paid students are pointed at their set; free students at the Daily
 // Challenge. Stops paging at `deadline` (a later run the same evening carries
-// on where this one stopped: today's claims are already recorded). Returns how
-// many were queued and whether every student was reached.
+// on: today's claims are already recorded). Returns how many were queued and
+// whether every student was reached.
+//
+// Most students with the toggle on aren't due anything — reminderDue stops
+// after a month away, and in October 2026 that was 162 of 194 — and nothing is
+// ever recorded for them, so every run (three an evening) walks past them
+// again. This used to load each one's subscription and school membership and
+// ask the answer tables three questions about them, all to send nothing; at
+// district scale that work is what ran each run into its deadline at the same
+// place, so the students past it were never reminded. Now each page costs
+// one read of ids and one activity check, and everything else — the full
+// rows, the week and today checks, the recent-reminder lookup — is done only
+// for the students active in the last month, the only ones reminderDue can
+// say yes to.
 export async function queueDailyReminders(
   now = new Date(),
   deadline = Number.POSITIVE_INFINITY,
@@ -260,47 +272,53 @@ export async function queueDailyReminders(
         diagnosticSession: { status: "COMPLETED" },
         emailSends: { none: { kind: "daily_reminder", day } },
       },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        role: true,
-        subscription: true,
-        studentMembership: { include: { organization: true } },
-      },
+      select: { id: true },
       orderBy: { id: "asc" },
       take: PAGE_SIZE,
     });
     if (page.length === 0) break;
     const ids = page.map((u) => u.id);
-    // Activity since a month ago, narrowed in memory: one scan of the answer
-    // tables per page instead of three.
-    const [activeThisMonth, recentReminders] = await Promise.all([
-      studentsActiveSince(ids, monthAgo),
-      prisma.emailSend.findMany({
-        where: { userId: { in: ids }, kind: "daily_reminder", day: { gte: sixDaysAgoKey } },
-        select: { userId: true },
-      }),
-    ]);
-    const [activeThisWeek, studiedToday] = await Promise.all([
-      studentsActiveSince([...activeThisMonth], weekAgo),
-      studentsActiveSince([...activeThisMonth], startOfDay),
-    ]);
-    const reminded = new Set(recentReminders.map((r) => r.userId));
-    const messages = new Map(
-      page
-        .filter(
-          (u) =>
-            !studiedToday.has(u.id) &&
-            reminderDue({
-              activeInLastWeek: activeThisWeek.has(u.id),
-              activeInLastMonth: activeThisMonth.has(u.id),
-              remindedInLastSixDays: reminded.has(u.id),
-            }),
-        )
-        .map((u) => [u.id, dailyReminderMessage(u, decidePaidAccess(u.role, u.subscription, u.studentMembership))]),
-    );
-    queued += await claimAndQueue("daily_reminder", day, messages);
+    // Activity since a month ago: anyone outside it can't be due (reminderDue
+    // returns false for them whatever else is true), so they stop here.
+    const activeThisMonth = await studentsActiveSince(ids, monthAgo);
+    if (activeThisMonth.size > 0) {
+      const candidates = [...activeThisMonth];
+      const [students, recentReminders, activeThisWeek, studiedToday] = await Promise.all([
+        prisma.user.findMany({
+          where: { id: { in: candidates } },
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            role: true,
+            subscription: true,
+            studentMembership: { include: { organization: true } },
+          },
+          orderBy: { id: "asc" },
+        }),
+        prisma.emailSend.findMany({
+          where: { userId: { in: candidates }, kind: "daily_reminder", day: { gte: sixDaysAgoKey } },
+          select: { userId: true },
+        }),
+        studentsActiveSince(candidates, weekAgo),
+        studentsActiveSince(candidates, startOfDay),
+      ]);
+      const reminded = new Set(recentReminders.map((r) => r.userId));
+      const messages = new Map(
+        students
+          .filter(
+            (u) =>
+              !studiedToday.has(u.id) &&
+              reminderDue({
+                activeInLastWeek: activeThisWeek.has(u.id),
+                activeInLastMonth: true,
+                remindedInLastSixDays: reminded.has(u.id),
+              }),
+          )
+          .map((u) => [u.id, dailyReminderMessage(u, decidePaidAccess(u.role, u.subscription, u.studentMembership))]),
+      );
+      queued += await claimAndQueue("daily_reminder", day, messages);
+    }
     if (page.length < PAGE_SIZE) break;
     after = page[page.length - 1].id;
   }

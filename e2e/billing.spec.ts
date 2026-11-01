@@ -22,12 +22,14 @@ test.describe("billing (PRD-003)", () => {
 
     // Billing page reflects the purchase
     await page.goto("/billing");
-    await expect(page.getByText("Monthly ($25/mo)")).toBeVisible();
-    await expect(page.getByText("ACTIVE")).toBeVisible();
+    await expect(page.getByText("Monthly · $25/month")).toBeVisible();
+    await expect(page.getByText("Active", { exact: true })).toBeVisible();
 
-    // Switch to Annual — takes effect next renewal, no immediate charge
-    await page.getByRole("button", { name: "Switch to Annual ($99/yr)" }).click();
-    await expect(page.getByText(/won't be charged anything today/i)).toBeVisible();
+    // Switch to Annual — scheduled for the renewal through a Stripe
+    // Subscription Schedule, so nothing is charged today.
+    await page.getByRole("button", { name: "Switch to Annual · $99/year" }).click();
+    await page.getByRole("button", { name: "Schedule the switch" }).click();
+    await expect(page.getByText(/Switches to Annual on/).first()).toBeVisible();
 
     // Cancel, with confirmation dialog
     await page.getByRole("button", { name: "Cancel Subscription" }).click();
@@ -37,7 +39,7 @@ test.describe("billing (PRD-003)", () => {
 
     // Reactivate — undoes the scheduled cancellation
     await page.getByRole("button", { name: "Reactivate Subscription" }).click();
-    await expect(page.getByText("ACTIVE")).toBeVisible();
+    await expect(page.getByText("Active", { exact: true })).toBeVisible();
     await expect(page.getByText(/set to end on/i)).not.toBeVisible();
 
     // Invalid promo code is rejected

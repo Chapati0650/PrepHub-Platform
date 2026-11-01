@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { drainEmailQueue, enqueueEmails, getQueueHealth, queueRows } from "@/lib/email-queue";
+import { MAX_ATTEMPTS, drainEmailQueue, enqueueEmails, getQueueHealth, isPlausibleEmailAddress, queueRows } from "@/lib/email-queue";
 import { sendEmailBatch } from "@/lib/email";
 import { prisma } from "@/lib/prisma";
+import { logEmailDeliveryFailure } from "@/lib/logger";
 
 vi.mock("@/lib/email", () => ({
   sendEmailBatch: vi.fn().mockResolvedValue({ sent: 0, failed: 0 }),
   BATCH_PAUSE_MS: 0,
 }));
+
+vi.mock("@/lib/logger", () => ({ logEmailDeliveryFailure: vi.fn() }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -43,6 +46,33 @@ beforeEach(() => {
   givenClaims();
 });
 
+describe("isPlausibleEmailAddress", () => {
+  it.each(["ada@school.edu", "ada.lovelace+sat@mail.district.k12.tx.us", "o'brien@x.org", "a@xn--bcher-kva.example"])(
+    "accepts %s",
+    (address) => {
+      expect(isPlausibleEmailAddress(address)).toBe(true);
+    },
+  );
+
+  it.each([
+    "not-an-email",
+    "ada@",
+    "@school.edu",
+    "ada@@school.edu",
+    "ada@school",
+    "ada @school.edu",
+    "ada@school..edu",
+    "ada@school.e",
+    ".ada@school.edu",
+    "ada..l@school.edu",
+    "ada@school.edu, bob@school.edu",
+    "Ada <ada@school.edu>",
+    "ada@-school.edu",
+  ])("rejects %s, which would make the provider refuse its whole batch", (address) => {
+    expect(isPlausibleEmailAddress(address)).toBe(false);
+  });
+});
+
 describe("queueRows", () => {
   it("drops duplicates and anything that isn't an address", () => {
     const rows = queueRows("announcement", ["a@x.edu", "a@x.edu", "", "not-an-email"], {
@@ -50,6 +80,21 @@ describe("queueRows", () => {
       text: "t",
     });
     expect(rows.map((r) => r.to)).toEqual(["a@x.edu"]);
+  });
+
+  it("trims before checking, so a roster's stray space doesn't cost the student their email", () => {
+    const rows = queueRows("roster_invite", [" a@x.edu ", "a@x.edu", "b@x.edu\t"], { subject: "s", text: "t" });
+    expect(rows.map((r) => r.to)).toEqual(["a@x.edu", "b@x.edu"]);
+  });
+
+  it("counts what it left out without ever logging an address", () => {
+    queueRows("announcement", ["ok@x.edu", "broken@", "also broken@x.edu"], { subject: "s", text: "t" });
+
+    expect(logEmailDeliveryFailure).toHaveBeenCalledTimes(1);
+    const logged = JSON.stringify((logEmailDeliveryFailure as unknown as ReturnType<typeof vi.fn>).mock.calls[0]);
+    expect(logged).toContain('"dropped":2');
+    expect(logged).not.toContain("broken");
+    expect(logged).not.toContain("ok@x.edu");
   });
 
   it("carries the body as the row's body, so a later edit can't change mail already queued", () => {
@@ -109,8 +154,64 @@ describe("drainEmailQueue", () => {
     // retires a permanently bad address.
     expect(mocked.queuedEmail.updateMany).toHaveBeenCalledWith({
       where: { id: { in: ["a"] } },
-      data: { claimedAt: null, lastError: "provider rejected 1 of 1" },
+      data: { claimedAt: null, lastError: "provider rejected this address" },
     });
+  });
+
+  it("delivers everyone else when the provider refuses a batch over one address", async () => {
+    // Resend refuses the whole request for one bad address. Splitting finds it
+    // and sends the rest, instead of retrying the same hundred until all of
+    // them are given up on.
+    const rows = Array.from({ length: 8 }, (_, i) => row(`r${i}`));
+    givenClaims(rows);
+    mockedSendEmailBatch.mockImplementation(async (messages: { to: string }[]) =>
+      messages.some((m) => m.to === "r5@school.edu")
+        ? { sent: 0, failed: messages.length }
+        : { sent: messages.length, failed: 0 },
+    );
+
+    const result = await drainEmailQueue({});
+
+    expect(result).toMatchObject({ sent: 7, failed: 1 });
+    const sentIds = mocked.queuedEmail.updateMany.mock.calls
+      .filter((call) => call[0].data.sentAt)
+      .flatMap((call) => call[0].where.id.in);
+    expect(sentIds.sort()).toEqual(["r0", "r1", "r2", "r3", "r4", "r6", "r7"]);
+    expect(mocked.queuedEmail.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["r5"] } },
+      data: { claimedAt: null, lastError: "provider rejected this address" },
+    });
+    // 8 → 4+4 → 2+2 → 1+1: one call per half on the way down.
+    expect(mockedSendEmailBatch).toHaveBeenCalledTimes(7);
+  });
+
+  it("stops splitting during a provider outage instead of turning one batch into a flood of calls", async () => {
+    const rows = Array.from({ length: 100 }, (_, i) => row(`r${i}`));
+    givenClaims(rows);
+    mockedSendEmailBatch.mockImplementation(async (messages: unknown[]) => ({ sent: 0, failed: messages.length }));
+
+    const result = await drainEmailQueue({});
+
+    expect(mockedSendEmailBatch).toHaveBeenCalledTimes(16);
+    expect(result.sent).toBe(0);
+    expect(result.failed).toBe(100);
+    // Everything not individually refused is released together for the next run.
+    const released = mocked.queuedEmail.updateMany.mock.calls.flatMap((call) => call[0].where.id.in);
+    expect(new Set(released).size).toBe(100);
+  });
+
+  it("retires a malformed address already in the queue without spending a provider call on it", async () => {
+    givenClaims([row("good"), row("bad", { to: "bad@@school.edu" })]);
+    mockedSendEmailBatch.mockResolvedValue({ sent: 1, failed: 0 });
+
+    const result = await drainEmailQueue({});
+
+    expect(result).toMatchObject({ sent: 1, failed: 1 });
+    expect(mocked.queuedEmail.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["bad"] } },
+      data: { claimedAt: null, attempts: MAX_ATTEMPTS, lastError: "malformed address" },
+    });
+    expect(mockedSendEmailBatch).toHaveBeenCalledWith([{ to: "good@school.edu", subject: "Snow day", text: "No school." }]);
   });
 
   it("keeps claiming until the queue is empty", async () => {

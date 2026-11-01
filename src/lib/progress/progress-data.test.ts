@@ -3,6 +3,7 @@ import { getProgressData } from "@/lib/progress/progress-data";
 import { ALL_CATEGORIES } from "@/lib/adaptive/config";
 import { prisma } from "@/lib/prisma";
 import { getStudentActivity } from "@/lib/school/student-activity";
+import { generateDiagnosticPrediction } from "@/lib/score/generate-diagnostic-prediction";
 
 vi.mock("@/lib/prisma", () => {
   const mockPrisma: Record<string, unknown> = {
@@ -20,8 +21,11 @@ vi.mock("@/lib/school/student-activity", async (importOriginal) => ({
   getStudentActivity: vi.fn(),
 }));
 
+vi.mock("@/lib/score/generate-diagnostic-prediction", () => ({ generateDiagnosticPrediction: vi.fn() }));
+
 const mocked = prisma as unknown as Record<string, Record<string, ReturnType<typeof vi.fn>>>;
 const mockedActivity = getStudentActivity as unknown as ReturnType<typeof vi.fn>;
+const mockedGenerate = generateDiagnosticPrediction as unknown as ReturnType<typeof vi.fn>;
 
 function prediction(sourceType: "DIAGNOSTIC" | "ADAPTIVE_SET", min: number, sourceSetId: string | null = null) {
   return {
@@ -85,6 +89,40 @@ describe("getProgressData", () => {
 
     expect(data.journeyNarrative).toContain("completed 1 practice set, answered 120 questions");
     expect(data.history.map((h) => h.label)).toEqual(["Diagnostic", "Set 1"]);
+  });
+
+  // Completion commits before the prediction; if that step failed, the page
+  // used to throw on every visit reading the last element of an empty list.
+  it("generates the Diagnostic prediction when a finished Diagnostic has none yet", async () => {
+    mocked.predictionHistoryEntry.findMany.mockResolvedValue([]);
+    mocked.practiceSet.findMany.mockResolvedValue([]);
+    mockedGenerate.mockResolvedValue(prediction("DIAGNOSTIC", 900));
+
+    const data = await getProgressData("s1");
+    if (data.diagnosticStatus !== "COMPLETED") throw new Error("expected a completed Diagnostic");
+
+    expect(mockedGenerate).toHaveBeenCalledWith("s1");
+    expect(data.currentRange).toEqual({ min: 900, max: 960 });
+    expect(data.history.map((h) => h.label)).toEqual(["Diagnostic"]);
+  });
+
+  // It measured from the starting range's bottom to the current range's top,
+  // so the bar showed the range's own width as progress before any practice.
+  it("starts the target bar empty and measures midpoint to midpoint", async () => {
+    mocked.user.findUniqueOrThrow.mockResolvedValue({ targetScore: 1330 });
+    mocked.predictionHistoryEntry.findMany.mockResolvedValue([prediction("DIAGNOSTIC", 1000)]);
+    let data = await getProgressData("s1");
+    if (data.diagnosticStatus !== "COMPLETED") throw new Error("expected a completed Diagnostic");
+    expect(data.targetProgressFraction).toBe(0);
+
+    mocked.predictionHistoryEntry.findMany.mockResolvedValue([
+      prediction("DIAGNOSTIC", 1000),
+      prediction("ADAPTIVE_SET", 1150, "set1"),
+    ]);
+    data = await getProgressData("s1");
+    if (data.diagnosticStatus !== "COMPLETED") throw new Error("expected a completed Diagnostic");
+    // Midpoints 1030 -> 1180 against a target of 1330: halfway.
+    expect(data.targetProgressFraction).toBe(0.5);
   });
 
   it("reports zeros rather than dividing by nothing when there's no activity", async () => {

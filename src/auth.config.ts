@@ -42,5 +42,9 @@ export const authConfig: NextAuthConfig = {
   },
   pages: {
     signIn: "/login",
+    // A failed Google sign-in (cancelled consent, a school account that
+    // blocks third-party sign-in) lands back on /login with ?error=, which
+    // the page explains, instead of Auth.js's own unbranded error page.
+    error: "/login",
   },
 };

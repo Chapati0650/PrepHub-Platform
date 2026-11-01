@@ -59,7 +59,9 @@ export type LoadedQuestion = {
   studentAnswer?: string | null;
 };
 
-type SubmitResult = { isCorrect: boolean; feedback: StudentQuestionFeedback; studentAnswer: string };
+// isCorrect and feedback are null when the set doesn't reveal answers as it
+// goes (quiz homework); the server leaves them out of the response entirely.
+type SubmitResult = { isCorrect: boolean | null; feedback: StudentQuestionFeedback | null; studentAnswer: string };
 type CompleteResult = { ok: true; redirectTo: string } | { ok: false; unansweredCount: number };
 
 export type SessionRunnerProps = {
@@ -74,6 +76,12 @@ export type SessionRunnerProps = {
   initialPosition: number;
   initialQuestion: LoadedQuestion;
   allowBlankConfirmation: boolean;
+  /**
+   * False for a set that keeps right/wrong and the explanations until it's
+   * turned in (quiz homework): an answered question shows only "Answer
+   * saved". Defaults to true, the practice behaviour every other set uses.
+   */
+  revealAnswers?: boolean;
   // Any of the three that can be refused for a reason the student should be
   // told (Premium ended, the teacher closed the homework, the Diagnostic was
   // finished in another tab) returns a SessionBlocked instead of throwing.
@@ -245,8 +253,10 @@ export function SessionRunner(props: SessionRunnerProps) {
     if (!pending) return;
     cancelDraftSave();
     const sent = sentDrafts.current.get(pending.itemId);
-    if (sent?.draftAnswer === pending.value && sent.skipped === false) return;
-    persistDraft(pending.itemId, { draftAnswer: pending.value, skipped: false });
+    if (sent?.draftAnswer === pending.value) return;
+    // The answer only: choosing one tentatively is exactly when a student
+    // marks a question to come back to, so it must not clear the mark.
+    persistDraft(pending.itemId, { draftAnswer: pending.value });
   }
 
   function scheduleDraftSave(itemId: string, value: string) {
@@ -295,8 +305,7 @@ export function SessionRunner(props: SessionRunnerProps) {
   function toggleMarked() {
     const next = !currentItem.skipped;
     setItems((prev) => prev.map((it) => (it.id === currentItem.id ? { ...it, skipped: next } : it)));
-    // A draft still waiting carries `skipped: false`; sent after this, it
-    // would quietly un-mark the question.
+    // Sent first, so a reload finds the draft and the mark in the order made.
     flushDraftSave();
     persistDraft(currentItem.id, { skipped: next });
   }
@@ -343,7 +352,7 @@ export function SessionRunner(props: SessionRunnerProps) {
 
   function updateDraft(value: string) {
     setDraft(value);
-    setItems((prev) => prev.map((it) => (it.id === currentItem.id ? { ...it, draftAnswer: value, skipped: false } : it)));
+    setItems((prev) => prev.map((it) => (it.id === currentItem.id ? { ...it, draftAnswer: value } : it)));
     scheduleDraftSave(currentItem.id, value);
   }
 
@@ -351,7 +360,13 @@ export function SessionRunner(props: SessionRunnerProps) {
     setItems((prev) => prev.map((it) => (it.id === currentItem.id ? { ...it, skipped: true } : it)));
     flushDraftSave();
     persistDraft(currentItem.id, { skipped: true });
-    if (position < items.length - 1) await goToPosition(position + 1);
+    if (position < items.length - 1) {
+      await goToPosition(position + 1);
+      return;
+    }
+    // From the last question, back to the first one still open, if any.
+    const open = items.find((it) => !it.submitted && it.id !== currentItem.id);
+    if (open) await goToPosition(open.position);
   }
 
   // Both question types take an explicit Submit (a tap on a choice is only a
@@ -441,6 +456,9 @@ export function SessionRunner(props: SessionRunnerProps) {
 
   const unansweredCount = items.filter((it) => !it.submitted).length;
   const firstUnanswered = items.find((it) => !it.submitted) ?? null;
+  // The open question the last question's footer button goes to: never the
+  // one on screen, or the button would do nothing.
+  const otherUnanswered = items.find((it) => !it.submitted && it.position !== position) ?? null;
 
   const navItems = items.map((it) => ({
     position: it.position,
@@ -471,7 +489,13 @@ export function SessionRunner(props: SessionRunnerProps) {
   // Once answered, the explanation's walkthrough runs on the question itself
   // (QuestionWalkthrough): the passage highlighted, the choices ruled out in
   // place, each with its reason.
-  const feedback = currentItem.submitted ? (loaded?.feedback ?? null) : null;
+  // A quiz never says right or wrong before it's turned in, so an answered
+  // question looks like a chosen one, not a graded one. Gated here rather
+  // than on the response alone: the answer that turns a quiz in comes back
+  // with its explanation, and the walkthrough mustn't open on it.
+  const reveal = props.revealAnswers !== false;
+  const graded = currentItem.submitted && reveal;
+  const feedback = graded ? (loaded?.feedback ?? null) : null;
   const answerChoices = loaded?.content.answerChoices ?? [];
   const studentChoiceIndex = feedback ? answerChoices.findIndex((c) => c.id === currentItem.studentAnswer) : -1;
   const choiceNotes = answerChoices.map((c) => feedback?.distractorExplanationsByChoiceId[c.id] ?? null);
@@ -504,18 +528,26 @@ export function SessionRunner(props: SessionRunnerProps) {
           </div>
 
           <div className="flex flex-col items-center">
-            {loaded && !timerHidden && (
-              <TimerBadge suggestedTimeSeconds={loaded.content.suggestedTimeSeconds} resetKey={currentItem.id} />
+            {/* The suggested-time clock is for the question being worked on.
+                On an answered one it only restarted on every revisit and told
+                a student reading the explanation they'd run out of time. */}
+            {!currentItem.submitted && (
+              <>
+                {loaded && !timerHidden && (
+                  <TimerBadge suggestedTimeSeconds={loaded.content.suggestedTimeSeconds} resetKey={currentItem.id} />
+                )}
+                <button
+                  type="button"
+                  onClick={() => setTimerHidden((v) => !v)}
+                  aria-label={timerHidden ? "Show timer" : "Hide timer"}
+                  // The pill is small on purpose; the ::after is an invisible
+                  // margin around it, so a thumb doesn't have to land on 21px.
+                  className="relative mt-1 rounded-full border border-border px-3 py-0.5 text-xs font-medium after:absolute after:-inset-2 after:content-[''] hover:bg-muted"
+                >
+                  {timerHidden ? "Show" : "Hide"}
+                </button>
+              </>
             )}
-            <button
-              type="button"
-              onClick={() => setTimerHidden((v) => !v)}
-              // The pill is small on purpose; the ::after is an invisible
-              // margin around it, so a thumb doesn't have to land on 21px.
-              className="relative mt-1 rounded-full border border-border px-3 py-0.5 text-xs font-medium after:absolute after:-inset-2 after:content-[''] hover:bg-muted"
-            >
-              {timerHidden ? "Show" : "Hide"}
-            </button>
           </div>
 
           <div className="flex items-center justify-end gap-4">
@@ -576,17 +608,23 @@ export function SessionRunner(props: SessionRunnerProps) {
                 <span className="flex size-7 items-center justify-center bg-foreground font-heading text-sm font-bold text-background">
                   {position + 1}
                 </span>
-                <button
-                  type="button"
-                  onClick={toggleMarked}
-                  aria-pressed={marked}
-                  // Taller to tap than it looks: the padding is given back by
-                  // the negative margin, so the strip keeps its height.
-                  className="-my-2 flex items-center gap-1.5 py-2 text-sm hover:underline"
-                >
-                  <Bookmark className={marked ? "size-4 fill-current" : "size-4"} aria-hidden />
-                  Mark for Review
-                </button>
+                {/* Only while the question is open: an answered one is already
+                    graded here (unlike Bluebook, where nothing is graded until
+                    the end), so there is nothing to come back to, and the
+                    server keeps no mark on a finalized question anyway. */}
+                {!currentItem.submitted && (
+                  <button
+                    type="button"
+                    onClick={toggleMarked}
+                    aria-pressed={marked}
+                    // Taller to tap than it looks: the padding is given back by
+                    // the negative margin, so the strip keeps its height.
+                    className="-my-2 flex items-center gap-1.5 py-2 text-sm hover:underline"
+                  >
+                    <Bookmark className={marked ? "size-4 fill-current" : "size-4"} aria-hidden />
+                    Mark for Review
+                  </button>
+                )}
               </div>
             </div>
 
@@ -671,9 +709,8 @@ export function SessionRunner(props: SessionRunnerProps) {
                   loaded.content.answerChoices.map((choice, choiceIndex) => {
                     const letter = String.fromCharCode(65 + choiceIndex);
                     const isSelected = shownAnswer === choice.id;
-                    const showCorrect = currentItem.submitted && loaded.feedback?.correctChoiceId === choice.id;
-                    const showWrongSelection =
-                      currentItem.submitted && isSelected && loaded.feedback?.correctChoiceId !== choice.id;
+                    const showCorrect = graded && loaded.feedback?.correctChoiceId === choice.id;
+                    const showWrongSelection = graded && isSelected && loaded.feedback?.correctChoiceId !== choice.id;
                     const isOut = eliminatedHere.has(choice.id) && !currentItem.submitted;
                     // Said in words as well as colour (WCAG 1.4.1): green and
                     // red borders alone are the same border to a student who
@@ -681,7 +718,11 @@ export function SessionRunner(props: SessionRunnerProps) {
                     // accessible name, so a screen reader hears it too.
                     const baseTag = !currentItem.submitted
                       ? null
-                      : isSelected && showCorrect
+                      : !reveal
+                        ? isSelected
+                          ? "Your answer"
+                          : null
+                        : isSelected && showCorrect
                         ? "Your answer · Correct"
                         : isSelected
                           ? "Your answer"
@@ -714,7 +755,7 @@ export function SessionRunner(props: SessionRunnerProps) {
                           data-answer-choice={letter}
                           className={[
                             "flex flex-1 items-center gap-4 rounded-lg border-2 px-4 py-3 text-left text-base transition-colors lg:px-5 lg:py-4 lg:text-lg",
-                            isSelected && !currentItem.submitted && "border-primary bg-primary/10",
+                            isSelected && !graded && "border-primary bg-primary/10",
                             !isSelected && !showCorrect && !showWrongSelection && "border-border hover:border-foreground/40",
                             showCorrect && "border-green-600 bg-green-100 dark:border-green-500 dark:bg-green-900/50",
                             showWrongSelection && "border-destructive bg-destructive/5",
@@ -728,7 +769,7 @@ export function SessionRunner(props: SessionRunnerProps) {
                             aria-hidden
                             className={[
                               "flex size-7 shrink-0 items-center justify-center rounded-full border text-sm font-semibold lg:size-8 lg:text-base",
-                              isSelected && !currentItem.submitted
+                              isSelected && !graded
                                 ? "border-primary bg-primary text-primary-foreground"
                                 : "border-foreground/40 text-foreground",
                             ].join(" ")}
@@ -824,6 +865,20 @@ export function SessionRunner(props: SessionRunnerProps) {
                   <Button size="cta" variant="ghost" onClick={handleSkip} disabled={submitting}>
                     Skip for now
                   </Button>
+                </div>
+              ) : !reveal ? (
+                <div className="mt-6 flex flex-col gap-1">
+                  <p
+                    ref={focusResult}
+                    role="status"
+                    tabIndex={-1}
+                    className="font-heading text-lg font-semibold focus:outline-none"
+                  >
+                    Answer saved.
+                  </p>
+                  <p className="text-base text-muted-foreground">
+                    You&apos;ll see which ones you got right, with explanations, once you turn it in.
+                  </p>
                 </div>
               ) : (
                 <div className="mt-6 flex flex-col gap-3">
@@ -961,9 +1016,15 @@ export function SessionRunner(props: SessionRunnerProps) {
                 {completing ? "One moment…" : (props.finishLabel ?? "Finish")}
               </Button>
             ) : position === items.length - 1 ? (
-              <Button className="rounded-full" onClick={() => void goToPosition(firstUnanswered!.position)}>
-                {unansweredCount} left
-              </Button>
+              otherUnanswered ? (
+                <Button className="rounded-full" onClick={() => void goToPosition(otherUnanswered.position)}>
+                  {unansweredCount} left
+                </Button>
+              ) : (
+                <Button className="rounded-full" disabled>
+                  Answer this one to finish
+                </Button>
+              )
             ) : (
               <Button className="rounded-full" onClick={() => void goToPosition(position + 1)}>
                 Next

@@ -215,7 +215,25 @@ describe("SessionRunner — draft autosave", () => {
       vi.advanceTimersByTime(500);
     });
     expect(saveDraft).toHaveBeenCalledTimes(1);
-    expect(saveDraft).toHaveBeenCalledWith("one", { draftAnswer: "123", skipped: false });
+    expect(saveDraft).toHaveBeenCalledWith("one", { draftAnswer: "123" });
+  });
+
+  // Choosing a tentative answer is exactly when a student marks a question to
+  // come back to; the draft used to carry `skipped: false` and clear the mark.
+  it("keeps a question marked for review when its answer changes", async () => {
+    vi.useFakeTimers();
+    const { saveDraft } = renderRunner(
+      { initialItems: [{ ...item("one", 0), skipped: true }, item("two", 1)] },
+      "OPEN_ENDED_NUMERIC",
+    );
+
+    fireEvent.change(screen.getByLabelText("Your answer"), { target: { value: "7" } });
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(saveDraft).toHaveBeenCalledWith("one", { draftAnswer: "7" });
+    expect(screen.getByRole("button", { name: "Mark for Review" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("doesn't send a value the server already has", async () => {
@@ -241,7 +259,7 @@ describe("SessionRunner — draft autosave", () => {
     fireEvent.change(screen.getByLabelText("Your answer"), { target: { value: "42" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
-    expect(saveDraft).toHaveBeenCalledWith("one", { draftAnswer: "42", skipped: false });
+    expect(saveDraft).toHaveBeenCalledWith("one", { draftAnswer: "42" });
     await waitFor(() => expect(savePosition).toHaveBeenCalledWith(1));
     expect((saveDraft as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]).toBeLessThan(
       (savePosition as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],

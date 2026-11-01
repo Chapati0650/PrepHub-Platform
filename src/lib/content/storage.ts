@@ -17,7 +17,10 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 // cost; a contributor can still point local dev at a real R2 bucket to test
 // that path, since the choice is made by "are the R2 vars present," not by
 // NODE_ENV.
-const R2_CONFIGURED = Boolean(
+// Exported for the Owner status page, so "which backend is this build using"
+// is answered by the same expression that decides it — the page used to check
+// an R2_ACCOUNT_ID nothing reads, and said "local disk" in production.
+export const R2_CONFIGURED = Boolean(
   process.env.R2_BUCKET_NAME && process.env.R2_ENDPOINT && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY,
 );
 

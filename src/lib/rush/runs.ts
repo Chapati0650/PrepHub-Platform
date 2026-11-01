@@ -11,7 +11,7 @@ import {
   streakBefore,
   type RushOutcome,
 } from "./scoring";
-import { RushError } from "./errors";
+import { RushError, rushError } from "./errors";
 import { joinLiveRoom } from "./live";
 import { createChallenge, createSet } from "./create";
 
@@ -140,11 +140,11 @@ export async function joinChallenge(studentId: string, code: string): Promise<{ 
     where: { code },
     select: { id: true, mode: true, live: true, invitedStudentId: true, runs: { where: { studentId }, select: { id: true } } },
   });
-  if (!c) throw new RushError("CHALLENGE_NOT_FOUND", "No challenge has that code. Check it and try again.");
+  if (!c) throw rushError("CHALLENGE_NOT_FOUND", "no-such-code");
   if (c.runs[0]) return { runId: c.runs[0].id, challengeId: c.id, live: c.live };
-  if (c.mode !== "FRIEND") throw new RushError("NOT_JOINABLE", "That rush isn't open to join.");
+  if (c.mode !== "FRIEND") throw rushError("NOT_JOINABLE", "not-joinable");
   if (c.invitedStudentId && c.invitedStudentId !== studentId) {
-    throw new RushError("NOT_JOINABLE", "That rematch is for someone else.");
+    throw rushError("NOT_JOINABLE", "for-someone-else");
   }
   if (c.live) {
     const joined = await joinLiveRoom(studentId, c.id);

@@ -3,7 +3,11 @@ import { auth } from "@/auth";
 import { PageHeader } from "@/components/page-header";
 import { emailFromAddress, isEmailConfigured } from "@/lib/email";
 import { getQueueHealth } from "@/lib/email-queue";
+import { R2_CONFIGURED } from "@/lib/content/storage";
+import { prisma } from "@/lib/prisma";
 import { TestEmailButton } from "./test-email-button";
+
+export const metadata = { title: "Status" };
 
 /**
  * Owner-only environment status.
@@ -27,6 +31,24 @@ type Check = {
   required: boolean;
   note: string;
 };
+
+/**
+ * When the daily cron last did something visible. It writes no row of its
+ * own, so this is the newest claim it records for the two lifecycle emails it
+ * queues (src/lib/lifecycle/emails.ts) — one row. A proxy, not a heartbeat: an
+ * evening where nobody is due a reminder queues nothing. Outside the component
+ * because it reads the clock, which a render must not.
+ */
+async function getLastDailyRun(): Promise<{ lastCronAt: Date | null; cronQuiet: boolean }> {
+  const lastClaim = await prisma.emailSend.findFirst({
+    where: { kind: { in: ["daily_reminder", "finish_diagnostic"] } },
+    orderBy: { sentAt: "desc" },
+    select: { sentAt: true },
+  });
+  const lastCronAt = lastClaim?.sentAt ?? null;
+  // The run is nightly; two missed evenings is the point to look.
+  return { lastCronAt, cronQuiet: lastCronAt === null || Date.now() - lastCronAt.getTime() > 48 * 3600 * 1000 };
+}
 
 export default async function OwnerStatusPage() {
   const session = await auth();
@@ -55,6 +77,9 @@ export default async function OwnerStatusPage() {
   // Five minutes between scheduled runs, so anything over fifteen means the
   // schedule is not firing rather than merely being mid-send.
   const queueStalled = queue.oldestPendingMinutes > 15;
+
+  const { lastCronAt, cronQuiet } = await getLastDailyRun();
+  const inProduction = process.env.NODE_ENV === "production";
 
   const emailConfigured = isEmailConfigured();
   const from = emailFromAddress();
@@ -95,16 +120,47 @@ export default async function OwnerStatusPage() {
       note: "Password reset and verification links are built from this.",
     },
     {
+      name: "AUTH_SECRET",
+      set: Boolean(process.env.AUTH_SECRET),
+      required: true,
+      note: "Signs every session cookie and the one-click unsubscribe links. Without it nobody can stay signed in.",
+    },
+    {
       name: "STRIPE_SECRET_KEY",
       set: Boolean(process.env.STRIPE_SECRET_KEY),
       required: true,
       note: "Checkout and the webhook both need it.",
     },
     {
-      name: "R2_ACCOUNT_ID",
-      set: Boolean(process.env.R2_ACCOUNT_ID),
+      name: "STRIPE_WEBHOOK_SECRET",
+      set: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
+      required: true,
+      note: "Without it every Stripe webhook is refused, so a renewal or cancellation only reaches PrepHub when the student next visits the billing success page.",
+    },
+    {
+      // All four, because storage.ts uses R2 only when all four are present.
+      name: "R2_BUCKET_NAME, R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY",
+      set: R2_CONFIGURED,
+      required: inProduction,
+      note: "All four must be set, or uploaded media goes to local disk, which a serverless host discards.",
+    },
+    {
+      name: "UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN",
+      set: Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN),
       required: false,
-      note: "Unset means uploaded media goes to local disk, which a serverless host discards.",
+      note: "Optional, but both or neither. Unset means rate limits are counted per server instance, so they are looser than the numbers in rate-limit.ts.",
+    },
+    {
+      name: "ANTHROPIC_API_KEY",
+      set: Boolean(process.env.ANTHROPIC_API_KEY),
+      required: false,
+      note: "Unset means question-image transcription, bulk upload and the essay-prompt extractor are unavailable.",
+    },
+    {
+      name: "DEEPSEEK_API_KEY",
+      set: Boolean(process.env.DEEPSEEK_API_KEY),
+      required: false,
+      note: "Unset means bulk upload can't detect answers or write explanations, so it refuses to start.",
     },
     {
       name: "NEXT_PUBLIC_DESMOS_API_KEY",
@@ -181,6 +237,23 @@ export default async function OwnerStatusPage() {
             {queueStalled
               ? "Mail has been waiting longer than the five-minute schedule should allow. Check that the email-queue-cron scheduled function is enabled and that CRON_SECRET matches."
               : "Announcements and roster invitations are queued, drained for a few seconds by the request that sent them, and finished by a scheduled run every five minutes."}
+          </p>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <h2 className="text-sm font-semibold">Daily run</h2>
+        <div className="rounded-xl border border-border p-4 text-sm">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-muted-foreground">Last queued a reminder or nudge</span>
+            <span className={cronQuiet ? "font-medium text-destructive" : "font-medium text-green-700 dark:text-green-400"}>
+              {lastCronAt ? lastCronAt.toISOString().replace("T", " ").slice(0, 16) + " UTC" : "Never"}
+            </span>
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            {cronQuiet
+              ? "Nothing in two days. The run is nightly (22:00 UTC, with reruns at 22:10 and 22:20); check that the daily-cron scheduled function is enabled and that CRON_SECRET matches. A quiet stretch with nobody due a reminder looks the same, so check the function's log before changing anything."
+              : "The nightly run queues daily reminders and finish-your-Diagnostic nudges. This is the newest one it recorded."}
           </p>
         </div>
       </section>

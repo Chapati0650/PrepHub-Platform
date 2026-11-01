@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
+import { logEmailDeliveryFailure } from "@/lib/logger";
 import { SCHOOLS_CONTACT_EMAIL } from "@/components/marketing/site-chrome";
 import { TeacherError } from "./errors";
 
@@ -30,12 +31,36 @@ function siteUrl(): string {
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-async function sendInvite(user: { id: string; email: string; firstName: string }, schoolName: string, invitedBy: string) {
+/**
+ * Writes the set-password token and emails its link. Returns whether the
+ * email went: the account and token exist either way (a resend makes a fresh
+ * link), but the person who pressed "Add teacher" must not be told an email
+ * is on its way when the provider refused it. sendEmail logs its own
+ * failures; a throw (the provider unreachable) is logged here.
+ */
+async function sendInvite(
+  user: { id: string; email: string; firstName: string },
+  schoolName: string,
+  invitedBy: string,
+): Promise<boolean> {
   const raw = randomBytes(32).toString("hex");
   await prisma.passwordResetToken.create({
     data: { userId: user.id, token: hashToken(raw), expiresAt: new Date(Date.now() + INVITE_TTL_MS) },
   });
-  await sendEmail({
+  try {
+    const result = await sendEmail(inviteEmail(user, schoolName, invitedBy, raw));
+    return result.ok;
+  } catch (err) {
+    logEmailDeliveryFailure("Teacher invitation email threw", {
+      affectedResourceId: user.id,
+      errorType: err instanceof Error ? err.name : "Unknown",
+    });
+    return false;
+  }
+}
+
+function inviteEmail(user: { email: string; firstName: string }, schoolName: string, invitedBy: string, raw: string) {
+  return {
     to: user.email,
     subject: `You're set up to teach on PrepHub at ${schoolName}`,
     text: `Hi ${user.firstName},
@@ -49,7 +74,7 @@ ${siteUrl()}/reset-password/${raw}
 If your school uses Google, you can skip that and choose "Continue with Google" on the log-in page with this email address instead.
 
 — Prithvi, PrepHub`,
-  });
+  };
 }
 
 /**
@@ -64,13 +89,17 @@ If your school uses Google, you can skip that and choose "Continue with Google" 
  * Someone who is already a teacher here is refused with ALREADY_TEACHER, a
  * TeacherError rather than a quiet success, so every caller says so instead of
  * claiming to have added them.
+ *
+ * `inviteEmailFailed` is true when a new account was made but its invitation
+ * didn't send, so the caller says "use Resend invitation" rather than "they'll
+ * get an email". (Adding back an existing teacher sends nothing.)
  */
 export async function inviteTeacher(input: {
   firstName: string;
   email: string;
   schoolId: string;
   invitedBy: string;
-}): Promise<{ userId: string; created: boolean; restoredClasses: number }> {
+}): Promise<{ userId: string; created: boolean; restoredClasses: number; inviteEmailFailed: boolean }> {
   const firstName = input.firstName.trim();
   const email = input.email.trim().toLowerCase();
   if (!firstName) throw new TeacherError("INVALID_INPUT", "Enter the teacher's first name.");
@@ -122,14 +151,14 @@ export async function inviteTeacher(input: {
           data: { archivedAt: null },
         }),
       ]);
-      return { userId: existing.id, created: false, restoredClasses: reopened.count };
+      return { userId: existing.id, created: false, restoredClasses: reopened.count, inviteEmailFailed: false };
     }
     await prisma.teacherAssignment.upsert({
       where: { userId_schoolId: { userId: existing.id, schoolId: school.id } },
       update: { removedAt: null },
       create: { userId: existing.id, schoolId: school.id },
     });
-    return { userId: existing.id, created: false, restoredClasses: 0 };
+    return { userId: existing.id, created: false, restoredClasses: 0, inviteEmailFailed: false };
   }
 
   const user = await prisma.user.create({
@@ -142,12 +171,16 @@ export async function inviteTeacher(input: {
     },
     select: { id: true, email: true, firstName: true },
   });
-  await sendInvite(user, school.officialName, input.invitedBy);
-  return { userId: user.id, created: true, restoredClasses: 0 };
+  const sent = await sendInvite(user, school.officialName, input.invitedBy);
+  return { userId: user.id, created: true, restoredClasses: 0, inviteEmailFailed: !sent };
 }
 
-/** Sends a fresh set-password link to a teacher who hasn't signed in yet. */
-export async function resendTeacherInvite(userId: string, schoolId: string, invitedBy: string): Promise<void> {
+/** Sends a fresh set-password link to a teacher who hasn't signed in yet, and says whether it went. */
+export async function resendTeacherInvite(
+  userId: string,
+  schoolId: string,
+  invitedBy: string,
+): Promise<{ emailSent: boolean }> {
   const assignment = await prisma.teacherAssignment.findUnique({
     where: { userId_schoolId: { userId, schoolId } },
     select: {
@@ -159,7 +192,7 @@ export async function resendTeacherInvite(userId: string, schoolId: string, invi
   if (!assignment || assignment.removedAt || assignment.user.role !== "TEACHER") {
     throw new TeacherError("NOT_FOUND", "Teacher not found.");
   }
-  await sendInvite(assignment.user, assignment.school.officialName, invitedBy);
+  return { emailSent: await sendInvite(assignment.user, assignment.school.officialName, invitedBy) };
 }
 
 /**
@@ -179,6 +212,8 @@ export async function removeTeacher(userId: string, schoolId: string): Promise<v
 export type TeacherRow = {
   userId: string;
   firstName: string;
+  /** The name the teacher chose for students ("Ms. Alvarez"), or null if they haven't. */
+  teacherDisplayName: string | null;
   email: string;
   addedAt: Date;
   /** Has a password or a linked Google account — i.e. could have signed in. */
@@ -203,6 +238,7 @@ export async function listTeachers(schoolId: string): Promise<TeacherRow[]> {
         select: {
           id: true,
           firstName: true,
+          teacherDisplayName: true,
           email: true,
           passwordHash: true,
           _count: { select: { accounts: true, classroomsTaught: { where: { schoolId, archivedAt: null } } } },
@@ -231,6 +267,7 @@ export async function listTeachers(schoolId: string): Promise<TeacherRow[]> {
   return rows.map((r) => ({
     userId: r.user.id,
     firstName: r.user.firstName,
+    teacherDisplayName: r.user.teacherDisplayName,
     email: r.user.email,
     addedAt: r.createdAt,
     activated: Boolean(r.user.passwordHash) || r.user._count.accounts > 0,

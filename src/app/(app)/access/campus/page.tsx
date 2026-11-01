@@ -5,6 +5,8 @@ import { findDistrictMatch } from "@/lib/district/enrollment";
 import { LinkButton } from "@/components/ui/link-button";
 import { CampusForm } from "./campus-form";
 
+export const metadata = { title: "Choose your campus" };
+
 // A verified student in a multi-campus district, which a domain alone can't
 // place: StudentMembership.schoolId must be one specific campus (PRD-017 §3),
 // so rather than guess — and quietly corrupt the per-campus numbers an

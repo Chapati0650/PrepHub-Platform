@@ -33,14 +33,12 @@ export function NotificationsForm({ dailyReminderEnabled }: { dailyReminderEnabl
         <span>
           <span className="font-medium">Daily Practice Reminder</span>
           <br />
-          <span className="text-muted-foreground">A daily nudge to complete a practice session, especially if your study streak is at risk.</span>
+          <span className="text-muted-foreground">
+            An evening email on days you haven&apos;t studied yet. If you&apos;ve been away for a while it slows to once
+            a week, and stops after a month.
+          </span>
         </span>
       </label>
-
-      <p className="text-sm text-muted-foreground">
-        <span className="font-medium text-foreground">Streak Lost Email</span> — sent automatically if your study streak ends. This is
-        part of the learning experience and can&apos;t be turned off separately.
-      </p>
 
       <Button type="submit" variant="outline" disabled={pending} className="w-fit">
         {pending ? "Saving..." : "Save notification settings"}

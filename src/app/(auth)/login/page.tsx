@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { use, useActionState } from "react";
 import Link from "next/link";
 import { loginAction, type ActionState } from "../actions";
 import { Button } from "@/components/ui/button";
@@ -14,13 +14,28 @@ import { SchoolAccessNote } from "@/components/school-access-note";
 
 const initialState: ActionState = {};
 
-export default function LoginPage() {
+export default function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ password?: string; next?: string; error?: string }>;
+}) {
+  const params = use(searchParams);
+  // Set by the set-password page on its way here, so a teacher finishing
+  // their invitation (or anyone after a reset) knows it worked.
+  const passwordSet = params.password === "set";
+  // Where middleware was sending them (a homework link in an email); checked
+  // again on the server before it's followed (lib/auth/next-path.ts).
+  const next = typeof params.next === "string" ? params.next : "";
+  // Auth.js sends a failed Google sign-in back here with ?error=.
+  const googleFailed = typeof params.error === "string" && params.error.length > 0;
   const [state, formAction, pending] = useActionState(loginAction, initialState);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-display-sm font-semibold">Welcome back</CardTitle>
+        <CardTitle>
+          <h1 className="text-display-sm font-semibold">Welcome back</h1>
+        </CardTitle>
         <CardDescription className="text-base">Pick up right where you left off.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -43,7 +58,7 @@ export default function LoginPage() {
           variant="outline"
           size="lg"
           className="h-12 w-full gap-3 rounded-full text-base"
-          href="/api/auth/google-sign-in"
+          href={next ? `/api/auth/google-sign-in?next=${encodeURIComponent(next)}` : "/api/auth/google-sign-in"}
           hardNavigation
         >
           <GoogleIcon className="size-5" />
@@ -57,6 +72,24 @@ export default function LoginPage() {
         </div>
 
         <form action={formAction} className="flex flex-col gap-4">
+          {next && <input type="hidden" name="next" value={next} />}
+          {googleFailed && !state.error && (
+            <Alert variant="destructive">
+              <AlertDescription>
+                Google sign-in didn&apos;t finish. Try again, or log in with your email and password below. Some school
+                Google accounts don&apos;t allow signing in to other sites; if that&apos;s yours,{" "}
+                <Link href="/reset-password" className="font-medium underline underline-offset-4">
+                  set a password
+                </Link>{" "}
+                for the same email instead.
+              </AlertDescription>
+            </Alert>
+          )}
+          {passwordSet && !state.error && (
+            <Alert role="status">
+              <AlertDescription>Your password is set. Log in with it below.</AlertDescription>
+            </Alert>
+          )}
           {state.error && (
             <Alert variant="destructive">
               <AlertDescription>{state.error}</AlertDescription>
@@ -65,7 +98,14 @@ export default function LoginPage() {
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="email">Email</Label>
-            <Input id="email" name="email" type="email" autoComplete="email" required />
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              defaultValue={state.fields?.email}
+              required
+            />
           </div>
 
           <div className="flex flex-col gap-2">

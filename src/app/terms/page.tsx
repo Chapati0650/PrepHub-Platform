@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { CURRENT_TOS_VERSION } from "@/lib/legal";
+import { SCHOOLS_CONTACT_EMAIL } from "@/components/marketing/site-chrome";
 
-export const metadata = { title: "Terms of Service — PrepHub" };
+// The root layout's template adds " · PrepHub".
+export const metadata = { title: "Terms of Service" };
 
 export default function TermsPage() {
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6 p-8">
+    <main className="mx-auto flex max-w-2xl flex-col gap-6 p-8">
       <div>
         <Link href="/" className="text-sm underline">
           Back to PrepHub
@@ -80,8 +82,14 @@ export default function TermsPage() {
         </p>
 
         <h2 className="text-lg font-semibold">10. Contact</h2>
-        <p>Questions about these Terms can be sent to the account owner administering your PrepHub instance.</p>
+        <p>
+          Questions about these Terms can be sent to{" "}
+          <a href={`mailto:${SCHOOLS_CONTACT_EMAIL}`} className="underline">
+            {SCHOOLS_CONTACT_EMAIL}
+          </a>
+          .
+        </p>
       </section>
-    </div>
+    </main>
   );
 }

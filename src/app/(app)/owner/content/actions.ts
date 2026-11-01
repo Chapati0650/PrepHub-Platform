@@ -16,8 +16,8 @@ import {
   duplicateQuestionContent,
   getQuestionOrThrow,
   type QuestionContentPatch,
+  type QuestionWithContent,
 } from "@/lib/content/questions";
-import { processBulkUploadImage, processBulkUploadPdfPage } from "@/lib/content/bulk-upload";
 import {
   createEmptyFamily,
   updateFamilyDetails,
@@ -33,7 +33,6 @@ import {
 import {
   bulkArchive,
   bulkDeletePermanently,
-  bulkEstimateDifficulty,
   bulkPublish,
   bulkSetDifficulty,
   bulkUnpublish,
@@ -90,18 +89,47 @@ export async function getQuestionAction(questionId: string) {
   return getQuestionOrThrow(questionId);
 }
 
+// The editor's autosave, on every 1.5s debounce tick. It returns the saved
+// question rather than revalidating: a revalidatePath here re-rendered the
+// whole editor page server-side on every tick (the question again, plus every
+// id in the Owner's filtered view for Previous/Next), and the editor then
+// fetched the question a third time with getQuestionAction. Lists and the
+// family page are refreshed once, when the Owner leaves the editor — see
+// leaveQuestionEditorAction below.
 export async function updateQuestionContentAction(
   questionId: string,
   patch: QuestionContentPatch,
-): Promise<ActionResult> {
+): Promise<ActionResult & { question?: QuestionWithContent }> {
   await requireOwner();
   try {
-    await updateDraftContent(questionId, patch);
+    const question = await updateDraftContent(questionId, patch);
+    return { success: true, question };
   } catch (err) {
     return { error: toMessage(err) };
   }
-  revalidatePath(`/owner/content/questions/${questionId}`);
-  return { success: true };
+}
+
+// Sent once as the editor unmounts, whichever way the Owner left it — the
+// "← Questions" link, a family link, a content tab, the sidebar. A plain
+// <Link> unmounts the editor at once, so anything typed inside the last
+// debounce window used to be dropped; this saves it. It also revalidates the
+// content area, so the Questions table (including one restored by the browser's
+// Back button from the client cache) shows what the Owner just wrote.
+export async function leaveQuestionEditorAction(
+  questionId: string,
+  patch: QuestionContentPatch | null,
+): Promise<ActionResult> {
+  await requireOwner();
+  let error: string | undefined;
+  if (patch && Object.keys(patch).length > 0) {
+    try {
+      await updateDraftContent(questionId, patch);
+    } catch (err) {
+      error = toMessage(err);
+    }
+  }
+  revalidatePath("/owner/content", "layout");
+  return error ? { error } : { success: true };
 }
 
 export async function markPreviewCompletedAction(questionId: string): Promise<ActionResult> {
@@ -216,7 +244,7 @@ export async function groupExistingQuestionsAction(input: {
 
 export async function updateFamilyDetailsAction(
   familyId: string,
-  input: { internalName?: string },
+  input: { internalName?: string | null },
 ): Promise<ActionResult> {
   await requireOwner();
   try {
@@ -351,12 +379,9 @@ export async function bulkSetDifficultyAction(questionIds: string[], difficulty:
   return result;
 }
 
-export async function bulkEstimateDifficultyAction(questionIds: string[]): Promise<BulkResult> {
-  await requireOwner();
-  const result = await bulkEstimateDifficulty(questionIds);
-  revalidatePath("/owner/content/questions");
-  return result;
-}
+// Difficulty estimation has no action: it's a Route Handler
+// (questions/estimate-difficulty/route.ts), because the Questions table runs
+// it three at a time and Server Actions are dispatched one at a time.
 
 // --- Media uploads -----------------------------------------------------------
 
@@ -485,49 +510,16 @@ export async function transcribeQuestionImageAction(formData: FormData): Promise
   }
 }
 
+// Bulk upload's per-file work is a Route Handler
+// (questions/bulk-upload/process/route.ts), not an action, for the same reason
+// as difficulty estimation above: bulk-upload-form.tsx sends three files at a
+// time, and Server Actions are dispatched one at a time per client. These are
+// the shapes it answers with. Every question it creates lands DRAFT +
+// aiGenerated: true; `skipped: true` means this exact file was already
+// processed (see processBulkUploadImage's sourceImageHash check) — no new AI
+// call was made, and the ids point at the existing questions.
 export type BulkUploadImageActionResult = { error?: string; questionId?: string; skipped?: boolean };
-
-// Called once per image, in a small client-side concurrency pool (see
-// bulk-upload-form.tsx) — not once per batch, since a single request running
-// ~20 sequential AI calls would run well past any reasonable request
-// timeout. Every question this creates lands DRAFT + aiGenerated: true;
-// publish is available immediately (see validation.ts) but reviewing first
-// is still recommended. `skipped: true` means this exact image was already
-// processed (see processBulkUploadImage's sourceImageHash check) — no new
-// AI call was made, questionId points at the existing question.
-export async function bulkUploadImageAction(formData: FormData): Promise<BulkUploadImageActionResult> {
-  await requireOwner();
-  const file = formData.get("file");
-  if (!(file instanceof File)) return { error: "No file provided." };
-
-  const result = await processBulkUploadImage({
-    buffer: Buffer.from(await file.arrayBuffer()),
-    mimeType: file.type,
-  });
-  if ("error" in result) return { error: result.error };
-  revalidatePath("/owner/content/questions");
-  return { questionId: result.questionId, skipped: result.skipped };
-}
-
 export type BulkUploadPdfPageActionResult = { questionIds: string[]; errors: string[]; skipped?: boolean };
-
-// Same concurrency-pool pattern as bulkUploadImageAction, one call per
-// rendered PDF page (see extract-pdf-pages.ts, which does the PDF-to-images
-// rendering client-side before this ever runs) — but a page can yield zero,
-// one, or several questions, so the result is a batch rather than a single
-// id (see processBulkUploadPdfPage).
-export async function bulkUploadPdfPageAction(formData: FormData): Promise<BulkUploadPdfPageActionResult> {
-  await requireOwner();
-  const file = formData.get("file");
-  if (!(file instanceof File)) return { questionIds: [], errors: ["No file provided."] };
-
-  const result = await processBulkUploadPdfPage({
-    buffer: Buffer.from(await file.arrayBuffer()),
-    mimeType: file.type,
-  });
-  if (result.questionIds.length > 0) revalidatePath("/owner/content/questions");
-  return result;
-}
 
 export async function markAiReviewedAction(questionId: string): Promise<ActionResult> {
   await requireOwner();

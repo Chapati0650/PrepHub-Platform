@@ -194,7 +194,9 @@ export function StudentDirectoryTable({
             size="xl"
             onClick={() => {
               setSearchInput("");
-              router.push(pathname);
+              // Keeps the Owner preview's school; an Administrator never has one in the URL.
+              const school = searchParams.get("school");
+              router.push(school ? `${pathname}?school=${encodeURIComponent(school)}` : pathname);
             }}
           >
             Clear filters
@@ -218,7 +220,10 @@ export function StudentDirectoryTable({
               <StudentListItem key={s.membershipId} student={s} now={now} classYears={classYears} />
             ))}
           </ul>
-          <div className="hidden overflow-x-auto rounded-2xl border border-border md:block">
+          {/* `relative`: the sr-only labels in its cells are absolutely positioned,
+              and without a positioned ancestor inside the scroller they escape it
+              and widen the whole page on a phone. */}
+          <div className="relative hidden overflow-x-auto rounded-2xl border border-border md:block">
             <table className="w-full text-base">
               <thead className="bg-muted/50 text-left text-sm">
                 <tr>

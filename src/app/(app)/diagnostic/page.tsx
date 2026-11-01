@@ -12,6 +12,8 @@ import { DiagnosticRunner } from "./diagnostic-runner";
 import { BonusRoundIntro } from "./bonus-round-intro";
 import { beginDiagnosticAction } from "./actions";
 
+export const metadata = { title: "Diagnostic" };
+
 type Attempt = {
   id: string;
   submittedAt: Date | null;

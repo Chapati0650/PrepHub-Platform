@@ -6,7 +6,11 @@ export class BillingError extends Error {
       | "SAME_PLAN"
       | "INVALID_PROMO_CODE"
       | "STRIPE_NOT_CONFIGURED"
-      | "ALREADY_SUBSCRIBED",
+      | "ALREADY_SUBSCRIBED"
+      | "SUBSCRIPTION_ENDING"
+      | "SWITCH_ALREADY_SCHEDULED"
+      | "PLAN_CHANGE_UNAVAILABLE"
+      | "PLAN_CHANGE_FAILED",
     message: string,
   ) {
     super(message);

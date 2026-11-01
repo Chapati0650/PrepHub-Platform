@@ -23,6 +23,8 @@ import {
 } from "@/components/staff/staff-ui";
 import { OwnerSchoolSwitcher } from "./school-switcher";
 
+export const metadata = { title: "School overview" };
+
 const ACCESS_STATE_LABELS: Record<SchoolAccessState, string> = {
   ACTIVE: "Active",
   NOT_STARTED: "Not started yet",
@@ -88,6 +90,10 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
   const { enrollment, stats } = data;
   const setupDone = setup.studentsJoined && setup.teachersAdded && setup.announcementPosted && setup.goalSet;
   const growth = impact.scoreGrowth;
+  // The Owner's preview picks its school from the URL, so every link on the
+  // page carries it — without it, one click landed back on the first school.
+  // An Administrator's school comes from their assignment, so theirs stay bare.
+  const href = (path: string) => (viewingAsOwner ? `${path}?school=${schoolId}` : path);
 
   return (
     <StaffPage>
@@ -110,28 +116,28 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
                 title: "Get your students signed up",
                 body: "Students create their own account with their school email. If your school gave PrepHub a student list, you can email everyone an invitation from the Students page.",
                 done: setup.studentsJoined,
-                href: "/admin/students",
+                href: href("/admin/students"),
                 cta: "Go to Students",
               },
               {
                 title: "Add your teachers",
                 body: "Teachers make classes, give students a code to join, and assign homework.",
                 done: setup.teachersAdded,
-                href: "/admin/teachers",
+                href: href("/admin/teachers"),
                 cta: "Add teachers",
               },
               {
                 title: "Post a welcome announcement",
                 body: "Tell students why your school is using PrepHub and where to start. It appears on their home page and goes to their inbox.",
                 done: setup.announcementPosted,
-                href: "/admin/announcements",
+                href: href("/admin/announcements"),
                 cta: "Write one",
               },
               {
                 title: "Set a school goal",
                 body: "One target the whole school works toward together, with a prize if you'd like one.",
                 done: setup.goalSet,
-                href: "/admin/goal",
+                href: href("/admin/goal"),
                 cta: "Set a goal",
               },
             ]}
@@ -236,7 +242,7 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
       <StaffSection
         title="Your school's access"
         action={
-          <Link href="/admin/access" className="text-base font-medium underline underline-offset-4">
+          <Link href={href("/admin/access")} className="text-base font-medium underline underline-offset-4">
             Access &amp; support
           </Link>
         }

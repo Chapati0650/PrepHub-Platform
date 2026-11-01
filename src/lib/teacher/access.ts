@@ -16,6 +16,8 @@ import { TeacherError } from "./errors";
 export type TeacherContext = {
   userId: string;
   firstName: string;
+  /** The name they chose for their students, or null (students see their first name). */
+  teacherDisplayName: string | null;
   schoolId: string;
   schoolName: string;
 };
@@ -27,13 +29,14 @@ export async function getTeacherContext(userId: string): Promise<TeacherContext 
     select: {
       schoolId: true,
       school: { select: { officialName: true } },
-      user: { select: { firstName: true } },
+      user: { select: { firstName: true, teacherDisplayName: true } },
     },
   });
   if (!assignment) return null;
   return {
     userId,
     firstName: assignment.user.firstName,
+    teacherDisplayName: assignment.user.teacherDisplayName,
     schoolId: assignment.schoolId,
     schoolName: assignment.school.officialName,
   };

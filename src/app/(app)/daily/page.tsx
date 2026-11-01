@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { nextUtcDayLocalTime } from "@/lib/community/local-day";
 import { Lock } from "lucide-react";
 import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
@@ -9,6 +10,8 @@ import { Marker } from "@/components/ui/marker";
 import { QuestionDetail } from "@/components/session/session-results";
 import { DailyQuestion } from "./daily-question";
 import { answerDailyChallengeAction } from "./actions";
+
+export const metadata = { title: "Daily Challenge" };
 
 // The Daily Challenge: one hard question a day, free for every account.
 // The free tier's reason to come back (5 of 105 students had returned
@@ -56,7 +59,7 @@ export default async function DailyChallengePage() {
               {view.today.answered === 1
                 ? "You're the first to answer today."
                 : `${view.today.answered} students have answered today; ${Math.round((view.today.correct / view.today.answered) * 100)}% got it right.`}{" "}
-              Tomorrow&apos;s question arrives at midnight UTC.
+              The next question arrives at {nextUtcDayLocalTime()} Central.
             </p>
           </section>
           <section className="rounded-2xl border border-border p-5">

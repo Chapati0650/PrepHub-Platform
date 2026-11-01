@@ -6,6 +6,7 @@ import {
   groupExistingQuestionsIntoFamily,
   publishFamily,
   unpublishFamily,
+  updateFamilyDetails,
 } from "@/lib/content/families";
 import { prisma } from "@/lib/prisma";
 
@@ -119,6 +120,28 @@ describe("createEmptyFamily", () => {
       category: "ALGEBRA",
       difficulty: "MEDIUM",
     });
+  });
+});
+
+describe("updateFamilyDetails", () => {
+  beforeEach(() => {
+    mocked.questionFamily.update.mockResolvedValue({});
+    mocked.questionFamily.findUnique.mockResolvedValue(family());
+  });
+
+  it("clears the name when the field is emptied, instead of leaving it as it was", async () => {
+    await updateFamilyDetails("f1", { internalName: "   " });
+    expect(mocked.questionFamily.update.mock.calls[0][0].data).toEqual({ internalName: null });
+  });
+
+  it("saves a new name trimmed", async () => {
+    await updateFamilyDetails("f1", { internalName: "  Linear equations, one variable " });
+    expect(mocked.questionFamily.update.mock.calls[0][0].data).toEqual({ internalName: "Linear equations, one variable" });
+  });
+
+  it("leaves the name alone when none is given", async () => {
+    await updateFamilyDetails("f1", {});
+    expect(mocked.questionFamily.update.mock.calls[0][0].data).toEqual({ internalName: undefined });
   });
 });
 

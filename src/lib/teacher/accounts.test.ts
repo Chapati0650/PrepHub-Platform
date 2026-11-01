@@ -2,13 +2,13 @@ import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
-import { inviteTeacher, removeTeacher } from "@/lib/teacher/accounts";
+import { inviteTeacher, removeTeacher, resendTeacherInvite } from "@/lib/teacher/accounts";
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     organization: { findUnique: vi.fn() },
     user: { findUnique: vi.fn(), create: vi.fn() },
-    teacherAssignment: { upsert: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    teacherAssignment: { upsert: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn() },
     classroom: { updateMany: vi.fn() },
     passwordResetToken: { create: vi.fn() },
     $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
@@ -23,6 +23,7 @@ const input = { firstName: " Rosa ", email: " Rosa@NISD.net ", schoolId: "school
 beforeEach(() => {
   vi.clearAllMocks();
   mocked.organization.findUnique.mockResolvedValue(SCHOOL);
+  vi.mocked(sendEmail).mockResolvedValue({ ok: true });
 });
 
 describe("inviteTeacher", () => {
@@ -30,7 +31,7 @@ describe("inviteTeacher", () => {
     mocked.user.findUnique.mockResolvedValue(null);
     mocked.user.create.mockResolvedValue({ id: "t1", email: "rosa@nisd.net", firstName: "Rosa" });
 
-    expect(await inviteTeacher(input)).toEqual({ userId: "t1", created: true, restoredClasses: 0 });
+    expect(await inviteTeacher(input)).toEqual({ userId: "t1", created: true, restoredClasses: 0, inviteEmailFailed: false });
 
     const created = mocked.user.create.mock.calls[0][0].data;
     expect(created).toMatchObject({ role: "TEACHER", firstName: "Rosa", email: "rosa@nisd.net" });
@@ -45,6 +46,17 @@ describe("inviteTeacher", () => {
     expect(token.token).toBe(createHash("sha256").update(raw!).digest("hex"));
     const days = (token.expiresAt.getTime() - Date.now()) / 86_400_000;
     expect(days).toBeGreaterThan(6.9);
+  });
+
+  it("says so when the account was made but its invitation didn't send, so nobody is told an email is coming", async () => {
+    mocked.user.findUnique.mockResolvedValue(null);
+    mocked.user.create.mockResolvedValue({ id: "t1", email: "rosa@nisd.net", firstName: "Rosa" });
+    vi.mocked(sendEmail).mockResolvedValue({ ok: false, reason: "validation_error: domain not verified" });
+    expect(await inviteTeacher(input)).toMatchObject({ created: true, inviteEmailFailed: true });
+
+    // The provider unreachable altogether: the same answer, not a thrown error.
+    vi.mocked(sendEmail).mockRejectedValue(new Error("fetch failed"));
+    expect(await inviteTeacher(input)).toMatchObject({ created: true, inviteEmailFailed: true });
   });
 
   it("never turns a student or administrator account into a teacher, and says who can", async () => {
@@ -90,7 +102,7 @@ describe("inviteTeacher", () => {
     });
     mocked.classroom.updateMany.mockResolvedValue({ count: 2 });
 
-    expect(await inviteTeacher(input)).toEqual({ userId: "t1", created: false, restoredClasses: 2 });
+    expect(await inviteTeacher(input)).toEqual({ userId: "t1", created: false, restoredClasses: 2, inviteEmailFailed: false });
     expect(mocked.teacherAssignment.update.mock.calls[0][0]).toMatchObject({ data: { removedAt: null } });
     // Same instant as the removal: a class the teacher archived themselves stays archived.
     expect(mocked.classroom.updateMany.mock.calls[0][0]).toEqual({
@@ -104,7 +116,7 @@ describe("inviteTeacher", () => {
   it("adds an existing teacher account with no history at this school, without a second account", async () => {
     mocked.user.findUnique.mockResolvedValue({ id: "t1", role: "TEACHER", deletedAt: null, teacherAssignments: [] });
 
-    expect(await inviteTeacher(input)).toEqual({ userId: "t1", created: false, restoredClasses: 0 });
+    expect(await inviteTeacher(input)).toEqual({ userId: "t1", created: false, restoredClasses: 0, inviteEmailFailed: false });
     expect(mocked.teacherAssignment.upsert.mock.calls[0][0]).toMatchObject({ create: { userId: "t1", schoolId: "school1" } });
     expect(mocked.user.create).not.toHaveBeenCalled();
   });
@@ -117,6 +129,27 @@ describe("inviteTeacher", () => {
   it("rejects a malformed email before touching anything", async () => {
     await expect(inviteTeacher({ ...input, email: "not an email" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
     expect(mocked.organization.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe("resendTeacherInvite", () => {
+  const assignment = {
+    removedAt: null,
+    school: { officialName: "Northwest HS" },
+    user: { id: "t1", email: "rosa@nisd.net", firstName: "Rosa", role: "TEACHER" },
+  };
+
+  it("says whether the new link actually went", async () => {
+    mocked.teacherAssignment.findUnique.mockResolvedValue(assignment);
+    expect(await resendTeacherInvite("t1", "school1", "The PrepHub team")).toEqual({ emailSent: true });
+    vi.mocked(sendEmail).mockResolvedValue({ ok: false, reason: "rate_limited" });
+    expect(await resendTeacherInvite("t1", "school1", "The PrepHub team")).toEqual({ emailSent: false });
+  });
+
+  it("won't send for a teacher who was removed", async () => {
+    mocked.teacherAssignment.findUnique.mockResolvedValue({ ...assignment, removedAt: new Date() });
+    await expect(resendTeacherInvite("t1", "school1", "The PrepHub team")).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(sendEmail).not.toHaveBeenCalled();
   });
 });
 

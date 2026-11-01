@@ -6,13 +6,31 @@ import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
 import { LIVE_IDLE_POLL_MS, LIVE_LOBBY_POLL_MS, LIVE_POLL_MS, LIVE_RANDOM_FALLBACK_MS } from "@/lib/rush/config";
 import type { LiveAnswerResult, LiveRoundAnswer, LiveServedQuestion, LiveState } from "@/lib/rush/live";
+import { isRushProblem, type RushProblem } from "@/lib/rush/errors";
+import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
 import { ShareChallenge } from "../../share-challenge";
 import { RushQuestion, TimeBar, formatSeconds } from "../../rush-question";
 import { PointsPop, SoundControls, StreakFlame, useRushMusic, useRushSound } from "../../game-fx";
 import { fallbackToRecordedAction, leaveLiveRoomAction } from "../../actions";
+import { withRetry } from "../../retry";
 
 // The last few seconds of a question tick audibly, once a second.
 const TICK_FROM_MS = 5_000;
+
+// A question that fails to load is retried this many times, a beat apart,
+// before the room says anything; the match itself carries on regardless.
+const FETCH_RETRIES = 3;
+const FETCH_RETRY_MS = 600;
+
+// What the player is told while the match goes on — never the end of it. A
+// failed request used to replace the whole room with an error screen, which
+// forfeited a live match over one dropped request; the poll loop had already
+// been hardened the same way.
+type Notice = "submit" | "load";
+const NOTICE_COPY: Record<Notice, string> = {
+  submit: "Your answer didn't reach PrepHub. Check your connection, then press Submit again.",
+  load: "This question is taking a while to load.",
+};
 
 // The live room, start to finish: lobby → countdown → ten shared questions
 // → results. The server owns every clock (see lib/rush/live.ts); this
@@ -38,8 +56,8 @@ export function LiveRush({
   initial: LiveState;
   joinUrl: string;
   poll: (challengeId: string) => Promise<LiveState | null>;
-  serve: (challengeId: string) => Promise<LiveServedQuestion | { notYet: true }>;
-  submit: (challengeId: string, position: number, answer: string | null) => Promise<LiveAnswerResult | { over: true }>;
+  serve: (challengeId: string) => Promise<LiveServedQuestion | { notYet: true } | RushProblem>;
+  submit: (challengeId: string, position: number, answer: string | null) => Promise<LiveAnswerResult | { over: true } | RushProblem>;
 }) {
   const router = useRouter();
   const sound = useRushSound();
@@ -51,7 +69,9 @@ export function LiveRush({
   const [now, setNow] = useState(() => Date.now());
   const [draft, setDraft] = useState("");
   const [result, setResult] = useState<LiveAnswerResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Only a stale build stops the room: no request can succeed until a reload.
+  const [stale, setStale] = useState(false);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const inFlight = useRef(false);
   const fetching = useRef(false);
   // Set when Leave / "Race a recorded run" is submitted: those actions
@@ -134,21 +154,34 @@ export function LiveRush({
   async function fetchQuestion(attempt = 0) {
     if (fetching.current) return;
     fetching.current = true;
+    let retryInMs: number | null = null;
     try {
       const q = await serve(id);
+      if (isRushProblem(q)) {
+        // The room moved on or went away; the poll knows which and redraws.
+        pollNow.current();
+        return;
+      }
       if ("notYet" in q) {
         // This device is a hair ahead of the server. Retry shortly.
-        if (attempt < 8) window.setTimeout(() => void fetchQuestion(attempt + 1), 150);
+        if (attempt < 8) retryInMs = 150;
         return;
       }
       setQuestion(q);
       setDraft("");
       setResult(null);
+      setNotice(null);
       setDeadline(Date.now() + q.remainingMs);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      if (isStaleServerActionError(err)) setStale(true);
+      else if (attempt < FETCH_RETRIES) retryInMs = FETCH_RETRY_MS;
+      else setNotice("load");
     } finally {
       fetching.current = false;
+      if (retryInMs !== null) {
+        const delay = retryInMs;
+        window.setTimeout(() => void fetchRef.current(attempt + 1), delay);
+      }
     }
   }
   const fetchRef = useRef(fetchQuestion);
@@ -173,14 +206,23 @@ export function LiveRush({
     if (!question || inFlight.current || result) return;
     inFlight.current = true;
     try {
-      const r = await submit(id, question.position, answer);
-      if ("over" in r) return; // the room moved on; the poll will redraw
+      // Resent a couple of times before the player hears about it; the
+      // server records an answer once and replays it for a repeat.
+      const r = await withRetry(() => submit(id, question.position, answer));
+      if (isRushProblem(r) || "over" in r) {
+        // The room moved on (or went); the poll will redraw.
+        pollNow.current();
+        return;
+      }
       setResult(r);
+      setNotice(null);
       pollNow.current();
       if (r.points > 0) sound.play(state.scoringVersion >= 2 && r.streak >= 3 ? "streak" : "correct");
       else sound.play("wrong");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      // The draft is kept, so pressing Submit again sends the same answer.
+      if (isStaleServerActionError(err)) setStale(true);
+      else setNotice("submit");
     } finally {
       inFlight.current = false;
     }
@@ -234,11 +276,11 @@ export function LiveRush({
   const streaks = state.scoringVersion >= 2;
   const myStreak = result?.streak ?? state.me.streak;
 
-  if (error) {
+  if (stale) {
     return (
       <Shell eyebrow={eyebrow}>
-        <h1 className="mt-3 text-page-title">Something went wrong.</h1>
-        <p className="mt-3 text-muted-foreground">{error}</p>
+        <h1 className="mt-3 text-page-title">PrepHub was just updated.</h1>
+        <p className="mt-3 max-w-prose text-muted-foreground">{STALE_BUILD_MESSAGE}</p>
         <div className="mt-6 flex flex-wrap gap-3">
           <Button size="cta" onClick={() => window.location.reload()}>
             Reload the room
@@ -364,6 +406,20 @@ export function LiveRush({
         <div className="py-10">
           {state.lastRound && inGap ? (
             <RoundSummary me={state.lastRound.me} opp={state.lastRound.opponent} oppName={opp.name} />
+          ) : notice === "load" ? (
+            <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
+              <p className="text-muted-foreground">{NOTICE_COPY.load}</p>
+              <Button
+                variant="outline"
+                className="rounded-full"
+                onClick={() => {
+                  setNotice(null);
+                  void fetchRef.current();
+                }}
+              >
+                Try again
+              </Button>
+            </div>
           ) : (
             <p className="text-sm text-muted-foreground">Loading question…</p>
           )}
@@ -399,6 +455,11 @@ export function LiveRush({
               scratchKey={`${id}:${question.position}`}
             />
           </div>
+          {notice === "submit" && !mine && (
+            <p role="alert" className="text-sm text-destructive">
+              {NOTICE_COPY.submit}
+            </p>
+          )}
           {mine && (
             <div role="status" className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <p className={`font-heading text-lg font-semibold ${mine.points > 0 ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>

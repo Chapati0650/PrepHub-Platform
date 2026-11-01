@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getStudentQuestionContent, getStudentQuestionFeedback } from "@/lib/session/question-content";
 import {
+  answersVisible,
   completeHomeworkSession,
   getHomeworkSessionForRunner,
   HOMEWORK_BLOCKED_MESSAGES,
@@ -9,6 +10,8 @@ import {
 } from "@/lib/teacher/homework";
 import { LinkButton } from "@/components/ui/link-button";
 import { HomeworkRunner } from "./homework-runner";
+
+export const metadata = { title: "Homework" };
 
 // The homework question flow — the same SessionRunner every other set uses,
 // so a homework question looks and behaves exactly like practice. Focus mode
@@ -46,12 +49,14 @@ export default async function HomeworkSessionPage({ params }: { params: Promise<
     );
   }
 
+  // Still open, so nothing here is turned in: a quiz shows no answer's verdict.
+  const mode = homework.assignment.mode;
   const items = homework.slots.map((s) => ({
     id: s.id,
     position: s.position,
     submitted: s.finalizedAt !== null,
     studentAnswer: s.answer,
-    isCorrect: s.isCorrect,
+    isCorrect: answersVisible(mode, s.finalizedAt !== null, false) ? s.isCorrect : null,
     draftAnswer: s.draftAnswer,
     skipped: s.skipped,
   }));
@@ -60,7 +65,9 @@ export default async function HomeworkSessionPage({ params }: { params: Promise<
   const currentSlot = homework.slots[currentPosition];
   const [content, feedback] = await Promise.all([
     getStudentQuestionContent(currentSlot.questionRevisionId),
-    currentSlot.finalizedAt ? getStudentQuestionFeedback(currentSlot.questionRevisionId) : Promise.resolve(null),
+    answersVisible(mode, currentSlot.finalizedAt !== null, false)
+      ? getStudentQuestionFeedback(currentSlot.questionRevisionId)
+      : Promise.resolve(null),
   ]);
 
   return (
@@ -71,6 +78,7 @@ export default async function HomeworkSessionPage({ params }: { params: Promise<
       items={items}
       initialPosition={currentPosition}
       initialQuestion={{ content, feedback }}
+      revealAnswers={mode === "PRACTICE"}
     />
   );
 }

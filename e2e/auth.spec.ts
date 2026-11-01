@@ -76,7 +76,13 @@ test.describe("authentication (PRD-001)", () => {
     await page.goto(resetUrl);
     await page.getByLabel("Password", { exact: true }).fill("brand-new-pw1");
     await page.getByRole("button", { name: "Set password" }).click();
-    await expect(page).toHaveURL(/\/login$/);
+    await expect(page).toHaveURL(/\/login\?password=set$/);
+    await expect(page.getByText("Your password is set. Log in with it below.")).toBeVisible();
+
+    // The used link says so before anyone types a password into it.
+    await page.goto(resetUrl);
+    await expect(page.getByRole("heading", { name: "This link doesn't work" })).toBeVisible();
+    await page.goto("/login");
 
     // old password must no longer work
     await page.getByLabel("Email").fill(email);

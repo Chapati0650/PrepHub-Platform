@@ -10,6 +10,8 @@ import { FOCUSED_CATEGORY_LABELS, FOCUSED_DIFFICULTY_LABELS } from "@/lib/focuse
 import { getFocusedSessionForRunner } from "@/lib/focused/sessions";
 import { FocusedRunner } from "./focused-runner";
 
+export const metadata = { title: "Focused Practice" };
+
 // The Focused Practice question flow — the same SessionRunner the Diagnostic,
 // Practice Sessions and 800 Club use, so a drilled question looks and behaves
 // exactly like any other question.

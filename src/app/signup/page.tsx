@@ -53,7 +53,7 @@ export default function SignUpPage() {
         <div />
       </div>
 
-      <div className="flex flex-col items-center justify-center p-6 sm:p-10">
+      <main className="flex flex-col items-center justify-center p-6 sm:p-10">
         <div className="flex w-full max-w-sm flex-col gap-6">
           <div className="flex items-center justify-between">
             <Link href="/" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
@@ -103,18 +103,41 @@ export default function SignUpPage() {
             <form action={formAction} className="flex flex-col gap-4">
               {state.error && (
                 <Alert variant="destructive">
-                  <AlertDescription>{state.error}</AlertDescription>
+                  <AlertDescription>
+                    {state.error}
+                    {state.emailTaken && (
+                      <>
+                        {" "}
+                        <Link href="/login" className="font-medium underline underline-offset-4">
+                          Log in instead
+                        </Link>
+                      </>
+                    )}
+                  </AlertDescription>
                 </Alert>
               )}
 
               <div className="flex flex-col gap-2">
                 <Label htmlFor="firstName">First name</Label>
-                <Input id="firstName" name="firstName" autoComplete="given-name" required />
+                <Input
+                  id="firstName"
+                  name="firstName"
+                  autoComplete="given-name"
+                  defaultValue={state.fields?.firstName}
+                  required
+                />
               </div>
 
               <div className="flex flex-col gap-2">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" name="email" type="email" autoComplete="email" required />
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  defaultValue={state.fields?.email}
+                  required
+                />
               </div>
 
               <div className="flex flex-col gap-2">
@@ -172,7 +195,7 @@ export default function SignUpPage() {
             </p>
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

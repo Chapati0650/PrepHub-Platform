@@ -4,6 +4,8 @@ import { auth } from "@/auth";
 import { previewJoin } from "@/lib/teacher/homework";
 import { JoinClassForm } from "@/app/(app)/homework/join-class-form";
 
+export const metadata = { title: "Join a class" };
+
 // A teacher's join link. Signed out, middleware sends the visitor to sign up
 // with the code parked in a cookie, and /home brings them back here once
 // they're in. Joining is a button press, not a page view: a link previewed in
@@ -47,9 +49,12 @@ export default async function JoinClassPage({ params }: { params: Promise<{ code
     <Shell>
       <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">{preview.schoolName}</p>
       <h1 className="mt-3 text-page-title text-balance">Join {preview.className}?</h1>
+      {/* Exactly what the teacher's pages show, item by item: the email is on
+          their roster and gradebook, so "nothing else" without it wasn't true. */}
       <p className="mt-3 text-muted-foreground">
-        {preview.teacherFirstName} will be able to assign you homework here and see your results on it — nothing else from
-        your PrepHub account: not your predicted score, not your other practice.
+        {preview.teacherName} will be able to assign you homework here. They&apos;ll see your first name, the last name
+        you give this class, your email address, and your results on the homework they assign — nothing else from your
+        PrepHub account: not your predicted score, not your other practice.
       </p>
       <div className="mt-6 max-w-sm">
         <JoinClassForm defaultCode={code} />

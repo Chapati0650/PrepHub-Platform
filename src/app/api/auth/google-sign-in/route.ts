@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { signOut } from "@/auth";
+import { safeNextPath } from "@/lib/auth/next-path";
 
 // A genuine two-request browser round trip, not signOut()+signIn() inside one
 // handler — confirmed insufficient by reading @auth/core's own
@@ -34,5 +35,9 @@ function getPublicOrigin(request: Request): string {
 
 export async function GET(request: Request) {
   await signOut({ redirect: false });
-  return NextResponse.redirect(new URL("/api/auth/google-sign-in/start", getPublicOrigin(request)));
+  const start = new URL("/api/auth/google-sign-in/start", getPublicOrigin(request));
+  // Where the student was headed before signing in (see lib/auth/next-path.ts).
+  const next = safeNextPath(new URL(request.url).searchParams.get("next"));
+  if (next) start.searchParams.set("next", next);
+  return NextResponse.redirect(start);
 }

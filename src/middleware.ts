@@ -34,7 +34,12 @@ import { CLASS_JOIN_COOKIE, CLASS_JOIN_COOKIE_MAX_AGE, CLASS_JOIN_CODE_SHAPE } f
 // tried. getToken() only decodes the cookie already on the request — no
 // internal request, no Set-Cookie side effects — so it can't interfere with
 // whatever the actual page/action does with the session in the same request.
-const isAppRoute = (pathname: string) => pathname.startsWith("/home") || pathname.startsWith("/settings");
+// /homework, /practice, /daily and /diagnostic are here for the links in
+// email (homework, reminders, the Diagnostic nudge): signed out, those land on
+// /login with the page kept in `next`, so signing in finishes the click
+// instead of dropping the student on /home.
+const APP_PREFIXES = ["/home", "/settings", "/homework", "/practice", "/daily", "/diagnostic"];
+const isAppRoute = (pathname: string) => APP_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
 // The landing page is deliberately NOT matched. Middleware here is a Netlify
 // edge function, and invoking one in front of `/` stops it from ever being a
@@ -98,14 +103,17 @@ export default async function middleware(req: NextRequest) {
   }
 
   if (!token) {
-    return NextResponse.redirect(new URL("/login", req.url));
+    const login = new URL("/login", req.url);
+    // /home is where signing in goes anyway.
+    if (pathname !== "/home") login.searchParams.set("next", `${pathname}${req.nextUrl.search}`);
+    return NextResponse.redirect(login);
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  // Only the three paths this middleware actually acts on.
+  // Only the paths this middleware actually acts on.
   //
   // It previously matched everything except Next's own static output, which
   // meant Netlify booted an edge function for every request on the site —
@@ -118,5 +126,14 @@ export const config = {
   // It gates only /home and /settings; every other app page calls `auth()`
   // and redirects on its own (CLAUDE.md: "all authorization is server-side"),
   // which was confirmed route by route before this change.
-  matcher: ["/home/:path*", "/settings/:path*", "/rush/join/:path*", "/join/:path*"],
+  matcher: [
+    "/home/:path*",
+    "/settings/:path*",
+    "/homework/:path*",
+    "/practice/:path*",
+    "/daily/:path*",
+    "/diagnostic/:path*",
+    "/rush/join/:path*",
+    "/join/:path*",
+  ],
 };

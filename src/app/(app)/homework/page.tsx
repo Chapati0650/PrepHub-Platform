@@ -4,7 +4,14 @@ import { auth } from "@/auth";
 import { listHomework, listStudentClasses, type HomeworkItem } from "@/lib/teacher/homework";
 import { formatGoalDate } from "@/lib/community/goal";
 import { PageHeader } from "@/components/page-header";
-import { JoinClassForm, LeaveClassButton } from "./join-class-form";
+import { ClassLastNameForm, JoinClassForm, LeaveClassButton } from "./join-class-form";
+
+export const metadata = { title: "Homework" };
+
+// Exactly what a teacher's pages show about a student, so the sentence is
+// true: their roster and gradebook carry the email, not only the results.
+const TEACHER_SEES =
+  "Your teacher sees your first name, the last name you give their class, your email address, and your results on the homework they assign — nothing else from your PrepHub account.";
 
 // Homework from every class the student is in. Reached from the nav (shown
 // once they're in a class), from a teacher's join link, or by typing a code
@@ -40,9 +47,7 @@ export default async function HomeworkPage({ searchParams }: { searchParams: Pro
           <div className="mt-5 max-w-sm">
             <JoinClassForm />
           </div>
-          <p className="mt-5 text-xs text-muted-foreground">
-            Your teacher sees your results on the homework they assign — nothing else from your PrepHub account.
-          </p>
+          <p className="mt-5 text-xs text-muted-foreground">{TEACHER_SEES}</p>
         </section>
       ) : (
         <>
@@ -78,6 +83,23 @@ export default async function HomeworkPage({ searchParams }: { searchParams: Pro
             </section>
           )}
 
+          {homework.closed.length > 0 && (
+            <section className="flex flex-col gap-3">
+              <h2 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                Closed before you finished
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Your teacher closed these while you were partway through. They can&apos;t take new answers, and your
+                teacher sees the ones you gave.
+              </p>
+              <ul className="divide-y divide-border border-y border-border">
+                {homework.closed.map((item) => (
+                  <HomeworkRow key={item.assignmentId} item={item} now={now} />
+                ))}
+              </ul>
+            </section>
+          )}
+
           {homework.done.length > 0 && (
             <section className="flex flex-col gap-3">
               <h2 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">Done</h2>
@@ -89,18 +111,24 @@ export default async function HomeworkPage({ searchParams }: { searchParams: Pro
             </section>
           )}
 
-          <section className="flex flex-col gap-4 border-t border-border pt-8">
+          {/* Spacing, not a rule: the list above already ends on one, and two
+              rules with a gap between read as an empty row. */}
+          <section className="flex flex-col gap-4 pt-6">
             <h2 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">Your classes</h2>
             <ul className="divide-y divide-border border-y border-border">
               {classes.map((c) => (
-                <li key={c.classroomId} className="flex items-center justify-between gap-4 py-3 text-sm">
-                  <span>
-                    <span className="block font-medium">{c.name}</span>
-                    <span className="text-muted-foreground">
-                      {c.teacherFirstName} · {c.schoolName}
+                <li key={c.classroomId} className="py-3 text-sm">
+                  <div className="flex items-center justify-between gap-4">
+                    <span>
+                      <span className="block font-medium">{c.name}</span>
+                      <span className="text-muted-foreground">
+                        {c.teacherName} · {c.schoolName}
+                      </span>
                     </span>
-                  </span>
-                  <LeaveClassButton classroomId={c.classroomId} className={c.name} />
+                    <LeaveClassButton classroomId={c.classroomId} className={c.name} />
+                  </div>
+                  {/* Joined before classes asked for a last name. */}
+                  {!c.lastName && <ClassLastNameForm classroomId={c.classroomId} className={c.name} />}
                 </li>
               ))}
             </ul>
@@ -108,9 +136,7 @@ export default async function HomeworkPage({ searchParams }: { searchParams: Pro
               <p className="mb-2 text-sm font-medium">Join another class</p>
               <JoinClassForm />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Teachers see your results on the homework they assign — nothing else from your PrepHub account.
-            </p>
+            <p className="text-xs text-muted-foreground">{TEACHER_SEES}</p>
           </section>
         </>
       )}
@@ -119,10 +145,14 @@ export default async function HomeworkPage({ searchParams }: { searchParams: Pro
 }
 
 function HomeworkRow({ item, now }: { item: HomeworkItem; now: Date }) {
+  // Closed partway through: nothing left to do, so neither red nor "Start".
+  const closedEarly = item.closed && item.status === "IN_PROGRESS" && !item.readyToTurnIn;
   // Never red for homework that was already due when the student joined.
-  const overdue = item.status !== "COMPLETED" && item.dueAt && item.dueAt < now && !item.setBeforeJoining;
+  const overdue =
+    item.status !== "COMPLETED" && !closedEarly && item.dueAt && item.dueAt < now && !item.setBeforeJoining;
   // Every question answered but not yet turned in: the session page turns it
   // in and shows the results, even if the teacher has since closed it.
+  // Closed partway through goes to the homework's own page, which says so.
   const href =
     item.status === "COMPLETED" && item.sessionId
       ? `/homework/results/${item.sessionId}`
@@ -135,7 +165,8 @@ function HomeworkRow({ item, now }: { item: HomeworkItem; now: Date }) {
         <span className="min-w-0">
           <span className="block font-medium">{item.title}</span>
           <span className="text-sm text-muted-foreground">
-            {item.className} · {item.questionCount} question{item.questionCount === 1 ? "" : "s"}
+            {item.className} · {item.mode === "QUIZ" ? "Quiz · " : ""}
+            {item.questionCount} question{item.questionCount === 1 ? "" : "s"}
             {item.dueAt && (
               <>
                 {" · "}
@@ -152,6 +183,10 @@ function HomeworkRow({ item, now }: { item: HomeworkItem; now: Date }) {
               <span className="font-semibold">{item.correct}</span>
               <span className="text-muted-foreground">/{item.questionCount}</span>
             </>
+          ) : closedEarly ? (
+            <span className="text-muted-foreground">
+              Closed · {item.answered} of {item.questionCount} answered
+            </span>
           ) : item.status === "IN_PROGRESS" ? (
             <span className="text-muted-foreground">
               {item.answered}/{item.questionCount} answered

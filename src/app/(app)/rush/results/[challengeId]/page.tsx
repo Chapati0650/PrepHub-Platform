@@ -14,6 +14,8 @@ import { myWeeklyStanding } from "@/lib/rush/leaderboard";
 import { ShareChallenge } from "../../share-challenge";
 import { loadRushQuestionDetailAction, startRushAction } from "../../actions";
 
+export const metadata = { title: "1v1 Rush results" };
+
 function seconds(ms: number): string {
   return `${(ms / 1000).toFixed(1).replace(/\.0$/, "")}s`;
 }

@@ -8,6 +8,8 @@ import { LessonEditor } from "./lesson-editor";
 import { ConfirmSubmitButton } from "../confirm-submit-button";
 import { deleteLessonAction } from "../actions";
 
+export const metadata = { title: "Lesson" };
+
 export default async function OwnerLessonPage({ params }: { params: Promise<{ lessonId: string }> }) {
   const session = await auth();
   if (session?.user.role !== "OWNER") redirect("/home");

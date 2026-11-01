@@ -1,6 +1,8 @@
 import { ChoiceCard } from "@/components/choice-card";
 import { Marker } from "@/components/ui/marker";
 
+export const metadata = { title: "School access" };
+
 // PRD-002 §5: shown to a student who hasn't chosen an access method yet.
 //
 // School/district access (verify-school, the directory search) is

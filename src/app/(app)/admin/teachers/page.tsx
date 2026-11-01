@@ -5,6 +5,8 @@ import { StaffHeader, StaffPage, StaffSection, StaffSteps, StaffUnavailable } fr
 import { OwnerSchoolSwitcher } from "../school-switcher";
 import { inviteTeacherAction, removeTeacherAction, resendTeacherInviteAction } from "./actions";
 
+export const metadata = { title: "Teachers" };
+
 // The school's teachers (2026-10-24). An Administrator adds them by email;
 // each teacher runs their own classes and homework. What this page shows is
 // counts — classes and students per teacher — never a student's results,

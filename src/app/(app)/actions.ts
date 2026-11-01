@@ -98,8 +98,6 @@ export async function updateFirstNameAction(_prev: ActionState, formData: FormDa
   return { success: true };
 }
 
-// PRD-010 §7 — only the Daily Practice Reminder is an independent toggle;
-// the Streak Lost Email is always-on and has no corresponding field.
 // Shows or hides this student on their school's weekly 1v1 Rush leaderboard.
 // Their own account only — the id comes from the session, never the form.
 export async function updateLeaderboardVisibilityAction(_prev: ActionState, formData: FormData): Promise<ActionState> {

@@ -5,6 +5,8 @@ import { getClubResults } from "@/lib/club/sessions";
 import { ClubResults } from "./club-results";
 import { loadClubQuestionDetailAction } from "../../actions";
 
+export const metadata = { title: "800 Club results" };
+
 export default async function ClubResultsPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/home");

@@ -6,6 +6,8 @@ import { listCuratedColleges } from "@/lib/college-apps/supplements";
 import { PageHeader } from "@/components/page-header";
 import { OwnerCollegeSearch } from "./owner-college-search";
 
+export const metadata = { title: "Supplements" };
+
 // The Owner's August job: which colleges have this cycle's supplements
 // entered. Pick a college (search) to enter or edit its prompts.
 export default async function OwnerSupplementsPage({ searchParams }: { searchParams: Promise<{ cycle?: string }> }) {

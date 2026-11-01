@@ -2,12 +2,15 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
+import { getAccessSummary, hasPaidAccess } from "@/lib/entitlements";
 import { getDiagnosticResultsData } from "@/lib/session/session-results-data";
 import { diagnosticVerdict, weakestCategories } from "@/lib/session/verdict";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
 import { SessionResults } from "@/components/session/session-results";
 import { ParentSummary } from "@/components/session/parent-summary";
 import { loadDiagnosticQuestionDetailAction } from "../actions";
+
+export const metadata = { title: "Diagnostic results" };
 
 // PRD-012 §23/§24 — the diagnostic's "standard completed-set results
 // experience," reusing PRD-007's Session Review component, plus the two
@@ -27,14 +30,25 @@ export default async function DiagnosticResultsPage() {
   if (!diagnostic) redirect("/diagnostic");
   if (diagnostic.status !== "COMPLETED") redirect("/diagnostic");
 
-  const data = await getDiagnosticResultsData(session.user.id);
+  const [data, access, paid] = await Promise.all([
+    getDiagnosticResultsData(session.user.id),
+    getAccessSummary(session.user.id),
+    hasPaidAccess(session.user.id),
+  ]);
   const needsOnboarding = user.role === "STUDENT" && !user.onboardingCompletedAt;
   const verdict = diagnosticVerdict(data.mastery);
   const weak = weakestCategories(data.mastery).map((c) => CATEGORY_LABELS[c]);
   const summary = [
     `PrepHub Diagnostic result: predicted SAT score ${data.currentRange.min}–${data.currentRange.max} (${data.stats.correct}/${data.stats.total} correct).`,
     `Weakest areas: ${weak.join(" and ")}.`,
-    `The Diagnostic and the first personalized practice set are free. PrepHub Premium (every set after that, updated predictions, the 800 Club and 1v1 Rush) is $25/month at launch or $99/year — prephubtp.com/pricing.`,
+    // The price is for a family that would be paying. Quoting it to a
+    // family whose school already covers Premium is the "selling someone
+    // what their school pays for" mistake the district bar exists to avoid.
+    access.type === "SCHOOL"
+      ? `${access.organizationName} provides PrepHub Premium, so every personalized practice set after this is free for this student.`
+      : paid
+        ? `This student has PrepHub Premium: a new personalized practice set after every one they finish, with the prediction updated each time.`
+        : `The Diagnostic and the first personalized practice set are free. PrepHub Premium (every set after that, updated predictions, the 800 Club and 1v1 Rush) is $25/month at launch or $99/year — prephubtp.com/pricing.`,
   ].join("\n");
 
   return (
@@ -44,6 +58,8 @@ export default async function DiagnosticResultsPage() {
       verdict={verdict}
       continueLabel={needsOnboarding ? "Set your target score" : "Start your free practice set"}
       extra={<ParentSummary text={summary} />}
+      // An Administrator's /home is the admin area; this is their student dashboard.
+      backHref={user.role === "SCHOOL_ADMINISTRATOR" ? "/home?view=student" : "/home"}
     />
   );
 }

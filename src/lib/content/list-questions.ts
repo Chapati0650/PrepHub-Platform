@@ -200,15 +200,26 @@ export async function listQuestions(
   const where = buildWhere(filters);
 
   // Fixed-order sorts (category/difficulty use PRD-013's enum order, not
-  // alphabetical) are applied in-memory on the page's rows — safe because the
-  // DB query already narrowed to exactly one page via skip/take beforehand
-  // would break the fixed-order sort, so for those two sorts we instead fetch
-  // the matching rows in a stable DB order and re-sort before paginating.
+  // alphabetical) can't be paged in the database, so every matching row is
+  // sorted in memory — but only as {id, category, difficulty}. This used to
+  // load every matching question with both revisions, their choices, steps
+  // and media, to show fifty of them; now only the page's own rows are.
   if (filters.sort === "CATEGORY" || filters.sort === "DIFFICULTY") {
-    const all = await prisma.question.findMany({ where, include: LIST_ROW_INCLUDE, orderBy: { updatedAt: "desc" } });
-    const sorted = sortByFixedOrder(all, filters.sort);
+    const all = await prisma.question.findMany({
+      where,
+      select: { id: true, category: true, difficulty: true },
+      orderBy: { updatedAt: "desc" },
+    });
     const start = (page - 1) * pageSize;
-    return { rows: sorted.slice(start, start + pageSize), totalCount: all.length };
+    const pageIds = sortByFixedOrder(all, filters.sort)
+      .slice(start, start + pageSize)
+      .map((r) => r.id);
+    if (pageIds.length === 0) return { rows: [], totalCount: all.length };
+    const loaded = await prisma.question.findMany({ where: { id: { in: pageIds } }, include: LIST_ROW_INCLUDE });
+    const byId = new Map(loaded.map((row) => [row.id, row]));
+    // A row deleted between the two reads simply drops out of this page.
+    const rows = pageIds.flatMap((id) => byId.get(id) ?? []);
+    return { rows, totalCount: all.length };
   }
 
   const [rows, totalCount] = await Promise.all([

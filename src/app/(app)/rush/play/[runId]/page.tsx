@@ -5,6 +5,8 @@ import { getRunContext } from "@/lib/rush/runs";
 import { RushRunner } from "./rush-runner";
 import { serveRushQuestionAction, submitRushAnswerAction } from "../../actions";
 
+export const metadata = { title: "1v1 Rush" };
+
 // The rush itself. No paid-access check here on purpose: a run only exists
 // because startRushAction (Premium-gated) or joinRushAction (free by
 // design) created it, and the free path is the whole point of the hook.

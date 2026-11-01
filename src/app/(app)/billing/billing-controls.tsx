@@ -22,10 +22,25 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
+import { PLAN_NAME, PREMIUM_INCLUDES, planPrice, type DisplayPlan } from "@/lib/billing/display";
+import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
 
 const initialState: ActionState = {};
 
-export function CancelSubscriptionControl({ accessEndsOn }: { accessEndsOn: string }) {
+const SOMETHING_FAILED = "Something went wrong and nothing was changed. Please try again.";
+
+function failureMessage(err: unknown): string {
+  return isStaleServerActionError(err) ? STALE_BUILD_MESSAGE : SOMETHING_FAILED;
+}
+
+export function CancelSubscriptionControl({
+  accessEndsOn,
+  pendingSwitch,
+}: {
+  accessEndsOn: string;
+  /** "Annual on December 1, 2026", when a switch is waiting — cancelling drops it. */
+  pendingSwitch: string | null;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -33,13 +48,17 @@ export function CancelSubscriptionControl({ accessEndsOn }: { accessEndsOn: stri
 
   function handleConfirm() {
     startTransition(async () => {
-      const result = await cancelSubscriptionAction();
-      if (result.error) {
-        setError(result.error);
-        return;
+      try {
+        const result = await cancelSubscriptionAction();
+        if (result.error) {
+          setError(result.error);
+          return;
+        }
+        setOpen(false);
+        router.refresh();
+      } catch (err) {
+        setError(failureMessage(err));
       }
-      setOpen(false);
-      router.refresh();
     });
   }
 
@@ -57,10 +76,10 @@ export function CancelSubscriptionControl({ accessEndsOn }: { accessEndsOn: stri
         <DialogHeader>
           <DialogTitle>Cancel your subscription?</DialogTitle>
           <DialogDescription>
-            Your subscription will remain active until {accessEndsOn}. After this date,
-            Personalized Practice will no longer be available. No future automatic renewals will
-            occur, and your learning progress will remain saved. You can reverse this before your
-            access ends.
+            You keep Premium until {accessEndsOn}. After that, {PREMIUM_INCLUDES} will no longer be available. Nothing
+            renews or is charged again, and your learning progress stays saved.
+            {pendingSwitch && ` Your switch to ${pendingSwitch} won't happen.`} You can reverse this any time before{" "}
+            {accessEndsOn}.
           </DialogDescription>
         </DialogHeader>
         {error && (
@@ -95,9 +114,13 @@ export function ReactivateControl() {
         disabled={isPending}
         onClick={() =>
           startTransition(async () => {
-            const result = await reactivateSubscriptionAction();
-            if (result.error) setError(result.error);
-            else router.refresh();
+            try {
+              const result = await reactivateSubscriptionAction();
+              if (result.error) setError(result.error);
+              else router.refresh();
+            } catch (err) {
+              setError(failureMessage(err));
+            }
           })
         }
       >
@@ -107,28 +130,112 @@ export function ReactivateControl() {
   );
 }
 
-export function SwitchPlanForm({ currentPlan }: { currentPlan: "MONTHLY" | "ANNUAL" | null }) {
-  const [state, formAction, pending] = useActionState(switchPlanAction, initialState);
-  const targetPlan = currentPlan === "ANNUAL" ? "MONTHLY" : "ANNUAL";
-  const targetLabel = targetPlan === "ANNUAL" ? "Annual ($99/yr)" : "Monthly ($25/mo)";
+/**
+ * Monthly ↔ Annual. The switch waits for the renewal date — Stripe keeps the
+ * current price until then (lib/billing's switchPlan) — and the dialog says
+ * exactly that, with both prices, before anything is scheduled. With a switch
+ * already waiting, the control becomes the way to call it off.
+ */
+export function SwitchPlanControl({
+  currentPlan,
+  renewsOn,
+  pendingPlan,
+  pendingOn,
+}: {
+  currentPlan: DisplayPlan;
+  renewsOn: string;
+  pendingPlan: DisplayPlan | null;
+  pendingOn: string | null;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const targetPlan: DisplayPlan = currentPlan === "ANNUAL" ? "MONTHLY" : "ANNUAL";
 
-  return (
-    <form action={formAction} className="flex flex-col gap-2">
-      {state.error && (
+  function submit(plan: DisplayPlan) {
+    setError(null);
+    setMessage(null);
+    startTransition(async () => {
+      try {
+        const result = await switchPlanAction(plan);
+        if (result.error) {
+          setError(result.error);
+          return;
+        }
+        setOpen(false);
+        setMessage(result.message ?? null);
+        router.refresh();
+      } catch (err) {
+        setError(failureMessage(err));
+      }
+    });
+  }
+
+  const feedback = (
+    <>
+      {error && (
         <Alert variant="destructive">
-          <AlertDescription>{state.error}</AlertDescription>
+          <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {state.success && (
-        <p className="text-sm text-muted-foreground">
-          Your plan will change at your next renewal date. You won&apos;t be charged anything today.
+      {message && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {message}
         </p>
       )}
-      <input type="hidden" name="plan" value={targetPlan} />
-      <Button type="submit" variant="outline" disabled={pending}>
-        {pending ? "Switching..." : `Switch to ${targetLabel}`}
-      </Button>
-    </form>
+    </>
+  );
+
+  if (pendingPlan && pendingOn) {
+    return (
+      <div className="flex flex-col gap-2">
+        {feedback}
+        <p className="text-sm">
+          Switches to <span className="font-medium">{PLAN_NAME[pendingPlan]}</span> ({planPrice(pendingPlan)}) on{" "}
+          {pendingOn}. Nothing is charged until then.
+        </p>
+        <Button variant="outline" disabled={isPending} onClick={() => submit(currentPlan)}>
+          {isPending ? "Updating..." : `Keep ${PLAN_NAME[currentPlan]} instead`}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {!open && feedback}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <Button
+          variant="outline"
+          render={
+            <button type="button" onClick={() => setOpen(true)}>
+              Switch to {PLAN_NAME[targetPlan]} · {planPrice(targetPlan)}
+            </button>
+          }
+        />
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Switch to {PLAN_NAME[targetPlan]} on {renewsOn}?
+            </DialogTitle>
+            <DialogDescription>
+              You stay on {PLAN_NAME[currentPlan]} until {renewsOn}, when it would renew. From then you&apos;ll be charged{" "}
+              {planPrice(targetPlan)} instead of {planPrice(currentPlan)}. Nothing is charged today, Premium carries on
+              without a break, and you can keep {PLAN_NAME[currentPlan]} any time before {renewsOn}.
+            </DialogDescription>
+          </DialogHeader>
+          {open && feedback}
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline">Not now</Button>} />
+            <Button disabled={isPending} onClick={() => submit(targetPlan)}>
+              {isPending ? "Scheduling..." : "Schedule the switch"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
 

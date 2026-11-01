@@ -6,9 +6,11 @@ import { endOfLocalDay } from "@/lib/community/local-day";
 // underlying `expectedGraduationYear` column is validated identically
 // regardless of which role edits it. The tighter window an Administrator is
 // held to — no year that would end a student's access — depends on today's
-// date, so it is checked in `updateStudentInfo`, not here.
+// date, so it is checked in `updateStudentInfo`, not here. The first name has
+// the same 100-character cap as signup and Settings, so no role can store one
+// the others couldn't.
 export const updateStudentInfoSchema = z.object({
-  firstName: z.string().trim().min(1, "First name is required"),
+  firstName: z.string().trim().min(1, "First name is required").max(100, "Keep the first name under 100 characters"),
   expectedGraduationYear: z.coerce.number().int().min(2020).max(2100),
 });
 

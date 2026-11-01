@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { uploadFailureMessage } from "@/lib/content/upload-errors";
 import { uploadImageAction, uploadVideoAction } from "./actions";
 
 // PRD-015 §9: upload progress / processing / success / failure states. True
@@ -34,7 +35,16 @@ export function MediaUploadField({
     const formData = new FormData();
     formData.set("file", file);
     setState("processing");
-    const result = kind === "image" ? await uploadImageAction(formData) : await uploadVideoAction(formData);
+    let result: Awaited<ReturnType<typeof uploadImageAction>>;
+    try {
+      result = kind === "image" ? await uploadImageAction(formData) : await uploadVideoAction(formData);
+    } catch (err) {
+      // A thrown action (a deploy mid-session, or the host refusing the body
+      // before any code ran) used to leave the button on "Uploading…" for good.
+      setState("failed");
+      setError(uploadFailureMessage(err, file.size));
+      return;
+    }
     if (result.error) {
       setState("failed");
       setError(result.error);

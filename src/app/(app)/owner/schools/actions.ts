@@ -558,13 +558,20 @@ export async function inviteTeacherOwnerAction(_prev: TeacherPanelState, formDat
   await requireOwner();
   const organizationId = String(formData.get("organizationId") ?? "");
   try {
-    const { created, restoredClasses } = await inviteTeacher({
+    const { created, restoredClasses, inviteEmailFailed } = await inviteTeacher({
       firstName: String(formData.get("firstName") ?? ""),
       email: String(formData.get("email") ?? ""),
       schoolId: organizationId,
       invitedBy: "The PrepHub team",
     });
     revalidatePath(`/owner/schools/${organizationId}`);
+    // The account exists either way; what changes is whether an email is coming.
+    if (inviteEmailFailed) {
+      return {
+        success: true,
+        message: "Added, but the invitation email didn't send. Use “Resend invitation” next to their name.",
+      };
+    }
     return { success: true, message: teacherInviteMessage(created, restoredClasses) };
   } catch (err) {
     // Nothing to do, and nothing went wrong: say so as a note, not an error.
@@ -584,7 +591,8 @@ function teacherInviteMessage(created: boolean, restoredClasses: number): string
 export async function resendTeacherInviteOwnerAction(organizationId: string, userId: string): Promise<TeacherPanelState> {
   await requireOwner();
   try {
-    await resendTeacherInvite(userId, organizationId, "The PrepHub team");
+    const { emailSent } = await resendTeacherInvite(userId, organizationId, "The PrepHub team");
+    if (!emailSent) return { error: "The invitation email didn't send. Try again in a few minutes." };
     return { message: "Sent a new invite." };
   } catch (err) {
     if (err instanceof TeacherError) return { error: err.message };

@@ -18,8 +18,10 @@ import type { LoadedQuestion } from "./session-runner";
 import { AcceptedAnswers, resultDetail } from "./answer-result";
 
 function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60);
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m`;
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
@@ -29,7 +31,8 @@ function celebrationMessage(previous: { min: number; max: number } | null, curre
   const curMid = (current.min + current.max) / 2;
   if (curMid > prevMid) return `+${Math.round(curMid - prevMid)} Estimated SAT Points`;
   if (curMid < prevMid) return "Your predicted score decreased slightly this session. That's completely normal — progress isn't always linear.";
-  return "You're maintaining an excellent level.";
+  // Said to a 500 as well as a 1500, so it praises nothing it can't see.
+  return `Your prediction held steady at ${current.min}–${current.max}.`;
 }
 
 function targetProgressMessage(target: number | null, current: { min: number; max: number }): string | null {
@@ -207,7 +210,8 @@ export function SessionResults({
         <LinkButton size="cta" href={data.continueHref}>
           {continueLabel}
         </LinkButton>
-        <LinkButton size="cta" variant="outline" href={backHref}>
+        {/* One pill per screen (CLAUDE.md): the way forward. */}
+        <LinkButton size="lg" variant="ghost" className="h-12 text-base" href={backHref}>
           Back to Dashboard
         </LinkButton>
       </div>

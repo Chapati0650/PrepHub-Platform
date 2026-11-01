@@ -38,7 +38,10 @@ export function SessionNavGrid({
           className={[
             "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-xs font-medium transition-colors",
             item.state === "current" && "border-2 border-primary bg-primary/10 text-primary",
-            item.state === "submitted" && "border-2 border-green-600 bg-green-100 text-green-800 dark:border-green-500 dark:bg-green-900/50 dark:text-green-300",
+            // Answered is a solid fill, as in Bluebook, and deliberately not
+            // green: in a Practice Set it covers wrong answers too, and green
+            // is this app's word for "correct".
+            item.state === "submitted" && "border-2 border-foreground bg-foreground text-background",
             item.state === "skipped" &&
               "border-amber-500 border-dashed bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
             item.state === "unanswered" && "border-border text-muted-foreground",
@@ -60,7 +63,7 @@ function stateLabel(state: NavItemState): string {
     case "submitted":
       return "answered";
     case "skipped":
-      return "skipped";
+      return "marked for review";
     case "unanswered":
       return "not answered";
   }

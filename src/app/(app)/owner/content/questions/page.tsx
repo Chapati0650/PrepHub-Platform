@@ -2,6 +2,8 @@ import { listQuestions, parseQuestionListFilters } from "@/lib/content/list-ques
 import { QuestionsTable } from "./questions-table";
 import { requireOwnerPage } from "@/lib/owner/guard";
 
+export const metadata = { title: "Questions" };
+
 type SearchParams = Record<string, string | string[] | undefined>;
 
 // PRD-015 §4: the Questions page — the default landing page for the content

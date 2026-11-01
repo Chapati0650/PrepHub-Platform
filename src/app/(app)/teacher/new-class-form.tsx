@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { startTransition, useActionState } from "react";
 import { createClassroomAction, type TeacherActionState } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,17 @@ const initialState: TeacherActionState = {};
 export function NewClassForm() {
   const [state, formAction, pending] = useActionState(createClassroomAction, initialState);
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    // onSubmit rather than `action`: React resets a form after an action
+    // completes, so a refused name ("archive one first", too long) was wiped
+    // along with the error explaining it. Success redirects to the class.
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const data = new FormData(e.currentTarget);
+        startTransition(() => formAction(data));
+      }}
+      className="flex flex-col gap-4"
+    >
       {state.error && (
         <Alert variant="destructive">
           <AlertDescription className="text-base">{state.error}</AlertDescription>

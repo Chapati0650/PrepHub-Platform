@@ -9,6 +9,8 @@ import { ModuleForms, NewLessonForm } from "./module-forms";
 import { ConfirmSubmitButton } from "./confirm-submit-button";
 import { deleteModuleAction, moveModuleAction, moveLessonAction } from "./actions";
 
+export const metadata = { title: "Curriculum" };
+
 function formatMinutes(seconds: number | null): string {
   if (!seconds) return "—";
   return `${Math.round(seconds / 60)}m`;

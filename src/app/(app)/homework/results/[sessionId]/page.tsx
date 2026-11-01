@@ -4,6 +4,8 @@ import { getHomeworkResults } from "@/lib/teacher/homework";
 import { HomeworkResults } from "./homework-results";
 import { loadHomeworkQuestionDetailAction } from "../../actions";
 
+export const metadata = { title: "Homework results" };
+
 export default async function HomeworkResultsPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");

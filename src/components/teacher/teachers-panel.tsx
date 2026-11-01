@@ -1,15 +1,18 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useState, useTransition, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ConfirmButton } from "@/components/confirm-button";
 import { StaffField, StatusChip } from "@/components/staff/staff-ui";
+import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
 
 export type TeacherPanelRow = {
   userId: string;
   firstName: string;
+  /** What the teacher's students see ("Ms. Alvarez"), when they've set it. */
+  teacherDisplayName?: string | null;
   email: string;
   activated: boolean;
   classCount: number;
@@ -49,8 +52,43 @@ export function TeachersPanel({
   hidden?: Record<string, string>;
   readOnly?: boolean;
 }) {
-  const [state, formAction, pending] = useActionState(invite, {});
+  const [state, setState] = useState<TeacherPanelState>({});
+  const [pending, startInvite] = useTransition();
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Called directly rather than through `<form action>`: React resets a form
+  // after an action completes, so a refused address ("already has a student
+  // account") came back as an error above two empty boxes. Here the fields
+  // clear only once the teacher was actually added, ready for the next one.
+  function submitInvite(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const data = new FormData(form);
+    startInvite(async () => {
+      try {
+        const result = await invite({}, data);
+        setState(result);
+        if (!result.error) form.reset();
+      } catch (err) {
+        setState({
+          error: isStaleServerActionError(err)
+            ? STALE_BUILD_MESSAGE
+            : "Couldn't reach PrepHub just now. Check the list above to see whether they were added, then try again.",
+        });
+      }
+    });
+  }
+
+  async function resendTo(t: TeacherPanelRow) {
+    try {
+      const result = await resend(t.userId);
+      setNotice(result.error ?? result.message ?? `Sent ${t.firstName} a new invitation email.`);
+    } catch (err) {
+      setNotice(
+        isStaleServerActionError(err) ? STALE_BUILD_MESSAGE : "Couldn't send the invitation just now. Try again in a moment.",
+      );
+    }
+  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -82,6 +120,14 @@ export function TeachersPanel({
                       <StatusChip tone="warn">Invited, hasn&apos;t signed in yet</StatusChip>
                     )}
                   </p>
+                  {/* The name on their homework and emails, so an administrator
+                      asked about "Ms. Alvarez's homework" can find her. */}
+                  {t.teacherDisplayName && t.teacherDisplayName !== t.firstName && (
+                    <p className="text-base">
+                      <span className="text-muted-foreground">Students see </span>
+                      <span className="font-medium">{t.teacherDisplayName}</span>
+                    </p>
+                  )}
                   <p className="truncate text-base text-muted-foreground">{t.email}</p>
                 </div>
                 <p className="text-base tabular-nums lg:w-48 lg:text-right">
@@ -89,18 +135,7 @@ export function TeachersPanel({
                 </p>
                 {!readOnly && (
                   <div className="flex shrink-0 flex-wrap gap-2">
-                    {!t.activated && (
-                      <Button
-                        variant="outline"
-                        size="xl"
-                        onClick={async () => {
-                          const result = await resend(t.userId);
-                          setNotice(result.error ?? result.message ?? `Sent ${t.firstName} a new invitation email.`);
-                        }}
-                      >
-                        Resend invitation
-                      </Button>
-                    )}
+                    {!t.activated && <ResendInviteButton onResend={() => resendTo(t)} />}
                     <ConfirmButton
                       variant="ghost"
                       size="xl"
@@ -139,7 +174,7 @@ export function TeachersPanel({
             resend it from the list above. If your school uses Google, they can also just choose &ldquo;Continue with
             Google&rdquo; with this email address.
           </p>
-          <form action={formAction} className="mt-5 flex flex-col gap-4">
+          <form onSubmit={submitInvite} className="mt-5 flex flex-col gap-4">
             {Object.entries(hidden).map(([name, value]) => (
               <input key={name} type="hidden" name={name} value={value} />
             ))}
@@ -178,5 +213,19 @@ export function TeachersPanel({
         </section>
       )}
     </div>
+  );
+}
+
+/**
+ * Its own pending state, so the button is disabled from the first click
+ * until the email has gone: a double click on a slow school network used to
+ * send the teacher two invitations, each with its own link.
+ */
+function ResendInviteButton({ onResend }: { onResend: () => Promise<void> }) {
+  const [pending, startSending] = useTransition();
+  return (
+    <Button variant="outline" size="xl" disabled={pending} onClick={() => startSending(onResend)}>
+      {pending ? "Sending…" : "Resend invitation"}
+    </Button>
   );
 }

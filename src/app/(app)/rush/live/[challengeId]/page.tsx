@@ -5,6 +5,8 @@ import { getLiveState } from "@/lib/rush/live";
 import { LiveRush } from "./live-rush";
 import { pollLiveAction, serveLiveQuestionAction, submitLiveAnswerAction } from "../../actions";
 
+export const metadata = { title: "1v1 Rush" };
+
 // A live room. No paid-access check on purpose: a run in a live room only
 // exists because startRushAction (Premium-gated) or joinRushAction (free
 // by design) created it. getLiveState returns null for anyone without a

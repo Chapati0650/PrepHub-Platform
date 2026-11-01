@@ -19,6 +19,8 @@ import { CreateFamilyDialog } from "./create-family-dialog";
 import { GroupQuestionsDialog } from "./group-questions-dialog";
 import { requireOwnerPage } from "@/lib/owner/guard";
 
+export const metadata = { title: "Question Families" };
+
 function formatDate(date: Date): string {
   return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }

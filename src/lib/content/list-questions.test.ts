@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { buildWhere } from "@/lib/content/list-questions";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildWhere, listQuestions } from "@/lib/content/list-questions";
 import type { Prisma } from "@/generated/prisma/client";
+import { prisma } from "@/lib/prisma";
+
+vi.mock("@/lib/prisma", () => ({ prisma: { question: { findMany: vi.fn(), count: vi.fn() } } }));
+
+const findMany = prisma.question.findMany as unknown as ReturnType<typeof vi.fn>;
 
 // buildWhere always returns { AND: [...] } (see list-questions.ts) — Prisma's
 // generated type just allows AND to be a single clause too, which we never use.
@@ -61,5 +66,46 @@ describe("buildWhere", () => {
       { currentDraftRevisionId: { not: null }, currentDraftRevision: { aiGenerated: true, aiReviewedAt: { not: null } } },
       { currentDraftRevisionId: null, currentPublishedRevision: { aiGenerated: true, aiReviewedAt: { not: null } } },
     ]);
+  });
+});
+
+describe("listQuestions — category and difficulty sorts", () => {
+  // In the database's stable order (most recently updated first).
+  const bank = [
+    { id: "g1", category: "GRAMMAR", difficulty: "HARD" },
+    { id: "a1", category: "ALGEBRA", difficulty: "EASY" },
+    { id: "r1", category: "READING_COMPREHENSION", difficulty: "MEDIUM" },
+    { id: "a2", category: "ALGEBRA", difficulty: "HARD" },
+  ];
+
+  beforeEach(() => {
+    findMany.mockReset();
+    findMany.mockImplementation((args: { select?: unknown; where: { id?: { in: string[] } } }) => {
+      if (args.select) return Promise.resolve(bank);
+      // The page's own rows, deliberately not in the order asked for.
+      const ids = args.where.id?.in ?? [];
+      return Promise.resolve([...ids].reverse().map((id) => ({ id, full: true })));
+    });
+  });
+
+  it("sorts a lightweight projection, then loads only the requested page with its content", async () => {
+    const result = await listQuestions({ sort: "CATEGORY", page: 1, pageSize: 25 });
+
+    expect(findMany).toHaveBeenCalledTimes(2);
+    expect(findMany.mock.calls[0][0].select).toEqual({ id: true, category: true, difficulty: true });
+    expect(findMany.mock.calls[0][0].include).toBeUndefined();
+    // Reading Comprehension, then Grammar, then Algebra — PRD-013's order —
+    // with the stable order kept inside a category.
+    expect(findMany.mock.calls[1][0].where).toEqual({ id: { in: ["r1", "g1", "a1", "a2"] } });
+    expect(result.rows.map((r) => r.id)).toEqual(["r1", "g1", "a1", "a2"]);
+    expect(result.totalCount).toBe(4);
+  });
+
+  it("pages after sorting, so page 2 holds what follows page 1", async () => {
+    const result = await listQuestions({ sort: "DIFFICULTY", page: 2, pageSize: 25 });
+    expect(result.rows).toEqual([]);
+    expect(result.totalCount).toBe(4);
+    // Nothing on the page, so nothing more to load.
+    expect(findMany).toHaveBeenCalledTimes(1);
   });
 });

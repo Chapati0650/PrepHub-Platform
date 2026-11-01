@@ -11,6 +11,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Marker } from "@/components/ui/marker";
 import { openClubSectionAction } from "./actions";
 
+export const metadata = { title: "800 Club" };
+
 function formatSeconds(s: number): string {
   const m = Math.floor(s / 60);
   const r = s % 60;

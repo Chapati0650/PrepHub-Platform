@@ -144,6 +144,7 @@ export function OnboardingWizard() {
       <div
         className="flex gap-1.5"
         role="progressbar"
+        aria-label="Setup progress"
         aria-valuenow={step}
         aria-valuemin={1}
         aria-valuemax={STEP_COUNT - FIRST_STEP}

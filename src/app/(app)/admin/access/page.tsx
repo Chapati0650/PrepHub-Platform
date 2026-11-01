@@ -6,6 +6,8 @@ import { SCHOOLS_CONTACT_EMAIL } from "@/components/marketing/site-chrome";
 import { buttonVariants } from "@/components/ui/button";
 import { StaffHeader, StaffPage, StaffSection, StaffUnavailable, StatusChip } from "@/components/staff/staff-ui";
 
+export const metadata = { title: "Access & support" };
+
 // Keyed by the state derived from the organization that pays (access-info.ts),
 // not the campus row's own status, which can lag the district's by a year.
 const ACCESS_STATE: Record<SchoolAccessState, { label: string; tone: "good" | "warn" | "muted"; meaning: string }> = {

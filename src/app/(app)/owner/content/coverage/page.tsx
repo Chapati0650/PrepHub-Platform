@@ -5,6 +5,8 @@ import { CATEGORY_LABELS, DIFFICULTY_LABELS } from "@/lib/content/labels";
 import { PageHeader } from "@/components/page-header";
 import { requireOwnerPage } from "@/lib/owner/guard";
 
+export const metadata = { title: "Content coverage" };
+
 // Graduated coverage-strength tint — same idea as the coverage matrix always
 // had (a color signal on hasNoPublished), extended to more than one step so
 // "barely covered" and "well covered" read differently at a glance, not just
@@ -60,7 +62,7 @@ export default async function ContentCoveragePage() {
                         <span className="text-xs text-muted-foreground">{cell.draftCount} draft/revision</span>
                         <span className="text-xs text-muted-foreground">{cell.missingVideoCount} missing video</span>
                         <span className="text-xs text-muted-foreground">
-                          {cell.missingWrittenExplanationCount} missing explanation
+                          {cell.missingExplanationCount} missing explanation
                         </span>
                       </Link>
                     </td>

@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { LinkButton } from "@/components/ui/link-button";
 
+export const metadata = { title: "School access" };
+
 // PRD-002 §11.2 success screen. Only reachable by a student who actually has
 // an active membership — not a static "did you just verify?" trust-the-URL page.
 export default async function AccessSuccessPage() {

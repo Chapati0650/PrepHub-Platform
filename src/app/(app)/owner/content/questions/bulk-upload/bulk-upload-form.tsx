@@ -13,8 +13,8 @@ import { toast } from "@/components/ui/toast";
 import { extractImagesFromZip } from "@/lib/content/extract-zip-images";
 import { pickImagesFromDrive } from "@/lib/google/drive-picker";
 import { AbsoluteTimeoutError, SuspectedSleepError, raceAgainstSuspendOrTimeout } from "@/lib/content/suspend-detection";
-import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
-import { bulkUploadImageAction, bulkUploadPdfPageAction } from "../../actions";
+import { ownerRequestFailureMessage, postToOwnerRoute } from "@/lib/content/owner-request-client";
+import type { BulkUploadImageActionResult, BulkUploadPdfPageActionResult } from "../../actions";
 
 // One image ≈ transcribe + determine answer + write an explanation —
 // roughly 20-30s of sequential AI calls. A concurrency pool keeps a batch of
@@ -22,7 +22,12 @@ import { bulkUploadImageAction, bulkUploadPdfPageAction } from "../../actions";
 // at once and risking API rate limits. A PDF page goes through the same pool
 // as a single unit even though it can yield several questions — the
 // transcription call itself (the slow part) still only runs once per page.
+//
+// The requests go to a Route Handler (./process/route.ts) with fetch. They
+// were Server Actions until 2026-11-01, which Next dispatches one at a time
+// per client, so this pool of three had only ever run one request at a time.
 const CONCURRENCY = 3;
+const PROCESS_URL = "/owner/content/questions/bulk-upload/process";
 
 // Public by design (inlined client-side, restricted by domain in the Google
 // Cloud Console the same way the Desmos key is) — see drive-picker.ts's
@@ -166,18 +171,19 @@ export function BulkUploadForm({ googleClientId, disabled = false }: { googleCli
     const row = allRows[index];
     const formData = new FormData();
     formData.set("file", row.file);
+    formData.set("kind", row.kind);
 
     let questionIds: string[] = [];
     let errors: string[] = [];
     let alreadyUploaded = false;
     try {
       if (row.kind === "pdfPage") {
-        const result = await raceAgainstSuspendOrTimeout(bulkUploadPdfPageAction(formData));
+        const result = await raceAgainstSuspendOrTimeout(postToOwnerRoute<BulkUploadPdfPageActionResult>(PROCESS_URL, formData));
         questionIds = result.questionIds;
         errors = result.errors;
         alreadyUploaded = result.skipped ?? false;
       } else {
-        const result = await raceAgainstSuspendOrTimeout(bulkUploadImageAction(formData));
+        const result = await raceAgainstSuspendOrTimeout(postToOwnerRoute<BulkUploadImageActionResult>(PROCESS_URL, formData));
         if (result.error) errors = [result.error];
         else if (result.questionId) questionIds = [result.questionId];
         alreadyUploaded = result.skipped ?? false;
@@ -185,18 +191,14 @@ export function BulkUploadForm({ googleClientId, disabled = false }: { googleCli
     } catch (err) {
       const duplicateWarning = "It's possible this still finished on the server after all — check the Questions table before retrying, to avoid creating a duplicate.";
       errors = [
-        // A deploy landed while this page was open. The action never ran, so
-        // — unlike the two cases below — there is no duplicate risk; the
-        // files already in the bank are skipped by hash on the retry anyway.
-        isStaleServerActionError(err)
-          ? STALE_BUILD_MESSAGE
-          : err instanceof SuspectedSleepError
-            ? `This browser tab (or the computer) appears to have been suspended mid-request. ${duplicateWarning}`
-            : err instanceof AbsoluteTimeoutError
-              ? `This took an unusually long time (over 30 minutes) without a suspend being detected — possibly a genuine server-side issue. ${duplicateWarning}`
-              : err instanceof Error
-                ? err.message
-                : "Something went wrong.",
+        err instanceof SuspectedSleepError
+          ? `This browser tab (or the computer) appears to have been suspended mid-request. ${duplicateWarning}`
+          : err instanceof AbsoluteTimeoutError
+            ? `This took an unusually long time (over 30 minutes) without a suspend being detected — possibly a genuine server-side issue. ${duplicateWarning}`
+            : // The host refusing the file, a timeout, a dropped connection.
+              // (A deploy mid-batch no longer breaks this: a Route Handler has
+              // no build-specific action ID to go stale.)
+              ownerRequestFailureMessage(err, row.file.size),
       ];
     }
 

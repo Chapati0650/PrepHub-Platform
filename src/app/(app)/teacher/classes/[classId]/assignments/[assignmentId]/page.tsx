@@ -1,18 +1,26 @@
 import { notFound } from "next/navigation";
 import { requireTeacher } from "@/lib/teacher/access";
 import { getAssignmentResults } from "@/lib/teacher/assignments";
+import { listOtherOpenClasses } from "@/lib/teacher/classrooms";
+import { formatNudgeTime } from "@/lib/teacher/homework-email";
 import { TeacherError } from "@/lib/teacher/errors";
+import { studentRosterName } from "@/lib/teacher/names";
 import { formatGoalDate, localDateInputValue } from "@/lib/community/goal";
 import { StaffHeader, StaffPage, StaffSection, StatStrip, StatusChip } from "@/components/staff/staff-ui";
-import { AssignmentControls, QuestionBreakdown } from "./results-controls";
+import { AssignAgainPanel, AssignmentControls, QuestionBreakdown, RemindPanel } from "./results-controls";
+
+export const metadata = { title: "Homework results" };
 
 export default async function AssignmentResultsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ classId: string; assignmentId: string }>;
+  searchParams: Promise<{ assigned?: string }>;
 }) {
   const context = await requireTeacher();
-  const { classId, assignmentId } = await params;
+  const [{ classId, assignmentId }, { assigned }] = await Promise.all([params, searchParams]);
+  const assignedTo = Number(assigned);
 
   let results;
   try {
@@ -22,6 +30,8 @@ export default async function AssignmentResultsPage({
     throw err;
   }
   if (results.classroom.id !== classId) notFound();
+  const otherClasses = await listOtherOpenClasses(context, classId);
+  const { reminder } = results;
 
   const total = results.questions.length;
   const startedAny = results.students.some((s) => s.status !== "NOT_STARTED");
@@ -50,7 +60,15 @@ export default async function AssignmentResultsPage({
                     ? `${pastDue ? "Was due" : "Due"} ${formatGoalDate(results.dueAt)}`
                     : "No due date"}
               </StatusChip>
+              <StatusChip tone="muted">
+                {results.mode === "QUIZ" ? "Quiz · answers shown when turned in" : "Practice · explanation after each answer"}
+              </StatusChip>
             </span>
+            {assignedTo > 1 && (
+              <span role="status" className="mt-3 block font-medium text-foreground">
+                Assigned to {assignedTo} classes. Each has its own copy and its own results, under its class.
+              </span>
+            )}
             {results.instructions && (
               <span className="mt-3 block whitespace-pre-line">
                 <span className="font-medium text-foreground">Your instructions: </span>
@@ -81,16 +99,36 @@ export default async function AssignmentResultsPage({
         ]}
       />
 
+      {/* Chasing missing work, right under the numbers that show it. Not on
+          closed homework (nobody can finish it) or in an archived class. */}
+      {!results.closed && !results.classroom.archived && (
+        <RemindPanel
+          assignmentId={results.id}
+          className={results.classroom.name}
+          recipients={reminder.recipients}
+          pastDue={pastDue}
+          lastSent={reminder.lastSentAt ? formatNudgeTime(reminder.lastSentAt) : null}
+          nextAllowed={reminder.nextAllowedAt ? formatNudgeTime(reminder.nextAllowedAt) : null}
+        />
+      )}
+
       <StaffSection
         title="Students"
-        description={total > 0 ? "Missed questions are numbered in the order you assigned them." : undefined}
+        description={
+          total > 0
+            ? "Missed questions are numbered in the order you assigned them, each with the answer the student gave."
+            : undefined
+        }
       >
         {results.students.length === 0 ? (
           <p className="rounded-2xl bg-surface-tint p-6 text-base text-muted-foreground">
             No students in this class yet. Share the class code and they&apos;ll see this homework when they join.
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-border">
+          // `relative`: the sr-only labels in its cells are absolutely positioned,
+          // and without a positioned ancestor inside the scroller they escape it
+          // and widen the whole page on a phone.
+          <div className="relative overflow-x-auto rounded-2xl border border-border">
             <table className="w-full text-base">
               <thead className="bg-muted/50 text-left text-sm">
                 <tr>
@@ -116,7 +154,7 @@ export default async function AssignmentResultsPage({
                   <tr key={s.studentId}>
                     <td className="px-4 py-3">
                       <span className="block font-medium">
-                        {s.firstName}
+                        {studentRosterName(s)}
                         {!s.enrolled && <span className="font-normal text-muted-foreground"> · left the class</span>}
                       </span>
                       <span className="block max-w-[10rem] truncate text-sm text-muted-foreground sm:max-w-[16rem]">
@@ -153,9 +191,29 @@ export default async function AssignmentResultsPage({
                     </td>
                     <td className="px-4 py-3 tabular-nums">
                       {s.missed.length === 0 ? (
-                        <span className="text-muted-foreground">{s.status === "NOT_STARTED" ? "" : "None"}</span>
+                        // "None" only once there's something it's none of.
+                        <span className="text-muted-foreground">{s.answered > 0 ? "None" : ""}</span>
                       ) : (
-                        s.missed.map((p) => `Q${p + 1}`).join(", ")
+                        <span className="flex flex-wrap gap-1.5">
+                          {s.answers
+                            .filter((a) => !a.isCorrect)
+                            .map((a) => {
+                              const right = results.questions[a.position]?.correctAnswer ?? "";
+                              return (
+                                <span
+                                  key={a.position}
+                                  className="rounded-md bg-muted px-1.5 py-0.5 text-sm whitespace-nowrap"
+                                  title={`Answered ${a.answer || "—"}; the answer is ${right}`}
+                                >
+                                  Q{a.position + 1}
+                                  {a.answer && <span className="text-muted-foreground"> · {a.answer}</span>}
+                                  <span className="sr-only">
+                                    : answered {a.answer || "nothing readable"}, correct answer {right}
+                                  </span>
+                                </span>
+                              );
+                            })}
+                        </span>
                       )}
                     </td>
                     <td className="hidden px-4 py-3 text-right text-muted-foreground sm:table-cell">
@@ -176,8 +234,18 @@ export default async function AssignmentResultsPage({
         classroomId={classId}
         closed={results.closed}
         canDelete={!startedAny}
-        initial={{ title: results.title, instructions: results.instructions ?? "", dueOn: localDateInputValue(results.dueAt) }}
+        canChangeMode={!startedAny}
+        initial={{
+          title: results.title,
+          instructions: results.instructions ?? "",
+          dueOn: localDateInputValue(results.dueAt),
+          mode: results.mode,
+        }}
       />
+
+      {otherClasses.length > 0 && total > 0 && (
+        <AssignAgainPanel assignmentId={results.id} otherClasses={otherClasses} mode={results.mode} questionCount={total} />
+      )}
     </StaffPage>
   );
 }

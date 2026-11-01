@@ -225,8 +225,8 @@ async function processTranscribedQuestion(
 
 // One question image in, one question out — the original bulk-upload entry
 // point (a plain photo/screenshot, a zip of them, or Google Drive images;
-// see bulk-upload-form.tsx). The caller (bulkUploadImageAction) is invoked
-// once per image from the client, in a small concurrency pool.
+// see bulk-upload-form.tsx). The caller (the bulk-upload/process Route
+// Handler) is invoked once per image from the client, three at a time.
 export async function processBulkUploadImage(input: BulkUploadImageInput): Promise<BulkUploadImageResult> {
   // Before the first paid call, not after it — see ai-readiness.ts.
   const readiness = getBulkUploadReadiness();

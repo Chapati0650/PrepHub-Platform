@@ -4,6 +4,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { PremiumPreviewPlayer } from "./preview-player";
 
+export const metadata = { title: "Premium preview" };
+
 // The "your school covers Premium" moment, on demand (Owner request,
 // 2026-10-25). A student sees it exactly once, so without this nobody who
 // sells PrepHub to a district could ever show it. Nothing here writes: it

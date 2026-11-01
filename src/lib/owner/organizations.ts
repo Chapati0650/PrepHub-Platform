@@ -138,40 +138,35 @@ export type OrganizationListRow = {
 // PRD-017 §18: the Owner Schools page table. No seat-limit column/data — V1
 // has no licensed-seat concept at all (§11).
 export async function listOrganizations(): Promise<OrganizationListRow[]> {
-  const orgs = await prisma.organization.findMany({ orderBy: { officialName: "asc" } });
+  // Four queries however many organizations there are. It was two counts per
+  // organization, all at once — dozens of round trips for a district with its
+  // campuses, more than the connection pool holds, and 4.4s locally.
+  const [orgs, bySchool, byOrganization, admins] = await Promise.all([
+    prisma.organization.findMany({ orderBy: { officialName: "asc" } }),
+    prisma.studentMembership.groupBy({ by: ["schoolId"], where: { status: "ACTIVE" }, _count: { _all: true } }),
+    prisma.studentMembership.groupBy({ by: ["organizationId"], where: { status: "ACTIVE" }, _count: { _all: true } }),
+    prisma.administratorAssignment.groupBy({ by: ["organizationId"], where: { removedAt: null }, _count: { _all: true } }),
+  ]);
+  const schoolCounts = new Map(bySchool.map((r) => [r.schoolId, r._count._all]));
+  const organizationCounts = new Map(byOrganization.map((r) => [r.organizationId, r._count._all]));
+  const adminCounts = new Map(admins.map((r) => [r.organizationId, r._count._all]));
 
-  return Promise.all(
-    orgs.map(async (org) => {
-      // A District's "active students" is everyone under the district contract
-      // (organizationId), regardless of which of its schools they attend. A
-      // School's is students actually AT that school (schoolId) — for a school
-      // that belongs to a district, those aren't the same relation.
-      const activeStudentCount =
-        org.organizationType === "DISTRICT"
-          ? await prisma.studentMembership.count({
-              where: { organizationId: org.id, status: "ACTIVE" },
-            })
-          : await prisma.studentMembership.count({
-              where: { schoolId: org.id, status: "ACTIVE" },
-            });
-
-      const administratorCount = await prisma.administratorAssignment.count({
-        where: { organizationId: org.id, removedAt: null },
-      });
-
-      return {
-        id: org.id,
-        officialName: org.officialName,
-        organizationType: org.organizationType,
-        status: org.status,
-        contractStartDate: org.contractStartDate,
-        contractEndDate: org.contractEndDate,
-        updatedAt: org.updatedAt,
-        activeStudentCount,
-        administratorCount,
-      };
-    }),
-  );
+  return orgs.map((org) => ({
+    id: org.id,
+    officialName: org.officialName,
+    organizationType: org.organizationType,
+    status: org.status,
+    contractStartDate: org.contractStartDate,
+    contractEndDate: org.contractEndDate,
+    updatedAt: org.updatedAt,
+    // A District's "active students" is everyone under the district contract
+    // (organizationId), regardless of which of its schools they attend. A
+    // School's is students actually AT that school (schoolId) — for a school
+    // that belongs to a district, those aren't the same relation.
+    activeStudentCount:
+      (org.organizationType === "DISTRICT" ? organizationCounts.get(org.id) : schoolCounts.get(org.id)) ?? 0,
+    administratorCount: adminCounts.get(org.id) ?? 0,
+  }));
 }
 
 // For the "resolve exceptional school transfer" picker (PRD-017 §15) — every

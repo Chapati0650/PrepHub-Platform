@@ -60,15 +60,17 @@ export default function SchoolsPage() {
       <PageViewBeacon />
       <SiteHeader active="schools" />
 
-      <Hero />
-      <WhyBand />
-      <Setup />
-      <ForStudents />
-      <ForAdministrators />
-      <Ccmr />
-      <Privacy />
-      <Faq />
-      <ClosingCta />
+      <main className="flex flex-1 flex-col">
+        <Hero />
+        <WhyBand />
+        <Setup />
+        <ForStudents />
+        <ForAdministrators />
+        <Ccmr />
+        <Privacy />
+        <Faq />
+        <ClosingCta />
+      </main>
 
       <SiteFooter />
     </div>
@@ -227,8 +229,8 @@ function WhyBand() {
           <div>
             <p className="font-heading text-hero font-semibold tracking-tight tabular-nums">8M+</p>
             <p className="mt-2 text-lg text-surface-deep-foreground/75">
-              Views across the PrepHub channels. The same person who teaches there writes every
-              question and every explanation in here.
+              Views across the PrepHub channels. The same person who teaches there built PrepHub and
+              chooses every question in it.
             </p>
           </div>
           <div>
@@ -552,7 +554,7 @@ const PRIVACY_POINTS = [
   },
   {
     name: "Nothing a student writes goes to an AI model",
-    body: "There is no AI tutor, no essay feedback and no student work sent to a third-party model. The adaptive engine is ordinary arithmetic over answer correctness, and every question and explanation is written by a person.",
+    body: "There is no AI tutor, no essay feedback and no student work sent to a third-party model. The adaptive engine is ordinary arithmetic over answer correctness, and every question and explanation is fixed content PrepHub publishes before any student sees it.",
   },
   {
     name: "Deletion anonymizes rather than erases",

@@ -8,6 +8,8 @@ import { LinkButton } from "@/components/ui/link-button";
 import { logoutAction } from "@/app/(app)/actions";
 import { CompleteVerification } from "./complete-verification";
 
+export const metadata = { title: "School access" };
+
 export default async function VerifyTokenPage({
   params,
 }: {

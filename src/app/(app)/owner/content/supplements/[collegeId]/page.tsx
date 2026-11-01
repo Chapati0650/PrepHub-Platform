@@ -14,6 +14,8 @@ import { PasteSupplements } from "./paste-supplements";
 import { isPromptParsingAvailable } from "@/lib/college-apps/parse-prompts";
 import { copyFromPreviousCycleAction, deleteSupplementAction, moveSupplementAction } from "../actions";
 
+export const metadata = { title: "Supplements" };
+
 export default async function OwnerCollegeSupplementsPage({
   params,
   searchParams,

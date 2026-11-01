@@ -1,8 +1,10 @@
+import type { AssignmentMode } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { isAnswerCorrect } from "@/lib/adaptive/grading";
 import { TeacherError } from "./errors";
 import { joinedAfterDeadline, turnedInLate } from "./deadline";
 import { normalizeJoinCode } from "./join-code";
+import { cleanLastName, teacherName } from "./names";
 
 /**
  * The student's side of classes and homework.
@@ -18,10 +20,24 @@ import { normalizeJoinCode } from "./join-code";
  * where half the students can't open the homework isn't a class.
  */
 
+/**
+ * Whether a student may see right/wrong and the explanation for a question.
+ * Practice homework shows them once the question is answered; a quiz keeps
+ * them until the whole thing is turned in. One rule, used by the runner's
+ * page and by every action that returns an answer key, so none of them can
+ * hand a quiz's answers out early.
+ */
+export function answersVisible(mode: AssignmentMode, questionAnswered: boolean, homeworkTurnedIn: boolean): boolean {
+  return homeworkTurnedIn || (mode === "PRACTICE" && questionAnswered);
+}
+
+const TEACHER_NAME_FIELDS = { firstName: true, teacherDisplayName: true } as const;
+
 export type JoinPreview = {
   classroomId: string;
   className: string;
-  teacherFirstName: string;
+  /** As the class knows them: "Ms. Alvarez", or their first name. */
+  teacherName: string;
   schoolName: string;
   alreadyIn: boolean;
 };
@@ -35,7 +51,7 @@ export async function previewJoin(studentId: string, rawCode: string): Promise<J
       id: true,
       name: true,
       archivedAt: true,
-      teacher: { select: { firstName: true } },
+      teacher: { select: TEACHER_NAME_FIELDS },
       school: { select: { officialName: true } },
       enrollments: { where: { studentId, removedAt: null }, select: { id: true } },
     },
@@ -44,31 +60,50 @@ export async function previewJoin(studentId: string, rawCode: string): Promise<J
   return {
     classroomId: classroom.id,
     className: classroom.name,
-    teacherFirstName: classroom.teacher.firstName,
+    teacherName: teacherName(classroom.teacher),
     schoolName: classroom.school.officialName,
     alreadyIn: classroom.enrollments.length > 0,
   };
 }
 
 /**
- * Joins a class by its code. Idempotent; a student a teacher removed can
- * rejoin with the code — the teacher sees them come back on the roster and
- * can change the code if that's not what they want.
+ * Joins a class by its code, with the last name the student gives that class
+ * (names.ts: the account keeps a first name only). Idempotent; a student a
+ * teacher removed can rejoin with the code — the teacher sees them come back
+ * on the roster and can change the code if that's not what they want.
  */
-export async function joinClassroom(studentId: string, rawCode: string): Promise<{ classroomId: string }> {
+export async function joinClassroom(
+  studentId: string,
+  rawCode: string,
+  rawLastName: string,
+): Promise<{ classroomId: string }> {
   const code = normalizeJoinCode(rawCode);
   const classroom = code
     ? await prisma.classroom.findUnique({ where: { joinCode: code }, select: { id: true, archivedAt: true } })
     : null;
   if (!classroom) throw new TeacherError("CODE_NOT_FOUND", "No class has that code. Check it with your teacher.");
   if (classroom.archivedAt) throw new TeacherError("CLASS_CLOSED", "That class has been closed by its teacher.");
+  const lastName = cleanLastName(rawLastName);
 
   await prisma.classroomEnrollment.upsert({
     where: { classroomId_studentId: { classroomId: classroom.id, studentId } },
-    update: { removedAt: null },
-    create: { classroomId: classroom.id, studentId },
+    update: { removedAt: null, lastName },
+    create: { classroomId: classroom.id, studentId, lastName },
   });
   return { classroomId: classroom.id };
+}
+
+/**
+ * Adds (or corrects) the last name a student gave a class they're in — for
+ * students who joined before classes asked for one.
+ */
+export async function setClassLastName(studentId: string, classroomId: string, rawLastName: string): Promise<void> {
+  const lastName = cleanLastName(rawLastName);
+  const updated = await prisma.classroomEnrollment.updateMany({
+    where: { classroomId, studentId, removedAt: null },
+    data: { lastName },
+  });
+  if (updated.count === 0) throw new TeacherError("NOT_IN_CLASS", "You're not in this class.");
 }
 
 export async function leaveClassroom(studentId: string, classroomId: string): Promise<void> {
@@ -78,23 +113,32 @@ export async function leaveClassroom(studentId: string, classroomId: string): Pr
   });
 }
 
-export type StudentClass = { classroomId: string; name: string; teacherFirstName: string; schoolName: string };
+export type StudentClass = {
+  classroomId: string;
+  name: string;
+  teacherName: string;
+  schoolName: string;
+  /** What this student told the class; null if they joined before classes asked. */
+  lastName: string | null;
+};
 
 export async function listStudentClasses(studentId: string): Promise<StudentClass[]> {
   const rows = await prisma.classroomEnrollment.findMany({
     where: { studentId, removedAt: null, classroom: { archivedAt: null } },
     orderBy: { joinedAt: "asc" },
     select: {
+      lastName: true,
       classroom: {
-        select: { id: true, name: true, teacher: { select: { firstName: true } }, school: { select: { officialName: true } } },
+        select: { id: true, name: true, teacher: { select: TEACHER_NAME_FIELDS }, school: { select: { officialName: true } } },
       },
     },
   });
   return rows.map((r) => ({
     classroomId: r.classroom.id,
     name: r.classroom.name,
-    teacherFirstName: r.classroom.teacher.firstName,
+    teacherName: teacherName(r.classroom.teacher),
     schoolName: r.classroom.school.officialName,
+    lastName: r.lastName,
   }));
 }
 
@@ -103,7 +147,8 @@ export type HomeworkItem = {
   title: string;
   instructions: string | null;
   className: string;
-  teacherFirstName: string;
+  teacherName: string;
+  mode: AssignmentMode;
   dueAt: Date | null;
   questionCount: number;
   closed: boolean;
@@ -125,13 +170,16 @@ export type HomeworkItem = {
  * recent first) — there if they want the practice, never counted against
  * them, and so kept out of "to do" and never shown in red.
  *
- * A closed assignment the student never finished drops out — there is nothing
- * they can do about it — unless every question is already answered, in which
- * case it can still be turned in. Anything they finished stays.
+ * A closed assignment the student never opened drops out — there is nothing
+ * they can do about it. One they started but didn't finish stays, in
+ * `closed`: their teacher's gradebook shows it as "Started", so it must not
+ * simply vanish from the student's side, and their answers so far are
+ * theirs to look at. (Every question answered is different again: that can
+ * still be turned in, so it stays in "to do".) Anything they finished stays.
  */
 export async function listHomework(
   studentId: string,
-): Promise<{ todo: HomeworkItem[]; done: HomeworkItem[]; earlier: HomeworkItem[] }> {
+): Promise<{ todo: HomeworkItem[]; done: HomeworkItem[]; earlier: HomeworkItem[]; closed: HomeworkItem[] }> {
   const assignments = await prisma.assignment.findMany({
     where: {
       classroom: { archivedAt: null, enrollments: { some: { studentId, removedAt: null } } },
@@ -142,11 +190,12 @@ export async function listHomework(
       instructions: true,
       dueAt: true,
       closedAt: true,
+      mode: true,
       createdAt: true,
       classroom: {
         select: {
           name: true,
-          teacher: { select: { firstName: true } },
+          teacher: { select: TEACHER_NAME_FIELDS },
           enrollments: { where: { studentId, removedAt: null }, select: { joinedAt: true } },
         },
       },
@@ -173,7 +222,8 @@ export async function listHomework(
       title: a.title,
       instructions: a.instructions,
       className: a.classroom.name,
-      teacherFirstName: a.classroom.teacher.firstName,
+      teacherName: teacherName(a.classroom.teacher),
+      mode: a.mode,
       dueAt: a.dueAt,
       questionCount: a._count.questions,
       closed: a.closedAt !== null,
@@ -201,7 +251,10 @@ export async function listHomework(
   const done = items
     .filter((i) => i.status === "COMPLETED")
     .sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0));
-  return { todo, done, earlier };
+  const closed = items
+    .filter((i) => i.closed && i.status === "IN_PROGRESS" && !i.readyToTurnIn)
+    .sort((a, b) => (b.dueAt?.getTime() ?? 0) - (a.dueAt?.getTime() ?? 0));
+  return { todo, done, earlier, closed };
 }
 
 /**
@@ -255,20 +308,26 @@ export async function getHomeworkForStudent(studentId: string, assignmentId: str
       instructions: true,
       dueAt: true,
       closedAt: true,
+      mode: true,
       classroom: {
         select: {
           name: true,
           archivedAt: true,
-          teacher: { select: { firstName: true } },
+          teacher: { select: TEACHER_NAME_FIELDS },
           enrollments: { where: { studentId, removedAt: null }, select: { id: true, joinedAt: true } },
         },
       },
       _count: { select: { questions: true } },
-      sessions: { where: { studentId }, select: { id: true, status: true } },
+      sessions: {
+        where: { studentId },
+        // How far they got, for the closed screen: "You answered 7 of 10".
+        select: { id: true, status: true, _count: { select: { slots: { where: { finalizedAt: { not: null } } } } } },
+      },
     },
   });
   if (!assignment) return null;
-  const session = assignment.sessions[0] ?? null;
+  const found = assignment.sessions[0];
+  const session = found ? { id: found.id, status: found.status, answered: found._count.slots } : null;
   const blocked = homeworkBlock(assignment);
   // Someone no longer in the class can still see work they finished there.
   const inClass = blocked !== "NOT_IN_CLASS" && blocked !== "CLASS_CLOSED";
@@ -281,7 +340,8 @@ export async function getHomeworkForStudent(studentId: string, assignmentId: str
     dueAt: assignment.dueAt,
     closed: assignment.closedAt !== null,
     className: assignment.classroom.name,
-    teacherFirstName: assignment.classroom.teacher.firstName,
+    teacherName: teacherName(assignment.classroom.teacher),
+    mode: assignment.mode,
     questionCount: assignment._count.questions,
     inClass,
     blocked,
@@ -461,6 +521,7 @@ export async function getHomeworkSessionForRunner(studentId: string, sessionId: 
           id: true,
           title: true,
           closedAt: true,
+          mode: true,
           classroom: {
             select: {
               name: true,

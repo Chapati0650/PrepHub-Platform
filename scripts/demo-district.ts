@@ -12,6 +12,8 @@
  *       [--convert-student]  the email belongs to a student account: make it
  *                            the teacher (remove turns it back)
  *   npx tsx scripts/demo-district.ts remove                   deletes every demo row
+ *   npx tsx scripts/demo-district.ts names                    gives the fictional students in an
+ *       existing demo's classes last names (for a demo built before classes asked)
  *
  * The administrator account (and, if added, the demo teacher's) are the only
  * real accounts involved, so the script records how it got each — created,
@@ -99,6 +101,32 @@ const FIRST_NAMES = [
   "Valeria", "Victoria", "Wyatt", "Xavier", "Yasmin", "Zoe",
 ];
 const LAST_INITIALS = "ABCDEFGHJKLMNOPRSTVWY";
+// A class asks each student for a last name (2026-10-31), so a fictional
+// student gets one too: the one their email's initial promises. Chosen by
+// position rather than by a random draw, so adding these drew no extra
+// numbers and the demo is the same school it always was.
+const SURNAMES: Record<string, string[]> = {
+  A: ["Alvarez", "Allen", "Anderson", "Arias"], B: ["Brooks", "Bennett", "Barrera", "Baker"],
+  C: ["Castillo", "Carter", "Chen", "Cruz"], D: ["Diaz", "Davis", "Dominguez", "Daniels"],
+  E: ["Edwards", "Espinoza", "Ellis", "Estrada"], F: ["Flores", "Foster", "Fuentes", "Fischer"],
+  G: ["Garcia", "Green", "Gutierrez", "Gray"], H: ["Hernandez", "Harris", "Huang", "Hughes"],
+  J: ["Johnson", "Jimenez", "James", "Jackson"], K: ["Kim", "King", "Kelly", "Khan"],
+  L: ["Lopez", "Lee", "Lewis", "Lozano"], M: ["Martinez", "Morales", "Miller", "Moore"],
+  N: ["Nguyen", "Navarro", "Nelson", "Nash"], O: ["Ortiz", "Owens", "Ochoa", "Olson"],
+  P: ["Perez", "Patel", "Parker", "Pham"], R: ["Rodriguez", "Reyes", "Robinson", "Ramos"],
+  S: ["Sanchez", "Smith", "Silva", "Scott"], T: ["Torres", "Tran", "Thompson", "Turner"],
+  V: ["Vasquez", "Vega", "Vargas", "Valdez"], W: ["Williams", "Walker", "Wright", "Ward"],
+  Y: ["Young", "Yang", "Yates", "Ybarra"],
+};
+function surnameFor(initial: string, n: number): string {
+  const options = SURNAMES[initial.toUpperCase()] ?? ["Smith"];
+  return options[n % options.length];
+}
+/** The last name a fictional student's email implies: "mason.o202@…" is the 202nd student, initial O. */
+function surnameFromEmail(email: string): string | null {
+  const match = /^[a-z]+\.([a-z])(\d+)@/.exec(email);
+  return match ? surnameFor(match[1], Number(match[2]) - 1) : null;
+}
 
 // ---- Arguments -----------------------------------------------------------------
 
@@ -413,6 +441,7 @@ async function create() {
   type Student = {
     id: string;
     firstName: string;
+    lastName: string;
     joinedAt: number;
     grade: number;
     ability: number;
@@ -425,7 +454,9 @@ async function create() {
   const memberships = [];
   for (let n = 0; n < STUDENT_COUNT; n++) {
     const firstName = pick(FIRST_NAMES);
-    const email = `${firstName.toLowerCase()}.${LAST_INITIALS[int(0, LAST_INITIALS.length - 1)].toLowerCase()}${n + 1}@${DEMO_DOMAIN}`;
+    const initial = LAST_INITIALS[int(0, LAST_INITIALS.length - 1)];
+    const lastName = surnameFor(initial, n);
+    const email = `${firstName.toLowerCase()}.${initial.toLowerCase()}${n + 1}@${DEMO_DOMAIN}`;
     const grade = pick([9, 10, 10, 11, 11, 11, 12, 12]);
     // Most of a campus signs up in the first fortnight after launch, then a trickle.
     const joinedAt = launch.getTime() + (chance(0.7) ? between(0, 14) : between(14, 50)) * DAY;
@@ -434,7 +465,7 @@ async function create() {
     const roll = rand();
     const engagement = roll < 0.14 ? "never" : roll < 0.22 ? "started" : roll < 0.52 ? "light" : roll < 0.86 ? "regular" : "keen";
     const id = randomUUID();
-    students.push({ id, firstName, joinedAt, grade, ability, rw: ability + tilt / 2, math: ability - tilt / 2, engagement });
+    students.push({ id, firstName, lastName, joinedAt, grade, ability, rw: ability + tilt / 2, math: ability - tilt / 2, engagement });
     const springYear = new Date(NOW).getMonth() >= 7 ? new Date(NOW).getFullYear() + 1 : new Date(NOW).getFullYear();
     users.push({
       id,
@@ -659,7 +690,12 @@ async function create() {
       });
       const roster = [...active].sort(() => rand() - 0.5).slice(0, int(22, 31));
       await prisma.classroomEnrollment.createMany({
-        data: roster.map((s) => ({ classroomId: classroom.id, studentId: s.id, joinedAt: new Date(Math.max(s.joinedAt, launch.getTime() + 4 * DAY) + between(0, 3) * DAY) })),
+        data: roster.map((s) => ({
+          classroomId: classroom.id,
+          studentId: s.id,
+          lastName: s.lastName,
+          joinedAt: new Date(Math.max(s.joinedAt, launch.getTime() + 4 * DAY) + between(0, 3) * DAY),
+        })),
       });
 
       const plans = homeworkPlans[className] ?? [];
@@ -868,12 +904,36 @@ async function addTeacher() {
   );
 }
 
+/**
+ * `names`: gives the fictional students in an existing demo's classes the
+ * last names a demo built today would have, for a demo created before
+ * classes asked for one. Only fictional students in demo classes, only where
+ * the name is still blank; running it twice changes nothing.
+ */
+async function backfillNames() {
+  const school = await prisma.organization.findFirst({ where: { officialName: SCHOOL_NAME, organizationType: "SCHOOL" }, select: { id: true } });
+  if (!school) throw new Error("There's no demo district here.");
+  const blank = await prisma.classroomEnrollment.findMany({
+    where: { lastName: null, classroom: { schoolId: school.id }, student: { email: { endsWith: `@${DEMO_DOMAIN}` } } },
+    select: { id: true, student: { select: { email: true } } },
+  });
+  let named = 0;
+  for (const e of blank) {
+    const lastName = surnameFromEmail(e.student.email);
+    if (!lastName) continue;
+    await prisma.classroomEnrollment.update({ where: { id: e.id }, data: { lastName } });
+    named++;
+  }
+  console.log(`Gave ${named} fictional enrollment${named === 1 ? "" : "s"} a last name (${blank.length - named} left blank).`);
+}
+
 async function main() {
   if (command === "check") return check();
   if (command === "create") return create();
   if (command === "remove") return remove();
   if (command === "teacher") return addTeacher();
-  console.log("Usage: npx tsx scripts/demo-district.ts <check|create|teacher|remove> [--admin=email] [--teacher=email]");
+  if (command === "names") return backfillNames();
+  console.log("Usage: npx tsx scripts/demo-district.ts <check|create|teacher|remove|names> [--admin=email] [--teacher=email]");
   process.exitCode = 1;
 }
 

@@ -14,20 +14,28 @@ async function createQuestion(page: import("@playwright/test").Page, questionTyp
     await page.getByRole("option", { name: questionType }).click();
   }
   await dialog.getByRole("button", { name: "Create Question" }).click();
-  await expect(page).toHaveURL(/\/owner\/content\/questions\/[a-z0-9]+$/);
+  // The redirect lands on the editor, which the dev server compiles on its
+  // first visit after any change — seen holding "Creating..." past five seconds.
+  await expect(page).toHaveURL(/\/owner\/content\/questions\/[a-z0-9]+$/, { timeout: 15_000 });
   // Without this, typing immediately after the redirect can race React
   // hydration — the DOM input accepts the keystrokes but onChange (and so
   // autosave) never fires because the listener isn't attached yet.
   await page.waitForLoadState("networkidle");
 }
 
-// Waiting for the "Saved" indicator alone is racy when a PRIOR save already
-// left it showing — a fresh assertion can catch that stale text before the
-// new (1.5s-debounced) autosave has even started. Requiring the "Unsaved
-// changes" state to appear first proves a new save cycle actually began.
+// Settled, not merely "a save happened". The editor shows "Saved" only when
+// nothing is waiting and no save is in flight (question-editor.tsx's saveNow),
+// and a keystroke flips it to "Unsaved changes" in the same render, so after
+// an edit "Saved" can only mean that edit landed. An upload is an edit that
+// begins when the upload finishes, so "Uploading…" has to be gone in the same
+// moment. This used to wait for "Unsaved changes" to appear first, which was
+// its own race: when an earlier save was still in flight, the indicator could
+// go straight past it before the assertion looked.
 async function waitForAutosave(page: import("@playwright/test").Page) {
-  await expect(page.getByText("Unsaved changes")).toBeVisible({ timeout: 5_000 });
-  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 10_000 });
+  await expect(async () => {
+    await expect(page.getByText("Uploading…")).toHaveCount(0);
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  }).toPass({ timeout: 30_000 });
 }
 
 async function fillMultipleChoiceContent(page: import("@playwright/test").Page, text: string) {
@@ -38,7 +46,6 @@ async function fillMultipleChoiceContent(page: import("@playwright/test").Page, 
   await page.getByLabel("Choice 4", { exact: true }).fill("6");
   await page.getByLabel("Mark choice 2 as correct").check();
   await page.setInputFiles('input[type="file"][accept*="video"]', videoPath);
-  await expect(page.getByText("Uploading…")).toHaveCount(0, { timeout: 30_000 });
   await waitForAutosave(page);
 }
 
@@ -53,6 +60,10 @@ test.describe("Owner content management (PRD-013, PRD-015)", () => {
   test("full question lifecycle: create, edit, upload media, preview, publish, edit-applies-immediately, unpublish, archive", async ({
     page,
   }) => {
+    // Two uploads, a preview, a publish and four status changes, each a
+    // round trip to a dev server compiling routes on first hit: it finished
+    // at 30.2s against the default 30, on its last assertion.
+    test.setTimeout(90_000);
     await signInAsOwner(page);
     await createQuestion(page, "Multiple Choice");
     await fillMultipleChoiceContent(page, "What is $2 + 2$?");
@@ -107,8 +118,7 @@ test.describe("Owner content management (PRD-013, PRD-015)", () => {
     await page.getByLabel("Question text").fill("What is one half as a decimal?");
     await page.getByLabel("Accepted answers (one per line)").fill("0.5\n.5");
     await page.setInputFiles('input[type="file"][accept*="video"]', videoPath);
-    await expect(page.getByText("Uploading…")).toHaveCount(0, { timeout: 30_000 });
-    await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await waitForAutosave(page);
 
     await page.getByRole("button", { name: "Open Student Preview" }).click();
     const sheet = page.getByRole("dialog").filter({ hasText: "Student Preview" });
@@ -139,6 +149,10 @@ test.describe("Owner content management (PRD-013, PRD-015)", () => {
   });
 
   test("question family: group existing questions, complete, and publish atomically", async ({ page }) => {
+    // Three questions, each with its own video upload, then the family's
+    // shared video and three previews, against a dev server that compiles
+    // routes on first hit: well past Playwright's default 30 seconds.
+    test.setTimeout(120_000);
     await signInAsOwner(page);
 
     async function createFamilyEligibleQuestion(text: string) {
@@ -159,7 +173,9 @@ test.describe("Owner content management (PRD-013, PRD-015)", () => {
     await groupDialog.getByText(`Family C ${marker}`).click();
     await groupDialog.getByRole("button", { name: /Group \d question/ }).click();
 
-    await expect(page).toHaveURL(/\/owner\/content\/families\/[a-z0-9]+$/);
+    // The family page is compiled on its first visit; on a busy dev server
+    // that alone outlasted the default five seconds.
+    await expect(page).toHaveURL(/\/owner\/content\/families\/[a-z0-9]+$/, { timeout: 15_000 });
     await expect(page.getByText("3 / 3 versions")).toBeVisible();
 
     // Shared family video required before publish

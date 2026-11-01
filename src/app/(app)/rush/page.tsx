@@ -14,8 +14,11 @@ import { ShareChallenge } from "./share-challenge";
 import { joinRushAction, startRushAction } from "./actions";
 import { getWeeklyLeaderboard } from "@/lib/rush/leaderboard";
 import { listRematchInvites } from "@/lib/rush/rematch";
+import { rushHubErrorMessage } from "@/lib/rush/errors";
 import { LeaderboardPanel } from "./leaderboard-panel";
 import { RematchInvites } from "./rematch-invites";
+
+export const metadata = { title: "1v1 Rush" };
 
 // 1v1 Rush — the reference's "Question Rush", made head-to-head. The hub:
 // start a rush (Premium), join one by code (free), and the record so far.
@@ -34,6 +37,8 @@ export default async function RushPage({ searchParams }: { searchParams: Promise
     listRematchInvites(studentId),
   ]);
   const origin = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+  // `?error=` is a key from RUSH_HUB_ERRORS, never text to print.
+  const errorMessage = rushHubErrorMessage(error);
   const anyPool = RUSH_SECTION_ORDER.some((s) => pool[s] > 0);
 
   return (
@@ -48,15 +53,15 @@ export default async function RushPage({ searchParams }: { searchParams: Promise
       <section className="rounded-2xl border-2 border-marker/60 bg-surface-tint p-6">
         <h2 className="font-heading text-lg font-semibold tracking-tight">What is 1v1 Rush?</h2>
         <p className="mt-2 max-w-prose text-muted-foreground">
-          Ten questions, easy to hard, with a hard clock on each. Points for being right, more for being fast. Get matched
-          live with another student, open a room and send a friend the link, or play solo — same questions, same clock,
-          and the results show who won. Nothing here changes your Predicted SAT Score.
+          Ten questions, a mix of easy, medium and hard, with a hard clock on each. Points for being right, more for
+          being fast. Get matched live with another student, open a room and send a friend the link, or play solo —
+          same questions, same clock, and the results show who won. Nothing here changes your Predicted SAT Score.
         </p>
       </section>
 
-      {error && (
+      {errorMessage && (
         <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{errorMessage}</AlertDescription>
         </Alert>
       )}
 
@@ -100,7 +105,7 @@ export default async function RushPage({ searchParams }: { searchParams: Promise
                   </div>
                 </fieldset>
                 <p className="text-sm text-surface-deep-foreground/70">
-                  {RUSH_RUN_SIZE} questions, easy through hard · {Math.round(RUSH_TIME_LIMIT_MS.READING_WRITING / 1000)}s each for Reading &amp;
+                  {RUSH_RUN_SIZE} mixed questions · {Math.round(RUSH_TIME_LIMIT_MS.READING_WRITING / 1000)}s each for Reading &amp;
                   Writing, {Math.round(RUSH_TIME_LIMIT_MS.MATH / 1000)}s for Math.
                 </p>
                 <div>

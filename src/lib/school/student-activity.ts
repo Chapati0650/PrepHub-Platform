@@ -109,9 +109,12 @@ function answersIn(scope: StudentScope): Prisma.Sql {
  * (student_id, started_at, completed_at) — one row per *finished* study
  * session of any kind.
  *
- * `PracticeSet` and the two later session tables record their start as
- * `createdAt`; `DiagnosticSession` and `RushRun` use `startedAt`. That
- * asymmetry is the reason this is written out per table rather than generated.
+ * `DiagnosticSession`, `RushRun` and `PracticeSet` record their start as
+ * `startedAt` (a set's `createdAt` is when it was *generated*, often days
+ * before it's opened; its `startedAt` is null only for a set never opened,
+ * which can't be completed either); the later session tables use `createdAt`,
+ * because they're created when started. That asymmetry is the reason this is
+ * written out per table rather than generated.
  */
 export function sessionActivity(studentIds: string[]): Prisma.Sql {
   return sessionsIn({ studentIds });
@@ -124,7 +127,7 @@ export function schoolSessionActivity(schoolId: string, { activeOnly }: { active
 
 function sessionsIn(scope: StudentScope): Prisma.Sql {
   return Prisma.sql`
-    SELECT ps."studentId" AS student_id, ps."createdAt" AS started_at, ps."completedAt" AS completed_at
+    SELECT ps."studentId" AS student_id, COALESCE(ps."startedAt", ps."createdAt") AS started_at, ps."completedAt" AS completed_at
       FROM "practice_sets" ps
      WHERE ${inScope('ps."studentId"', scope)} AND ps."completedAt" IS NOT NULL
     UNION ALL
@@ -156,7 +159,7 @@ function sessionsIn(scope: StudentScope): Prisma.Sql {
  * something. Exported so the campus report's per-student hours
  * (`getCampusImpact`) use exactly this cap rather than a copy of it.
  */
-const SESSION_HOUR_CAP = 3;
+export const SESSION_HOUR_CAP = 3;
 
 export function cappedHours(startExpr: string, endExpr: string): Prisma.Sql {
   return Prisma.sql`LEAST(GREATEST(EXTRACT(EPOCH FROM (${Prisma.raw(endExpr)} - ${Prisma.raw(startExpr)})) / 3600.0, 0), ${SESSION_HOUR_CAP})`;

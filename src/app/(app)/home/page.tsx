@@ -3,11 +3,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { readPendingRushCode } from "@/lib/rush/pending-join";
 import { readPendingClassCode } from "@/lib/teacher/pending-join";
-import { TrendingUp, Check, ChevronRight, Pencil, Flame } from "lucide-react";
+import { listHomework, type HomeworkItem } from "@/lib/teacher/homework";
+import { formatGoalDate, nextUtcDayLocalTime } from "@/lib/community/local-day";
+import { TrendingUp, Check, ChevronRight, Pencil, Flame, NotebookPen } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { decidePaidAccess, getAccessContext } from "@/lib/entitlements";
 import { isFreePracticeSet } from "@/lib/practice/free-tier";
+import { COLLEGE_APPS_ENABLED } from "@/lib/features";
 import { getDailyStatus } from "@/lib/daily/challenge";
 import { getDashboardData } from "@/lib/dashboard/dashboard-data";
 import { getActiveAnnouncementsForStudents, type AnnouncementEntry } from "@/lib/announcements";
@@ -19,6 +22,8 @@ import { EmptyState } from "@/components/empty-state";
 import { ScorePrediction } from "@/components/score-prediction";
 import { Marker } from "@/components/ui/marker";
 import { Greeting } from "./greeting";
+
+export const metadata = { title: "Home" };
 
 function formatStudyTime(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
@@ -33,8 +38,9 @@ function formatStudyTime(seconds: number): string {
 // Surfaces that work with no Diagnostic behind them, shown on the
 // pre-Diagnostic dashboard. None of these read CategoryState, so none of
 // them need ability data to exist. The Daily Challenge is first because it
-// is the only one free on every account.
-const PRE_DIAGNOSTIC_LINKS = [
+// is the only one free on every account; `premium` ones say so to a student
+// without it, rather than opening on a page of disabled buttons.
+const PRE_DIAGNOSTIC_LINKS: { href: string; label: string; note: string; premium?: boolean }[] = [
   {
     href: "/daily",
     label: "Daily Challenge",
@@ -44,11 +50,13 @@ const PRE_DIAGNOSTIC_LINKS = [
     href: "/practice/focused",
     label: "Focused Practice",
     note: "Pick a category and a difficulty and drill ten questions on exactly that.",
+    premium: true,
   },
   {
     href: "/rush",
     label: "1v1 Rush",
     note: "Ten questions on a clock, against a classmate or on your own.",
+    premium: true,
   },
   {
     href: "/curriculum",
@@ -140,6 +148,9 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   const activeSet = isStudent && !paidAccess ? await prisma.practiceSet.findFirst({ where: { studentId: session.user.id, status: "ACTIVE" }, select: { setNumber: true } }) : null;
   const canPractice = paidAccess || !activeSet || isFreePracticeSet(activeSet.setNumber);
   const daily = isStudent ? await getDailyStatus(session.user.id) : { answeredToday: false, streak: 0 };
+  // Homework a teacher set: the same "to do" list as the Homework page, so a
+  // student never has to remember to look there. Empty for anyone not in a class.
+  const homeworkToDo = isStudent ? (await listHomework(session.user.id)).todo : [];
   const communitySchoolId =
     schoolMembership?.status === "ACTIVE" ? schoolMembership.schoolId : adminAssignment?.organizationId;
   const hasSchoolCommunity = Boolean(communitySchoolId);
@@ -208,6 +219,8 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
           )}
         </div>
 
+        <HomeworkDoor todo={homeworkToDo} />
+
         {/* The Diagnostic stays the lead, but it is no longer the only thing
             on the page. This screen used to be a single button, which read as
             a toll gate and gave a student who did not want 21 questions right
@@ -225,8 +238,13 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
                 className="group flex items-center justify-between gap-4 py-4"
               >
                 <span className="min-w-0">
-                  <span className="block font-heading font-semibold tracking-tight">
+                  <span className="flex items-center gap-2 font-heading font-semibold tracking-tight">
                     {item.label}
+                    {item.premium && !paidAccess && (
+                      <span className="rounded-md bg-muted px-1.5 py-0.5 font-sans text-xs font-medium text-muted-foreground">
+                        Premium
+                      </span>
+                    )}
                   </span>
                   <span className="mt-0.5 block text-sm text-muted-foreground">{item.note}</span>
                 </span>
@@ -286,6 +304,8 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         </div>
       </section>
 
+      <HomeworkDoor todo={homeworkToDo} />
+
       {/* The Daily Challenge — free for everyone, the reason to open the app
           tomorrow. One row, not a panel: it is a door, not a dashboard. */}
       {isStudent && (
@@ -298,7 +318,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
             <span>
               <span className="block font-medium">{daily.answeredToday ? "Today's challenge: done." : "Today's Daily Challenge"}</span>
               <span className="block text-sm text-muted-foreground">
-                {daily.answeredToday ? "Come back tomorrow for the next one." : "One hard question, free, every day. No clock."}
+                {daily.answeredToday ? `The next one arrives at ${nextUtcDayLocalTime()} Central.` : "One hard question, free, every day. No clock."}
               </span>
             </span>
           </span>
@@ -425,8 +445,8 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
           {/* Premium panel — the reference's "Reach your score goal faster
               with Pro" card. Only for students who haven't paid, and only
               claims what /pricing's table claims. "Faster" is the honest
-              framing: the free tier stops at the Diagnostic, so there is no
-              practice loop at all without Premium. */}
+              framing: the free tier stops after Set 1, so there is no
+              practice loop beyond it without Premium. */}
           {!paidAccess && (
             <section className="rounded-2xl bg-surface-tint p-6">
               <p className="text-caption font-semibold tracking-[0.12em] text-primary uppercase">PrepHub Premium</p>
@@ -434,7 +454,11 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
                 {profile.targetScore ? `Reach ${profile.targetScore} faster with Premium.` : "Reach your target faster with Premium."}
               </h2>
               <ul className="mt-4 flex flex-col gap-2 text-sm">
-                {["Unlimited Personalized Practice Sets", "Prediction updated after every set", "800 Club, 1v1 Rush and College Apps"].map((f) => (
+                {[
+                  "Unlimited Personalized Practice Sets",
+                  "Prediction updated after every set",
+                  COLLEGE_APPS_ENABLED ? "800 Club, 1v1 Rush and College Apps" : "800 Club, 1v1 Rush and The Curriculum",
+                ].map((f) => (
                   <li key={f} className="flex items-start gap-2.5">
                     <Check className="mt-0.5 size-4 shrink-0 text-primary" strokeWidth={2.5} aria-hidden />
                     {f}
@@ -488,6 +512,46 @@ function Panel({
       </div>
       {children}
     </section>
+  );
+}
+
+/**
+ * Homework still to do, as one row like the Daily Challenge's: how many, and
+ * the one due soonest (in red once it's overdue). Nothing at all when there's
+ * nothing to do — an "all caught up" row would be noise on every visit.
+ */
+function HomeworkDoor({ todo }: { todo: HomeworkItem[] }) {
+  if (todo.length === 0) return null;
+  const next = todo[0];
+  const overdue = next.dueAt !== null && next.dueAt < new Date() && !next.setBeforeJoining;
+  const href = next.status === "IN_PROGRESS" && next.sessionId ? `/homework/session/${next.sessionId}` : `/homework/${next.assignmentId}`;
+  return (
+    <Link
+      href={todo.length === 1 ? href : "/homework"}
+      className="flex items-center justify-between gap-4 rounded-2xl border border-border px-5 py-4 transition-colors hover:border-foreground/30"
+    >
+      <span className="flex min-w-0 items-center gap-3">
+        <NotebookPen className="size-5 shrink-0 text-primary" aria-hidden />
+        <span className="min-w-0">
+          <span className="block font-medium">
+            {todo.length === 1 ? "Homework to do" : `${todo.length} homework to do`}
+          </span>
+          {/* The title may be cut short on a phone; when it's due never is. */}
+          <span className="block truncate text-sm text-muted-foreground">
+            {todo.length === 1 ? "" : "Next: "}
+            {next.title} · {next.className}
+          </span>
+          {next.dueAt && (
+            <span className={`block text-sm ${overdue ? "font-medium text-destructive" : "text-muted-foreground"}`}>
+              {overdue ? "Was due" : "Due"} {formatGoalDate(next.dueAt)}
+            </span>
+          )}
+        </span>
+      </span>
+      <span className="shrink-0 text-sm font-medium text-primary">
+        {next.status === "IN_PROGRESS" ? `${next.answered}/${next.questionCount} answered` : "Start"}
+      </span>
+    </Link>
   );
 }
 

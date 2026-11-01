@@ -4,7 +4,7 @@ import { createRandom, generateSeed } from "@/lib/adaptive/random";
 import { RUSH_DIFFICULTIES, RUSH_RUN_SIZE, RUSH_SECTIONS } from "./config";
 import { selectRushQuestions } from "./select-questions";
 import { generateRushCode } from "./codes";
-import { RushError } from "./errors";
+import { rushError } from "./errors";
 
 // Shared by the async paths (runs.ts) and live rooms (live.ts): a set of
 // ten pinned revisions, and a challenge with a fresh join code.
@@ -38,7 +38,7 @@ export async function createSet(studentId: string, section: ClubSection, difficu
     size: RUSH_RUN_SIZE,
     random: createRandom(randomSeed),
   });
-  if (picked.length === 0) throw new RushError("NO_QUESTIONS", "There aren't enough questions for that rush yet. Try another section or difficulty.");
+  if (picked.length === 0) throw rushError("NO_QUESTIONS", "no-questions");
 
   return tx.rushSet.create({
     data: {

@@ -1,61 +1,48 @@
-"use client";
-
-import Link from "next/link";
-import { use, useActionState } from "react";
-import { confirmPasswordResetAction, type ActionState } from "../../actions";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { resetLinkProblem } from "@/lib/auth/account";
+import { LinkButton } from "@/components/ui/link-button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { SetPasswordForm } from "./set-password-form";
 
-const initialState: ActionState = {};
+/**
+ * A password-reset link, and a teacher's invitation (the same token). The
+ * link is checked before the form is shown, so someone holding a used or
+ * expired one is told straight away rather than after choosing a password.
+ */
+export default async function ConfirmResetPage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
+  const problem = await resetLinkProblem(token);
 
-export default function ConfirmResetPage({
-  params,
-}: {
-  params: Promise<{ token: string }>;
-}) {
-  const { token } = use(params);
-  const [state, formAction, pending] = useActionState(confirmPasswordResetAction, initialState);
+  if (problem) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <h1 className="text-display-sm font-semibold">This link doesn&apos;t work</h1>
+          </CardTitle>
+          <CardDescription className="text-base">{problem}</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col items-start gap-3">
+          <LinkButton href="/reset-password" size="lg" className="h-12 text-base">
+            Get a new link
+          </LinkButton>
+          <LinkButton href="/login" variant="link" className="px-0">
+            Back to login
+          </LinkButton>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-display-sm font-semibold">Set your password</CardTitle>
+        <CardTitle>
+          <h1 className="text-display-sm font-semibold">Set your password</h1>
+        </CardTitle>
         <CardDescription className="text-base">Choose a password for your PrepHub account.</CardDescription>
       </CardHeader>
       <CardContent>
-        <form action={formAction} className="flex flex-col gap-4">
-          {state.error && (
-            <Alert variant="destructive">
-              <AlertDescription>
-                {state.error}{" "}
-                <Link href="/reset-password" className="font-medium underline underline-offset-4">
-                  Get a new link
-                </Link>
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <input type="hidden" name="token" value={token} />
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="new-password"
-              minLength={8}
-              required
-            />
-          </div>
-
-          <Button type="submit" size="lg" className="h-12 text-base" disabled={pending}>
-            {pending ? "Saving..." : "Set password"}
-          </Button>
-        </form>
+        <SetPasswordForm token={token} />
       </CardContent>
     </Card>
   );

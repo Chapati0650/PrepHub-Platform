@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { parseYouTubeVideoId, youTubeEmbedUrl } from "@/lib/curriculum/youtube";
+import { uploadFailureMessage } from "@/lib/content/upload-errors";
 import { uploadVideoAction } from "../../actions";
 import { setLessonPublishedAction, updateLessonAction, type CurriculumActionState } from "../actions";
 import { cn } from "@/lib/utils";
@@ -55,8 +56,18 @@ export function LessonEditor({ lesson }: { lesson: LessonEditorData }) {
     setUploadError(null);
     const fd = new FormData();
     fd.set("file", file);
-    const result = await uploadVideoAction(fd);
-    setUploading(false);
+    let result: Awaited<ReturnType<typeof uploadVideoAction>>;
+    try {
+      result = await uploadVideoAction(fd);
+    } catch (err) {
+      // Thrown, not returned: a deploy while the page was open, or the host
+      // refusing the body. Without this the field stayed on "Uploading…" and
+      // Save stayed disabled until a reload.
+      setUploadError(uploadFailureMessage(err, file.size));
+      return;
+    } finally {
+      setUploading(false);
+    }
     if (result.error || !result.mediaId) {
       setUploadError(result.error ?? "Upload failed.");
       return;

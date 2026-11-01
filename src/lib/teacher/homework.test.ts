@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import {
+  answersVisible,
   completeHomeworkSession,
   finalizeHomeworkAnswer,
   getHomeworkSessionForRunner,
@@ -29,26 +30,43 @@ beforeEach(() => {
 
 describe("joinClassroom", () => {
   it("rejects something that can't be a code without querying", async () => {
-    await expect(joinClassroom("s1", "nope")).rejects.toMatchObject({ code: "CODE_NOT_FOUND" });
+    await expect(joinClassroom("s1", "nope", "Ortiz")).rejects.toMatchObject({ code: "CODE_NOT_FOUND" });
     expect(mocked.classroom.findUnique).not.toHaveBeenCalled();
   });
 
   it("refuses a class its teacher has archived", async () => {
     mocked.classroom.findUnique.mockResolvedValue({ id: "c1", archivedAt: new Date() });
-    await expect(joinClassroom("s1", "ACD-EFG")).rejects.toMatchObject({ code: "CLASS_CLOSED" });
+    await expect(joinClassroom("s1", "ACD-EFG", "Ortiz")).rejects.toMatchObject({ code: "CLASS_CLOSED" });
+    expect(mocked.classroomEnrollment.upsert).not.toHaveBeenCalled();
+  });
+
+  it("needs a last name the teacher can tell students apart by", async () => {
+    mocked.classroom.findUnique.mockResolvedValue({ id: "c1", archivedAt: null });
+    await expect(joinClassroom("s1", "ACD-EFG", "  ")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(joinClassroom("s1", "ACD-EFG", "me@school.org")).rejects.toMatchObject({ code: "INVALID_INPUT" });
     expect(mocked.classroomEnrollment.upsert).not.toHaveBeenCalled();
   });
 
   it("joins idempotently, and a removed student who rejoins is restored rather than duplicated", async () => {
     mocked.classroom.findUnique.mockResolvedValue({ id: "c1", archivedAt: null });
 
-    expect(await joinClassroom("s1", "acd efg")).toEqual({ classroomId: "c1" });
+    expect(await joinClassroom("s1", "acd efg", " Ortiz ")).toEqual({ classroomId: "c1" });
     expect(mocked.classroom.findUnique.mock.calls[0][0].where).toEqual({ joinCode: "ACDEFG" });
     expect(mocked.classroomEnrollment.upsert.mock.calls[0][0]).toEqual({
       where: { classroomId_studentId: { classroomId: "c1", studentId: "s1" } },
-      update: { removedAt: null },
-      create: { classroomId: "c1", studentId: "s1" },
+      update: { removedAt: null, lastName: "Ortiz" },
+      create: { classroomId: "c1", studentId: "s1", lastName: "Ortiz" },
     });
+  });
+});
+
+describe("answersVisible", () => {
+  it("shows practice answers once answered, and quiz answers only once turned in", () => {
+    expect(answersVisible("PRACTICE", false, false)).toBe(false);
+    expect(answersVisible("PRACTICE", true, false)).toBe(true);
+    expect(answersVisible("QUIZ", true, false)).toBe(false);
+    expect(answersVisible("QUIZ", true, true)).toBe(true);
+    expect(answersVisible("QUIZ", false, true)).toBe(true);
   });
 });
 
@@ -377,5 +395,36 @@ describe("listHomework", () => {
 
     expect(todo).toHaveLength(1);
     expect(todo[0]).toMatchObject({ assignmentId: "answered", status: "IN_PROGRESS", readyToTurnIn: true, sessionId: "hs" });
+  });
+
+  it("keeps homework closed partway through visible on its own, never in to do and never gone", async () => {
+    mocked.assignment.findMany.mockResolvedValue([
+      {
+        ...base,
+        id: "partway",
+        title: "Partway",
+        dueAt: new Date("2026-10-20"),
+        closedAt: new Date("2026-10-25"),
+        sessions: [
+          {
+            id: "hs",
+            status: "ACTIVE",
+            completedAt: null,
+            slots: [
+              { isCorrect: true, finalizedAt: new Date() },
+              { isCorrect: null, finalizedAt: null },
+            ],
+          },
+        ],
+      },
+      // Closed and never opened: still nothing to show.
+      { ...base, id: "never", title: "Never", dueAt: null, closedAt: new Date(), sessions: [] },
+    ]);
+
+    const { todo, earlier, done, closed } = await listHomework("s1");
+
+    expect([...todo, ...earlier, ...done]).toHaveLength(0);
+    expect(closed).toHaveLength(1);
+    expect(closed[0]).toMatchObject({ assignmentId: "partway", status: "IN_PROGRESS", closed: true, answered: 1 });
   });
 });

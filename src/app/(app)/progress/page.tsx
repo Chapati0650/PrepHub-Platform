@@ -8,6 +8,8 @@ import { LinkButton } from "@/components/ui/link-button";
 import { PageHeader } from "@/components/page-header";
 import { Marker } from "@/components/ui/marker";
 
+export const metadata = { title: "Your Progress" };
+
 function formatDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.round((seconds % 3600) / 60);
@@ -64,44 +66,50 @@ export default async function ProgressPage() {
 
       {/* Target Score Progress — the lead, because it is the only thing on
           this page that answers "am I going to get there." It was previously
-          the third of six identically-weighted bordered boxes. */}
-      {data.targetScore !== null && (
-        <section className="rounded-3xl bg-surface-tint p-6 sm:p-10">
-          <div className="flex flex-wrap items-end justify-between gap-6">
-            <div>
-              <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                Current Prediction
-              </p>
-              <p className="mt-2 font-heading text-hero font-semibold tracking-tight tabular-nums">
-                {data.currentRange.min}&ndash;{data.currentRange.max}
-              </p>
-            </div>
+          the third of six identically-weighted bordered boxes. Shown without
+          a target too: a student who chose "I'm not sure yet" still has a
+          prediction, which used to appear only as the history's last row. */}
+      <section className="rounded-3xl bg-surface-tint p-6 sm:p-10">
+        <div className="flex flex-wrap items-end justify-between gap-6">
+          <div>
+            <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+              Current Prediction
+            </p>
+            <p className="mt-2 font-heading text-hero font-semibold tracking-tight tabular-nums">
+              {data.currentRange.min}&ndash;{data.currentRange.max}
+            </p>
+          </div>
+          {data.targetScore !== null ? (
             <div className="text-right">
               <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">Target</p>
               <p className="mt-2 font-heading text-display-sm font-semibold tracking-tight tabular-nums text-muted-foreground">
                 {data.targetScore}
               </p>
             </div>
+          ) : (
+            <Link href="/settings#goal" className="text-sm font-medium underline underline-offset-4">
+              Set a target score
+            </Link>
+          )}
+        </div>
+        {targetPct !== null && (
+          <div
+            className="mt-8 h-2.5 w-full overflow-hidden rounded-full bg-foreground/10"
+            role="progressbar"
+            aria-valuenow={targetPct}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Progress toward target score"
+          >
+            <div className="h-full rounded-full bg-primary" style={{ width: `${targetPct}%` }} />
           </div>
-          {targetPct !== null && (
-            <div
-              className="mt-8 h-2.5 w-full overflow-hidden rounded-full bg-foreground/10"
-              role="progressbar"
-              aria-valuenow={targetPct}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label="Progress toward target score"
-            >
-              <div className="h-full rounded-full bg-primary" style={{ width: `${targetPct}%` }} />
-            </div>
-          )}
-          {data.remainingToTarget !== null && (
-            <p className="mt-3 text-sm text-muted-foreground">
-              {data.remainingToTarget === 0 ? "You've reached your target." : `About ${data.remainingToTarget} points remaining.`}
-            </p>
-          )}
-        </section>
-      )}
+        )}
+        {data.remainingToTarget !== null && (
+          <p className="mt-3 text-sm text-muted-foreground">
+            {data.remainingToTarget === 0 ? "You've reached your target." : `About ${data.remainingToTarget} points remaining.`}
+          </p>
+        )}
+      </section>
 
       {/* Your Journey — a written summary deserves to read as a written
           summary, so it gets prose size and a marker rule rather than being

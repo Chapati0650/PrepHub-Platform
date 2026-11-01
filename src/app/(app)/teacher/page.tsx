@@ -3,8 +3,11 @@ import { getTeacherContext, requireTeacherSession } from "@/lib/teacher/access";
 import { listClassrooms, type ClassroomSummary } from "@/lib/teacher/classrooms";
 import { formatJoinCode } from "@/lib/teacher/join-code";
 import { formatGoalDate } from "@/lib/community/goal";
-import { StaffHeader, StaffPage, StaffSection, StaffSteps } from "@/components/staff/staff-ui";
+import { StaffHeader, StaffPage, StaffSection, StaffSteps, StatusChip } from "@/components/staff/staff-ui";
 import { NewClassForm } from "./new-class-form";
+import { DisplayNameForm } from "./display-name-form";
+
+export const metadata = { title: "Your classes" };
 
 function plural(n: number, one: string, many = `${one}s`): string {
   return `${n.toLocaleString()} ${n === 1 ? one : many}`;
@@ -47,6 +50,19 @@ export default async function TeacherHomePage() {
         title={`Your classes, ${context.firstName}`}
         description="Make a class, give your students its code, then assign PrepHub questions as homework and see how each student did."
       />
+
+      {/* The name on every homework and email students get, so it's up
+          front. One block in one place whether or not it's set yet: saving
+          re-renders the page, and a form that moved elsewhere would lose its
+          "Saved." the moment it appeared. */}
+      <div className="max-w-xl rounded-2xl border border-border p-5 sm:p-6">
+        <p className="mb-3 text-base">
+          Students see you as{" "}
+          <span className="font-medium">{context.teacherDisplayName ?? context.firstName}</span>.
+          {!context.teacherDisplayName && " Most teachers use the name their class calls them."}
+        </p>
+        <DisplayNameForm current={context.teacherDisplayName} firstName={context.firstName} />
+      </div>
 
       {open.length === 0 ? (
         <StaffSection title="Getting started">
@@ -134,19 +150,35 @@ function ClassCard({ classroom: c }: { classroom: ClassroomSummary }) {
           </span>
         </span>
 
-        <span className="mt-auto border-t border-border pt-4 text-base">
+        <span className="mt-auto flex flex-col gap-4 border-t border-border pt-4 text-base">
+          {/* Past due and still owed, above what's next: "Nothing due right
+              now" used to be all a teacher saw while half the class hadn't
+              turned in last week's. */}
+          {c.overdue && (
+            <span className="block">
+              <span className="block text-sm font-medium text-muted-foreground">
+                Was due · {formatGoalDate(c.overdue.dueAt)}
+              </span>
+              <span className="mt-0.5 block font-medium">{c.overdue.title}</span>
+              <span className="mt-1 block">
+                <StatusChip tone="bad">
+                  {c.overdue.unfinished} {c.overdue.unfinished === 1 ? "hasn't" : "haven't"} finished
+                </StatusChip>
+              </span>
+            </span>
+          )}
           {c.nextDue ? (
-            <>
+            <span className="block">
               <span className="block text-sm font-medium text-muted-foreground">Next due · {formatGoalDate(c.nextDue.dueAt)}</span>
               <span className="mt-0.5 block font-medium">{c.nextDue.title}</span>
               <span className="mt-0.5 block text-muted-foreground tabular-nums">
                 {c.nextDue.completed} of {c.studentCount} done
               </span>
-            </>
+            </span>
           ) : c.studentCount === 0 ? (
             <span className="text-muted-foreground">No students yet. Share the class code to get them in.</span>
           ) : (
-            <span className="text-muted-foreground">Nothing due right now.</span>
+            !c.overdue && <span className="text-muted-foreground">Nothing due right now.</span>
           )}
         </span>
       </Link>

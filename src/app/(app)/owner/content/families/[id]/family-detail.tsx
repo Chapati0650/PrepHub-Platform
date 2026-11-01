@@ -102,7 +102,7 @@ export function FamilyDetail({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => run(() => updateFamilyDetailsAction(family.id, { internalName: internalName || undefined }))}
+            onClick={() => run(() => updateFamilyDetailsAction(family.id, { internalName }))}
           >
             Save name
           </Button>

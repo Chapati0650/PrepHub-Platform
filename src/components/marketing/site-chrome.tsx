@@ -36,12 +36,14 @@ export function SiteHeader({ active }: { active?: "schools" }) {
             desktop; on a 320px phone it plus the three nav items overflows
             the row, and it is oversized there regardless. `hidden` is
             display:none, so only the visible one is in the accessible tree. */}
-        <span className="sm:hidden">
-          <Logo />
-        </span>
-        <span className="hidden sm:block">
-          <Logo size="lg" />
-        </span>
+        <Link href="/" className="transition-opacity hover:opacity-80">
+          <span className="sm:hidden">
+            <Logo />
+          </span>
+          <span className="hidden sm:block">
+            <Logo size="lg" />
+          </span>
+        </Link>
         <div className="flex items-center gap-0.5 sm:gap-2">
           <Link
             href="/schools"

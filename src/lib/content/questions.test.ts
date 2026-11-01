@@ -17,7 +17,7 @@ vi.mock("@/lib/prisma", () => {
   const mockPrisma: Record<string, unknown> = {
     question: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), findFirst: vi.fn(), delete: vi.fn() },
     questionRevision: { create: vi.fn(), update: vi.fn() },
-    questionAnswerChoice: { createMany: vi.fn(), deleteMany: vi.fn() },
+    questionAnswerChoice: { createMany: vi.fn(), deleteMany: vi.fn(), upsert: vi.fn() },
     explanationStep: { createMany: vi.fn(), deleteMany: vi.fn() },
     questionFamily: { update: vi.fn() },
     $transaction: vi.fn(),
@@ -476,13 +476,127 @@ describe("updateDraftContent — editing a Published question", () => {
       ],
     });
 
-    const written = mocked.questionAnswerChoice.createMany.mock.calls[0][0].data;
+    const written = mocked.questionAnswerChoice.upsert.mock.calls.map((call) => call[0].update);
     expect(written.map((c: { distractorExplanation: string | null }) => c.distractorExplanation)).toEqual([
       null,
       "a real mistake note",
       null,
       null,
     ]);
+  });
+});
+
+describe("updateDraftContent — answer choices keep their ids", () => {
+  const fourChoices = [
+    { text: "A", isCorrect: false, imageId: null },
+    { text: "B (typo fixed)", isCorrect: true, imageId: null },
+    { text: "C", isCorrect: false, imageId: null },
+    { text: "D", isCorrect: false, imageId: null },
+  ];
+
+  it("updates each choice in place by position instead of deleting and recreating the set", async () => {
+    // Answers are stored and graded by choice id, so a new id per save would
+    // regrade in-flight answers and orphan historical ones.
+    const draft = draftQuestion();
+    mocked.question.findUnique.mockResolvedValueOnce(draft).mockResolvedValueOnce(draft);
+    mocked.questionRevision.update.mockResolvedValue({});
+
+    await updateDraftContent("q1", { answerChoices: fourChoices });
+
+    expect(mocked.questionAnswerChoice.createMany).not.toHaveBeenCalled();
+    expect(mocked.questionAnswerChoice.upsert).toHaveBeenCalledTimes(4);
+    expect(mocked.questionAnswerChoice.upsert.mock.calls.map((call) => call[0].where)).toEqual(
+      [0, 1, 2, 3].map((order) => ({ revisionId_order: { revisionId: "r1", order } })),
+    );
+    expect(mocked.questionAnswerChoice.upsert.mock.calls[1][0].update).toMatchObject({ text: "B (typo fixed)", isCorrect: true });
+    // Only positions past the new set are ever removed — none, for four.
+    expect(mocked.questionAnswerChoice.deleteMany).toHaveBeenCalledWith({ where: { revisionId: "r1", order: { gte: 4 } } });
+  });
+
+  it("creates a choice for a position that has none yet", async () => {
+    const draft = draftQuestion();
+    mocked.question.findUnique.mockResolvedValueOnce(draft).mockResolvedValueOnce(draft);
+    mocked.questionRevision.update.mockResolvedValue({});
+
+    await updateDraftContent("q1", { answerChoices: fourChoices });
+
+    expect(mocked.questionAnswerChoice.upsert.mock.calls[2][0].create).toEqual({
+      revisionId: "r1",
+      order: 2,
+      text: "C",
+      isCorrect: false,
+      imageId: null,
+      distractorExplanation: null,
+    });
+  });
+
+  it("refuses anything other than four choices before writing any of them", async () => {
+    const draft = draftQuestion();
+    mocked.question.findUnique.mockResolvedValueOnce(draft);
+    mocked.questionRevision.update.mockResolvedValue({});
+
+    await expect(updateDraftContent("q1", { answerChoices: fourChoices.slice(0, 3) })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+    });
+    expect(mocked.questionAnswerChoice.upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateDraftContent — a live edit can't make the question unpublishable", () => {
+  function published(revision: Omit<typeof baseRevision, "writtenExplanation"> & { writtenExplanation: string | null }) {
+    return draftQuestion({
+      status: "PUBLISHED",
+      currentDraftRevisionId: null,
+      currentDraftRevision: null,
+      currentPublishedRevisionId: "r1",
+      currentPublishedRevision: revision,
+    });
+  }
+  const emptiedChoice = {
+    ...baseRevision,
+    answerChoices: baseRevision.answerChoices.map((c) => (c.order === 2 ? { ...c, text: "" } : c)),
+  };
+
+  it("refuses, naming what to fix, when the save would leave a live question unanswerable", async () => {
+    // The re-read inside the transaction is what the edit produced; the throw
+    // rolls the whole transaction back.
+    mocked.question.findUnique.mockResolvedValueOnce(published(baseRevision)).mockResolvedValueOnce(published(emptiedChoice));
+    mocked.questionRevision.update.mockResolvedValue({});
+
+    const save = updateDraftContent("q1", {
+      answerChoices: emptiedChoice.answerChoices.map((c) => ({ text: c.text, isCorrect: c.isCorrect, imageId: null })),
+    });
+
+    await expect(save).rejects.toMatchObject({ code: "PUBLISH_VALIDATION_FAILED" });
+    await expect(save).rejects.toThrow(/live.*Every answer choice needs text/);
+  });
+
+  it("allows the same half-finished state on a Draft, which no student can be served", async () => {
+    const draft = draftQuestion();
+    mocked.question.findUnique.mockResolvedValueOnce(draft).mockResolvedValueOnce(draftQuestion({ currentDraftRevision: emptiedChoice }));
+    mocked.questionRevision.update.mockResolvedValue({});
+
+    await expect(updateDraftContent("q1", { questionText: "Edited" })).resolves.toMatchObject({ id: "q1" });
+  });
+
+  it("still lets an already-short live question be fixed one field at a time", async () => {
+    // Content from before a checklist rule existed: the edit doesn't make it
+    // worse, so it isn't the edit's job to make it whole.
+    const alreadyShort = { ...baseRevision, questionText: "" };
+    mocked.question.findUnique
+      .mockResolvedValueOnce(published(alreadyShort))
+      .mockResolvedValueOnce(published({ ...alreadyShort, writtenExplanation: "Because 2 + 2 = 4." }));
+    mocked.questionRevision.update.mockResolvedValue({});
+
+    await expect(updateDraftContent("q1", { writtenExplanation: "Because 2 + 2 = 4." })).resolves.toBeTruthy();
+  });
+
+  it("returns the question as the transaction left it", async () => {
+    const after = published({ ...baseRevision, questionText: "Updated text" });
+    mocked.question.findUnique.mockResolvedValueOnce(published(baseRevision)).mockResolvedValueOnce(after);
+    mocked.questionRevision.update.mockResolvedValue({});
+
+    expect(await updateDraftContent("q1", { questionText: "Updated text" })).toBe(after);
   });
 });
 

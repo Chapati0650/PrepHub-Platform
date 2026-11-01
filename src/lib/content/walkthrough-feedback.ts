@@ -38,27 +38,55 @@ export type FeedbackRow = {
   worstStep: { step: number; count: number } | null;
 };
 
+type FeedbackTotals = {
+  questionId: string;
+  helpful: number;
+  confused: number;
+  worstStep: number | null;
+  worstStepCount: number | null;
+};
+
 /**
  * Every question with feedback, most-confusing first: by the share of
- * answers that said "still confused", then by how many did. Test accounts
- * (example.com) are left out, as in every other report.
+ * answers that said "still confused", then by how many did.
+ *
+ * Counted in the database, one row per question: this used to load every
+ * feedback row ever given and tally them in JavaScript, which grows with
+ * every student who finishes a walkthrough. Test accounts are left out by the
+ * funnel report's rule (`email NOT LIKE '%example.com%'`), which also catches
+ * the demo district (demo-isd.example.com) and load-test students
+ * (loadtest.example.com) — the `endsWith("@example.com")` this used missed
+ * both. The worst step is the one named most often, the earlier step on a tie.
  */
 export async function getWalkthroughFeedbackReport(): Promise<FeedbackRow[]> {
-  const rows = await prisma.walkthroughFeedback.findMany({
-    where: { student: { email: { not: { endsWith: "@example.com" } } } },
-    select: { questionId: true, helpful: true, confusingStep: true },
-  });
-  const byQuestion = new Map<string, { helpful: number; confused: number; steps: Map<number, number> }>();
-  for (const row of rows) {
-    const entry = byQuestion.get(row.questionId) ?? { helpful: 0, confused: 0, steps: new Map() };
-    if (row.helpful) entry.helpful++;
-    else entry.confused++;
-    if (row.confusingStep !== null) entry.steps.set(row.confusingStep, (entry.steps.get(row.confusingStep) ?? 0) + 1);
-    byQuestion.set(row.questionId, entry);
-  }
-  if (byQuestion.size === 0) return [];
+  const totals = await prisma.$queryRaw<FeedbackTotals[]>`
+    WITH real_feedback AS (
+      SELECT wf."questionId", wf."helpful", wf."confusingStep"
+        FROM "walkthrough_feedback" wf
+        JOIN "users" u ON u."id" = wf."studentId"
+       WHERE u."email" NOT LIKE '%example.com%'
+    ),
+    per_question AS (
+      SELECT "questionId",
+             COUNT(*) FILTER (WHERE "helpful")::int     AS helpful,
+             COUNT(*) FILTER (WHERE NOT "helpful")::int AS confused
+        FROM real_feedback
+       GROUP BY "questionId"
+    ),
+    worst_step AS (
+      SELECT DISTINCT ON ("questionId") "questionId", "confusingStep" AS step, COUNT(*)::int AS step_count
+        FROM real_feedback
+       WHERE "confusingStep" IS NOT NULL
+       GROUP BY "questionId", "confusingStep"
+       ORDER BY "questionId", COUNT(*) DESC, "confusingStep" ASC
+    )
+    SELECT p."questionId" AS "questionId", p.helpful, p.confused, w.step AS "worstStep", w.step_count AS "worstStepCount"
+      FROM per_question p
+      LEFT JOIN worst_step w ON w."questionId" = p."questionId"
+  `;
+  if (totals.length === 0) return [];
   const questions = await prisma.question.findMany({
-    where: { id: { in: [...byQuestion.keys()] } },
+    where: { id: { in: totals.map((t) => t.questionId) } },
     select: {
       id: true,
       category: true,
@@ -66,20 +94,28 @@ export async function getWalkthroughFeedbackReport(): Promise<FeedbackRow[]> {
       currentPublishedRevision: { select: { questionText: true } },
     },
   });
+  const byId = new Map(totals.map((t) => [t.questionId, t]));
   const report = questions.map((q): FeedbackRow => {
-    const entry = byQuestion.get(q.id)!;
-    const worst = [...entry.steps].sort((a, b) => b[1] - a[1])[0];
+    const entry = byId.get(q.id)!;
     const text = (q.currentPublishedRevision?.questionText ?? "").replace(/\s+/g, " ").trim();
     return {
       questionId: q.id,
       preview: text.length > 110 ? `${text.slice(0, 107)}…` : text,
       category: q.category,
       difficulty: q.difficulty,
-      helpful: entry.helpful,
-      confused: entry.confused,
-      worstStep: worst ? { step: worst[0], count: worst[1] } : null,
+      helpful: Number(entry.helpful),
+      confused: Number(entry.confused),
+      worstStep:
+        entry.worstStep === null || entry.worstStepCount === null
+          ? null
+          : { step: Number(entry.worstStep), count: Number(entry.worstStepCount) },
     };
   });
+  return sortFeedbackReport(report);
+}
+
+/** Most confusing first: by share of "still confused", then by how many said it. */
+export function sortFeedbackReport(report: FeedbackRow[]): FeedbackRow[] {
   const share = (r: FeedbackRow) => r.confused / Math.max(1, r.helpful + r.confused);
-  return report.sort((a, b) => share(b) - share(a) || b.confused - a.confused);
+  return [...report].sort((a, b) => share(b) - share(a) || b.confused - a.confused);
 }

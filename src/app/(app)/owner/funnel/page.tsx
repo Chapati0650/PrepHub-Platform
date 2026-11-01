@@ -4,6 +4,8 @@ import { auth } from "@/auth";
 import { getFunnelReport } from "@/lib/analytics/funnel";
 import { PageHeader } from "@/components/page-header";
 
+export const metadata = { title: "Funnel" };
+
 const WINDOWS = [7, 30, 90] as const;
 
 // The Owner's funnel: signup → Diagnostic → free set → paywall → checkout →

@@ -6,6 +6,8 @@ import { localDateInputValue } from "@/lib/community/local-day";
 import { StaffHeader, StaffPage, StaffUnavailable } from "@/components/staff/staff-ui";
 import { AnnouncementsPanel } from "./announcements-panel";
 
+export const metadata = { title: "Announcements" };
+
 // PRD-011 §16-§18 — the administrator's brief, one-way message to students:
 // write, check exactly what students will get, send (shown in PrepHub and
 // emailed once), and take it down.

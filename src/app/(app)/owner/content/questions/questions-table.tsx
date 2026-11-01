@@ -13,6 +13,8 @@ import {
   STATUS_LABELS,
 } from "@/lib/content/labels";
 import { CATEGORY_ORDER, DIFFICULTY_ORDER } from "@/lib/content/constants";
+import { ownerRequestFailureMessage, postToOwnerRoute } from "@/lib/content/owner-request-client";
+import type { BulkResult } from "@/lib/content/bulk";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
 import { Input } from "@/components/ui/input";
@@ -48,7 +50,6 @@ import {
   archiveQuestionAction,
   bulkArchiveAction,
   bulkDeleteAction,
-  bulkEstimateDifficultyAction,
   bulkPublishAction,
   bulkSetDifficultyAction,
   bulkUnpublishAction,
@@ -63,8 +64,12 @@ import {
 // in bulk-upload-form.tsx for the same underlying reason: enough parallelism
 // to meaningfully cut total wall-clock time (an 18-minute, ~50-question
 // sequential run was the real complaint this fixes), without firing dozens
-// of simultaneous DeepSeek requests at once.
+// of simultaneous DeepSeek requests at once. Each estimate is a fetch to a
+// Route Handler (./estimate-difficulty/route.ts): as a Server Action it was
+// dispatched one at a time per client, so until 2026-11-01 the pool of three
+// was in fact sequential and the 18 minutes stayed 18 minutes.
 const DIFFICULTY_ESTIMATE_CONCURRENCY = 3;
+const ESTIMATE_DIFFICULTY_URL = "/owner/content/questions/estimate-difficulty";
 
 function statusVariant(status: string): "default" | "secondary" | "destructive" {
   if (status === "PUBLISHED") return "default";
@@ -222,9 +227,15 @@ export function QuestionsTable({
     async function worker() {
       while (cursor < ids.length) {
         const id = ids[cursor++];
-        const result = await bulkEstimateDifficultyAction([id]);
-        succeeded.push(...result.succeeded);
-        failed.push(...result.failed);
+        try {
+          const result = await postToOwnerRoute<BulkResult>(ESTIMATE_DIFFICULTY_URL, { questionId: id });
+          succeeded.push(...result.succeeded);
+          failed.push(...result.failed);
+        } catch (err) {
+          // One question's request failing is that question's failure, not
+          // the batch's — and never a progress bar stuck short of the end.
+          failed.push({ questionId: id, reason: ownerRequestFailureMessage(err) });
+        }
         done++;
         setEstimateProgress({ done, total: ids.length });
       }

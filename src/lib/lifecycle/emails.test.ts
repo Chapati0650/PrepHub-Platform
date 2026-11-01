@@ -178,8 +178,22 @@ describe("queueDailyReminders", () => {
     );
   }
 
+  type Row = { id: string } & Record<string, unknown>;
+  /**
+   * The students with the toggle on, answered the way the two user reads
+   * would: the scan's page of ids (`id > after`), then the full rows for the
+   * ids it asks about.
+   */
+  function optedIn(rows: Row[]) {
+    users.mockImplementation((args: { where: { id: { gt?: string; in?: string[] } }; select: Record<string, unknown> }) => {
+      if (args.where.id.in) return Promise.resolve(rows.filter((r) => args.where.id.in!.includes(r.id)));
+      const after = args.where.id.gt ?? "";
+      return Promise.resolve(rows.filter((r) => r.id > after).map((r) => ({ id: r.id })));
+    });
+  }
+
   it("points paid students at practice and free students at the Daily Challenge, keyed by day", async () => {
-    users.mockResolvedValueOnce([
+    optedIn([
       { ...base, id: "p", email: "p@x.com", firstName: "Pat", subscription: { status: "ACTIVE" } },
       { ...base, id: "f", email: "f@x.com", firstName: "Fay" },
     ]);
@@ -198,7 +212,7 @@ describe("queueDailyReminders", () => {
   });
 
   it("points a student their district covers at practice, not the free Daily Challenge", async () => {
-    users.mockResolvedValueOnce([
+    optedIn([
       {
         ...base,
         id: "d",
@@ -219,7 +233,7 @@ describe("queueDailyReminders", () => {
   });
 
   it("skips a student who answered anything today, in any mode", async () => {
-    users.mockResolvedValueOnce([
+    optedIn([
       { ...base, id: "busy", email: "busy@x.com", firstName: "Bo" },
       { ...base, id: "idle", email: "idle@x.com", firstName: "Ida" },
     ]);
@@ -231,7 +245,7 @@ describe("queueDailyReminders", () => {
   });
 
   it("tapers to weekly after a week away and stops after a month", async () => {
-    users.mockResolvedValueOnce([
+    optedIn([
       { ...base, id: "drifting", email: "drifting@x.com", firstName: "Di" },
       { ...base, id: "nudged", email: "nudged@x.com", firstName: "Nu" },
       { ...base, id: "gone", email: "gone@x.com", firstName: "Go" },
@@ -251,7 +265,7 @@ describe("queueDailyReminders", () => {
   it("carries a one-click way out when a signing secret is configured", async () => {
     const previous = process.env.AUTH_SECRET;
     process.env.AUTH_SECRET = "test-secret";
-    users.mockResolvedValueOnce([{ ...base, id: "f", email: "f@x.com", firstName: "Fay" }]);
+    optedIn([{ ...base, id: "f", email: "f@x.com", firstName: "Fay" }]);
     activity({ f: new Date(NOW.getTime() - DAY) });
 
     await queueDailyReminders(NOW);
@@ -266,8 +280,40 @@ describe("queueDailyReminders", () => {
   });
 
   it("asks for nothing more when there is nobody to remind", async () => {
-    users.mockResolvedValueOnce([]);
+    optedIn([]);
     expect(await queueDailyReminders()).toEqual({ queued: 0, complete: true });
     expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("does no more work for a student a month gone than read their id and check their activity", async () => {
+    // Most students with the toggle on are like this, and nothing is recorded
+    // for them, so every evening run walks past them again.
+    optedIn([
+      { ...base, id: "gone1", email: "g1@x.com", firstName: "G" },
+      { ...base, id: "gone2", email: "g2@x.com", firstName: "H" },
+    ]);
+    activity({ gone1: new Date(NOW.getTime() - 45 * DAY), gone2: new Date(NOW.getTime() - 90 * DAY) });
+
+    expect(await queueDailyReminders(NOW)).toEqual({ queued: 0, complete: true });
+
+    expect(users).toHaveBeenCalledTimes(1);
+    expect(users.mock.calls[0][0].select).toEqual({ id: true });
+    expect(activeSince).toHaveBeenCalledTimes(1);
+    expect(prisma.emailSend.findMany).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("loads full rows only for the students active this month", async () => {
+    optedIn([
+      { ...base, id: "a-gone", email: "gone@x.com", firstName: "Go" },
+      { ...base, id: "b-active", email: "active@x.com", firstName: "Ac" },
+    ]);
+    activity({ "a-gone": new Date(NOW.getTime() - 45 * DAY), "b-active": new Date(NOW.getTime() - 2 * DAY) });
+
+    await queueDailyReminders(NOW);
+
+    const fullRead = users.mock.calls.find((call) => call[0].where.id.in);
+    expect(fullRead?.[0].where.id.in).toEqual(["b-active"]);
+    expect(queued().map((r) => r.to)).toEqual(["active@x.com"]);
   });
 });

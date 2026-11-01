@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { Logo } from "@/components/logo";
@@ -35,7 +36,9 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
     <div className="flex min-h-screen flex-col lg:flex-row">
       <PageViewBeacon />
       <div className="flex flex-1 flex-col px-6 py-10 sm:px-10">
-        <Logo size="lg" />
+        <Link href="/" className="self-start transition-opacity hover:opacity-80">
+          <Logo size="lg" />
+        </Link>
         <div className="flex flex-1 items-center justify-center py-10">
           {/* Every page under (auth) renders a <Card>. Inside the old centered
               shell that chrome was the page; here the panel already provides
@@ -46,9 +49,9 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
           {/* ring-0 matters as much as border-0 here: this Card draws its
               edge with `ring-1 ring-foreground/10`, not a border, so zeroing
               only the border leaves the outline fully visible. */}
-          <div className="w-full max-w-sm [&>div]:border-0 [&>div]:bg-transparent [&>div]:p-0 [&>div]:shadow-none [&>div]:ring-0">
+          <main className="w-full max-w-sm [&>div]:border-0 [&>div]:bg-transparent [&>div]:p-0 [&>div]:shadow-none [&>div]:ring-0">
             {children}
-          </div>
+          </main>
         </div>
       </div>
 

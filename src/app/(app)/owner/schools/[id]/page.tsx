@@ -30,6 +30,8 @@ import { LogoForm } from "./logo-form";
 import { RushLeaderboardForm } from "./leaderboard-form";
 import { requireOwnerPage } from "@/lib/owner/guard";
 
+export const metadata = { title: "School" };
+
 export default async function OrganizationDetailPage({
   params,
   searchParams,

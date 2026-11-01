@@ -20,6 +20,8 @@ import { cn } from "@/lib/utils";
 import { StudentDirectoryTable } from "./student-directory-table";
 import { CampusInvitePanel } from "./invite-panel";
 
+export const metadata = { title: "Students" };
+
 type SearchParams = Record<string, string | string[] | undefined>;
 
 function one(value: string | string[] | undefined): string | undefined {

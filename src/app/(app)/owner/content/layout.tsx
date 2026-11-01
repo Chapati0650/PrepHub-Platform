@@ -22,8 +22,9 @@ export default function OwnerContentLayout({ children }: { children: React.React
 
   return (
     <div className="flex min-h-screen flex-col">
-      <nav className="flex items-center gap-1 border-b border-border px-8 py-3">
-        <span className="mr-4 font-heading text-sm font-semibold text-muted-foreground">Content</span>
+      {/* Seven tabs don't fit a phone: the row scrolls rather than widening the page. */}
+      <nav className="flex items-center gap-1 overflow-x-auto border-b border-border px-4 py-3 whitespace-nowrap sm:px-8">
+        <span className="mr-4 shrink-0 font-heading text-sm font-semibold text-muted-foreground">Content</span>
         {TABS.map((tab) => {
           const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
           return (
@@ -32,7 +33,7 @@ export default function OwnerContentLayout({ children }: { children: React.React
               href={tab.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                "shrink-0 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
                 active ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
             >

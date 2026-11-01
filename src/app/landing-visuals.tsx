@@ -45,13 +45,18 @@ const HOLD_AFTER_REVEAL_MS = 2600;
 // a visitor could recognize from the product description next to it.
 export function DiagnosticVisual() {
   const reducedMotion = usePrefersReducedMotion();
-  const [checked, setChecked] = useState(reducedMotion ? CATEGORIES.length : 0);
+  const [step, setStep] = useState(0);
+  // Derived, not seeded into state: the reduced-motion answer is `false`
+  // during hydration (the server can't know it), so a state seeded from it
+  // started at 0 and the effect below — which stands down under reduced
+  // motion — never moved it. Those visitors saw "0 of 7" and no score.
+  const checked = reducedMotion ? CATEGORIES.length : step;
   const revealed = checked === CATEGORIES.length;
 
   useEffect(() => {
     if (reducedMotion) return;
     const timer = setTimeout(
-      () => setChecked((c) => (c === CATEGORIES.length ? 0 : c + 1)),
+      () => setStep((c) => (c === CATEGORIES.length ? 0 : c + 1)),
       revealed ? HOLD_AFTER_REVEAL_MS : CHECK_INTERVAL_MS,
     );
     return () => clearTimeout(timer);
@@ -106,11 +111,14 @@ const MASTERY_CYCLE_MS = 2800;
 // itself demonstrates adaptiveness, rather than sitting at one static state.
 export function MasteryVisual() {
   const reducedMotion = usePrefersReducedMotion();
-  const [improved, setImproved] = useState(reducedMotion);
+  const [cycled, setCycled] = useState(false);
+  // Derived for the same reason as DiagnosticVisual's count: under reduced
+  // motion, the finished state.
+  const improved = reducedMotion || cycled;
 
   useEffect(() => {
     if (reducedMotion) return;
-    const timer = setInterval(() => setImproved((v) => !v), MASTERY_CYCLE_MS);
+    const timer = setInterval(() => setCycled((v) => !v), MASTERY_CYCLE_MS);
     return () => clearInterval(timer);
   }, [reducedMotion]);
 

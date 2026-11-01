@@ -23,6 +23,15 @@ import { CATEGORY_LABELS, DIFFICULTY_LABELS } from "@/lib/content/labels";
 import type { QuestionCategory, QuestionDifficulty, QuestionType } from "@/generated/prisma/client";
 import { createQuestionAction } from "../actions";
 
+// The longer wording than QUESTION_TYPE_LABELS (the table's column) on
+// purpose: this is where the choice is made, so it says what the student
+// does. A bare <SelectValue /> showed the enum ("OPEN_ENDED_NUMERIC") in the
+// trigger; Base UI renders the label only when it's given one.
+const QUESTION_TYPE_OPTIONS: Record<QuestionType, string> = {
+  MULTIPLE_CHOICE: "Multiple Choice",
+  OPEN_ENDED_NUMERIC: "Open-Ended Numeric Response",
+};
+
 // PRD-015 §6.1: the Owner picks a type up front; we also collect
 // category/difficulty here (see questions.ts's createQuestion doc comment)
 // so the Questions table's denormalized filter columns are never null.
@@ -75,11 +84,14 @@ export function CreateQuestionDialog() {
             <Label htmlFor="questionType">Question type</Label>
             <Select value={questionType} onValueChange={(v) => setQuestionType(v as QuestionType)}>
               <SelectTrigger id="questionType">
-                <SelectValue />
+                <SelectValue>{(v: QuestionType) => QUESTION_TYPE_OPTIONS[v]}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="MULTIPLE_CHOICE">Multiple Choice</SelectItem>
-                <SelectItem value="OPEN_ENDED_NUMERIC">Open-Ended Numeric Response</SelectItem>
+                {(Object.keys(QUESTION_TYPE_OPTIONS) as QuestionType[]).map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {QUESTION_TYPE_OPTIONS[t]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -87,7 +99,7 @@ export function CreateQuestionDialog() {
             <Label htmlFor="createQuestionCategory">Category</Label>
             <Select value={category} onValueChange={(v) => setCategory(v as QuestionCategory)}>
               <SelectTrigger id="createQuestionCategory">
-                <SelectValue />
+                <SelectValue>{(v: QuestionCategory) => CATEGORY_LABELS[v]}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {CATEGORY_ORDER.map((c) => (
@@ -102,7 +114,7 @@ export function CreateQuestionDialog() {
             <Label htmlFor="createQuestionDifficulty">Difficulty</Label>
             <Select value={difficulty} onValueChange={(v) => setDifficulty(v as QuestionDifficulty)}>
               <SelectTrigger id="createQuestionDifficulty">
-                <SelectValue />
+                <SelectValue>{(v: QuestionDifficulty) => DIFFICULTY_LABELS[v]}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {DIFFICULTY_ORDER.map((d) => (

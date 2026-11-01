@@ -23,13 +23,20 @@ export async function inviteTeacherAction(_prev: TeacherPanelState, formData: Fo
   const school = await adminSchool();
   if ("error" in school) return { error: school.error };
   try {
-    const { created, restoredClasses } = await inviteTeacher({
+    const { created, restoredClasses, inviteEmailFailed } = await inviteTeacher({
       firstName: String(formData.get("firstName") ?? ""),
       email: String(formData.get("email") ?? ""),
       schoolId: school.schoolId,
       invitedBy: "Your school's PrepHub administrator",
     });
     revalidatePath("/admin/teachers");
+    // The account exists either way; what changes is whether to say an email is coming.
+    if (inviteEmailFailed) {
+      return {
+        success: true,
+        message: "Added, but the invitation email didn't send. Use “Resend invitation” next to their name.",
+      };
+    }
     return { success: true, message: inviteMessage(created, restoredClasses) };
   } catch (err) {
     // Nothing to do, and nothing went wrong: say so as a note, not an error.
@@ -49,7 +56,8 @@ export async function resendTeacherInviteAction(userId: string): Promise<Teacher
   const school = await adminSchool();
   if ("error" in school) return { error: school.error };
   try {
-    await resendTeacherInvite(userId, school.schoolId, "Your school's PrepHub administrator");
+    const { emailSent } = await resendTeacherInvite(userId, school.schoolId, "Your school's PrepHub administrator");
+    if (!emailSent) return { error: "The invitation email didn't send. Try again in a few minutes." };
     return { message: "Sent a new invite." };
   } catch (err) {
     if (err instanceof TeacherError) return { error: err.message };

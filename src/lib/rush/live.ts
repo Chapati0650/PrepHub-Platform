@@ -14,7 +14,7 @@ import {
 } from "./config";
 import { createChallenge, createSet } from "./create";
 import { scoreRushAnswerWithStreak, streakBefore } from "./scoring";
-import { RushError } from "./errors";
+import { RushError, rushError } from "./errors";
 
 // Live head-to-head rooms. Two players, one server-side clock, no
 // WebSockets (this host can't hold one open): both clients poll
@@ -81,22 +81,22 @@ export async function joinLiveRoom(studentId: string, challengeId: string): Prom
     where: { id: challengeId },
     select: { live: true, liveStatus: true, invitedStudentId: true, runs: { select: { lastSeenAt: true } } },
   });
-  if (!c || !c.live) throw new RushError("CHALLENGE_NOT_FOUND", "That room doesn't exist.");
+  if (!c || !c.live) throw rushError("CHALLENGE_NOT_FOUND", "room-gone");
   // A rematch room is for one student. Checked here as well as wherever the
   // room is offered, because a code typed by hand reaches this function too.
   if (c.invitedStudentId && c.invitedStudentId !== studentId) {
-    throw new RushError("NOT_JOINABLE", "That rematch is for someone else.");
+    throw rushError("NOT_JOINABLE", "for-someone-else");
   }
-  if (c.liveStatus !== "WAITING") throw new RushError("NOT_JOINABLE", "That rush has already started.");
+  if (c.liveStatus !== "WAITING") throw rushError("NOT_JOINABLE", "already-started");
   const creatorPresent = c.runs.some((r) => Date.now() - r.lastSeenAt.getTime() < LIVE_PRESENCE_MS);
-  if (!creatorPresent) throw new RushError("NOT_JOINABLE", "Nobody's in that room right now. Ask them to open it again, then try the link.");
+  if (!creatorPresent) throw rushError("NOT_JOINABLE", "host-away");
 
   return prisma.$transaction(async (tx) => {
     const claimed = await tx.rushChallenge.updateMany({
       where: { id: challengeId, liveStatus: "WAITING" },
       data: { liveStatus: "COUNTDOWN", liveStartsAt: new Date(Date.now() + LIVE_COUNTDOWN_MS) },
     });
-    if (claimed.count === 0) throw new RushError("NOT_JOINABLE", "Someone else just joined that room.");
+    if (claimed.count === 0) throw rushError("NOT_JOINABLE", "room-full");
     const run = await tx.rushRun.create({ data: { challengeId, studentId }, select: { id: true } });
     return { runId: run.id, challengeId };
   });

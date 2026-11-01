@@ -7,7 +7,10 @@ import { getCurriculumOverview } from "@/lib/curriculum/queries";
 import { LinkButton } from "@/components/ui/link-button";
 import { Marker } from "@/components/ui/marker";
 import { TeacherCard } from "./teacher-card";
+import { LessonState } from "./lesson-state";
 import { TEACHER } from "@/lib/teacher";
+
+export const metadata = { title: "The Curriculum" };
 
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -51,8 +54,10 @@ export default async function CurriculumPage() {
       <div className="mx-auto -mt-8 grid max-w-5xl grid-cols-1 gap-8 px-4 sm:px-8 lg:grid-cols-[1fr_minmax(0,22rem)] lg:gap-10">
         <div className="flex flex-col gap-8">
           {/* Course overview — the Owner's note to the student. Kept to
-              claims the product can back: what the Diagnostic does, what the
-              lessons are for. */}
+              claims the product can back. It used to say the Diagnostic
+              "already knows which lessons will move your score the most", but
+              lessons carry no category and nothing maps a result to a lesson;
+              what is true is that Practice Sets lean on the weak categories. */}
           <section className="rounded-2xl border border-border bg-card p-6 sm:p-8">
             <h2 className="font-heading text-xl font-semibold tracking-tight">Course overview</h2>
             <div className="mt-4 flex flex-col gap-4 text-muted-foreground">
@@ -63,8 +68,8 @@ export default async function CurriculumPage() {
               </p>
               <p>
                 Each lesson is a focused video on one topic, in the same order PrepHub&apos;s categories run. Watch a
-                lesson, then let your Personalized Practice Sets put it to work &mdash; the Diagnostic already knows
-                which lessons will move your score the most.
+                lesson, then let your Personalized Practice Sets put it to work &mdash; each set leans on the
+                categories your Diagnostic and your answers since show you need most.
               </p>
               <p>See you inside,</p>
               <p className="font-heading text-lg font-semibold tracking-tight text-foreground">{TEACHER.name.split(" ")[0]}</p>
@@ -128,7 +133,10 @@ export default async function CurriculumPage() {
                               {l.completed ? <Check className="size-3.5" strokeWidth={3} /> : locked ? <Lock className="size-3" /> : <Play className="size-3" />}
                             </span>
                             <span className="min-w-0 flex-1">
-                              <span className="block truncate font-medium">{l.title}</span>
+                              <span className="block truncate font-medium">
+                                {l.title}
+                                <LessonState completed={l.completed} locked={locked} />
+                              </span>
                               {l.description && <span className="block truncate text-sm text-muted-foreground">{l.description}</span>}
                             </span>
                             <span className="shrink-0 text-sm text-muted-foreground tabular-nums">

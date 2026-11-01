@@ -12,6 +12,8 @@ import { generatePracticeSet } from "@/lib/adaptive/generate-practice-set";
 import { LinkButton } from "@/components/ui/link-button";
 import { Marker } from "@/components/ui/marker";
 
+export const metadata = { title: "Personalized Practice" };
+
 // PRD-005 — the thin gateway between the Dashboard and the active Practice
 // Session. Never opens a question directly; always shows set state first.
 export default async function PracticePage() {
@@ -20,7 +22,10 @@ export default async function PracticePage() {
   if (!canUseStudentExperience(session.user.role)) redirect("/home");
   const studentId = session.user.id;
 
-  const diagnostic = await prisma.diagnosticSession.findUnique({ where: { studentId } });
+  const [diagnostic, paid] = await Promise.all([
+    prisma.diagnosticSession.findUnique({ where: { studentId } }),
+    hasPaidAccess(studentId),
+  ]);
 
   // Was a bare redirect("/diagnostic"), which bounced anyone clicking
   // Practice in the nav with no reason given and read as a toll gate. The
@@ -31,9 +36,8 @@ export default async function PracticePage() {
   // this is a fork rather than a wall.
   if (diagnostic?.status !== "COMPLETED") {
     const started = diagnostic?.status === "IN_PROGRESS";
-    const paid = await hasPaidAccess(studentId);
     return (
-      <PracticeShell>
+      <PracticeShell paid={paid}>
         <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
           Personalized Practice
         </p>
@@ -87,7 +91,7 @@ export default async function PracticePage() {
 
   if (generationFailed || !set) {
     return (
-      <PracticeShell>
+      <PracticeShell paid={paid}>
         <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
           <AlertCircle className="mr-1.5 inline size-3.5 align-[-0.15em]" aria-hidden />
           Something went wrong
@@ -125,25 +129,42 @@ export default async function PracticePage() {
     });
     const moved = latest && previous ? (latest.displayedRangeMinimum + latest.displayedRangeMaximum - previous.displayedRangeMinimum - previous.displayedRangeMaximum) / 2 : 0;
     return (
-      <PracticeShell>
+      <PracticeShell paid={paid}>
         <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
           <Lock className="mr-1.5 inline size-3.5 align-[-0.15em]" aria-hidden />
           Practice Set {set.setNumber}
         </p>
-        <h1 className="mt-3 text-display-sm text-balance">
-          Your next set is <Marker>ready</Marker>.
-        </h1>
-        <p className="mt-4 max-w-prose text-lg text-muted-foreground">
-          {latest && previous
-            ? moved > 0
-              ? `One set moved your prediction up ${Math.round(moved)} points, to ${latest.displayedRangeMinimum}–${latest.displayedRangeMaximum}. `
-              : `Your prediction is now ${latest.displayedRangeMinimum}–${latest.displayedRangeMaximum}. `
-            : ""}
-          Set {set.setNumber} is built from everything you just answered &mdash; the categories that cost you the most get the
-          most questions. Premium opens it, and every set after it.
-        </p>
+        {questionsCompleted > 0 ? (
+          // Premium ended partway through this set: it isn't "ready", it's
+          // half done, and the answers are kept.
+          <>
+            <h1 className="mt-3 text-display-sm text-balance">
+              Practice Set {set.setNumber} is <Marker>waiting</Marker> for you.
+            </h1>
+            <p className="mt-4 max-w-prose text-lg text-muted-foreground">
+              You&apos;ve answered {questionsCompleted} of {set.slots.length}, and every answer is saved. Premium has
+              ended, so the rest of the set is locked until it&apos;s back on &mdash; then you pick up exactly where you
+              stopped.
+            </p>
+          </>
+        ) : (
+          <>
+            <h1 className="mt-3 text-display-sm text-balance">
+              Your next set is <Marker>ready</Marker>.
+            </h1>
+            <p className="mt-4 max-w-prose text-lg text-muted-foreground">
+              {latest && previous
+                ? moved > 0
+                  ? `One set moved your prediction up ${Math.round(moved)} points, to ${latest.displayedRangeMinimum}–${latest.displayedRangeMaximum}. `
+                  : `Your prediction is now ${latest.displayedRangeMinimum}–${latest.displayedRangeMaximum}. `
+                : ""}
+              Set {set.setNumber} is built from everything you just answered &mdash; the categories that cost you the most get the
+              most questions. Premium opens it, and every set after it.
+            </p>
+          </>
+        )}
         <div className="mt-8">
-          <QuestionProgressPips total={set.slots.length} completed={0} dimmed />
+          <QuestionProgressPips total={set.slots.length} completed={questionsCompleted} dimmed />
         </div>
         <div className="mt-8 flex flex-wrap items-center gap-4">
           <LinkButton size="cta" href="/pricing">
@@ -156,7 +177,7 @@ export default async function PracticePage() {
   }
 
   return (
-    <PracticeShell>
+    <PracticeShell paid={paid}>
       <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
         {isFreePracticeSet(set.setNumber) ? "Free · personalized from your Diagnostic." : "Personalized from your performance."}
       </p>
@@ -193,7 +214,7 @@ export default async function PracticePage() {
 // door belongs here rather than in each branch — a student who has finished
 // their set, is mid-set, or is looking at a paywall all have the same reason
 // to want to drill one category.
-function PracticeShell({ children }: { children: ReactNode }) {
+function PracticeShell({ children, paid }: { children: ReactNode; paid: boolean }) {
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-6 sm:p-10">
       <div className="rounded-3xl bg-surface-tint p-8 sm:p-12">{children}</div>
@@ -202,7 +223,15 @@ function PracticeShell({ children }: { children: ReactNode }) {
         className="group flex items-center justify-between gap-4 rounded-2xl border border-border p-5 transition-colors hover:bg-muted/50"
       >
         <span className="min-w-0">
-          <span className="block font-heading font-semibold tracking-tight">Focused Practice</span>
+          <span className="flex items-center gap-2 font-heading font-semibold tracking-tight">
+            Focused Practice
+            {/* Said up front, rather than discovered on a page of disabled buttons. */}
+            {!paid && (
+              <span className="rounded-md bg-muted px-1.5 py-0.5 font-sans text-xs font-medium text-muted-foreground">
+                Premium
+              </span>
+            )}
+          </span>
           <span className="mt-0.5 block text-sm text-muted-foreground">
             Pick a category and difficulty and drill 10 questions on exactly that.
           </span>

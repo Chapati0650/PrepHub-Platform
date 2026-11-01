@@ -8,6 +8,8 @@ import { LinkButton } from "@/components/ui/link-button";
 import { Marker } from "@/components/ui/marker";
 import { joinRushAction } from "../../actions";
 
+export const metadata = { title: "1v1 Rush" };
+
 // Where a friend's link lands. Free to accept by design — this page is the
 // hook, so there is no paid-access check anywhere on it or on the action
 // behind its button. (A signed-out visitor never reaches it: middleware
@@ -49,7 +51,10 @@ export default async function RushJoinPage({ params }: { params: Promise<{ code:
     return (
       <Shell eyebrow="1v1 Rush">
         <h1 className="mt-3 text-page-title sm:text-page-title-lg">This rush isn&apos;t open to join.</h1>
-        <p className="mt-3 max-w-prose text-muted-foreground">Only challenges made with &ldquo;Challenge a friend&rdquo; can be accepted by link.</p>
+        <p className="mt-3 max-w-prose text-muted-foreground">
+          Only a friend&apos;s room or challenge &mdash; &ldquo;Friend &middot; live&rdquo; or &ldquo;Friend &middot; anytime&rdquo; &mdash;
+          can be joined by link.
+        </p>
         <div className="mt-8">
           <LinkButton size="cta" href="/rush">
             Go to 1v1 Rush

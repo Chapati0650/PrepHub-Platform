@@ -76,11 +76,16 @@ export async function setFamilyVideo(familyId: string, mediaAssetId: string | nu
   return getFamilyOrThrow(familyId);
 }
 
+// `internalName` absent leaves the name as it is; an empty (or all-space)
+// string clears it. The editor used to send `undefined` for an emptied field,
+// which Prisma reads as "no change", so once a family had a name it could
+// never be removed again.
 export async function updateFamilyDetails(
   familyId: string,
-  input: { internalName?: string },
+  input: { internalName?: string | null },
 ): Promise<QuestionFamilyWithContent> {
-  await prisma.questionFamily.update({ where: { id: familyId }, data: { internalName: input.internalName } });
+  const internalName = input.internalName === undefined ? undefined : input.internalName?.trim() || null;
+  await prisma.questionFamily.update({ where: { id: familyId }, data: { internalName } });
   return getFamilyOrThrow(familyId);
 }
 

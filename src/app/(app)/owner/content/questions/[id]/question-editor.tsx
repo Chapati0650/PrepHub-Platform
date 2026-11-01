@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
+import { actionFailureMessage, uploadFailureMessage } from "@/lib/content/upload-errors";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
@@ -35,6 +35,7 @@ import {
   generateDistractorExplanationsAction,
   generateStepDiagramAction,
   getQuestionAction,
+  leaveQuestionEditorAction,
   markAiReviewedAction,
   markPreviewCompletedAction,
   publishQuestionAction,
@@ -45,6 +46,25 @@ import {
 } from "../../actions";
 
 type SaveState = "idle" | "unsaved" | "saving" | "saved" | "failed";
+
+type ChoiceDraft = { text: string; isCorrect: boolean; imageId: string | null; distractorExplanation: string | null };
+type StepDraft = { text: string; imageId: string | null };
+
+// Autosave's bookkeeping, in one ref so the unmount cleanup below can hold the
+// object itself and still see its latest contents.
+type Autosave = {
+  pending: QuestionContentPatch;
+  timer: ReturnType<typeof setTimeout> | null;
+  // Every save waits for the one before it. Two overlapping saves could land
+  // out of order, and a failed older one would put its stale values back over
+  // a newer one's when it was retried.
+  chain: Promise<boolean>;
+  // Whether anything has been written since the editor mounted — what decides
+  // if leaving it needs to refresh the lists.
+  savedAny: boolean;
+};
+
+const AUTOSAVE_DEBOUNCE_MS = 1500;
 
 function mediaUrl(id: string | null | undefined): string | null {
   return id ? `/api/owner/media/${id}` : null;
@@ -99,25 +119,28 @@ export function QuestionEditor({
   const calculatorSetting = getCalculatorSettingForCategory(category);
   const suggestedTimeSeconds = getSuggestedTimeForDifficulty(difficulty);
   const [writtenExplanation, setWrittenExplanation] = useState(revision.writtenExplanation ?? "");
-  const [explanationSteps, setExplanationSteps] = useState(
-    revision.explanationSteps.map((s) => ({ text: s.text, imageId: s.imageId as string | null })),
+  const [explanationSteps, setExplanationSteps] = useState<StepDraft[]>(
+    revision.explanationSteps.map((s) => ({ text: s.text, imageId: s.imageId })),
   );
   const [acceptedAnswersText, setAcceptedAnswersText] = useState(revision.acceptedAnswers.join("\n"));
-  const [choices, setChoices] = useState(
+  const [choices, setChoices] = useState<ChoiceDraft[]>(
     revision.answerChoices.length === 4
       ? revision.answerChoices.map((c) => ({
           text: c.text,
           isCorrect: c.isCorrect,
-          imageId: c.imageId as string | null,
-          distractorExplanation: c.distractorExplanation as string | null,
+          imageId: c.imageId,
+          distractorExplanation: c.distractorExplanation,
         }))
-      : Array.from({ length: 4 }, () => ({
-          text: "",
-          isCorrect: false,
-          imageId: null as string | null,
-          distractorExplanation: null as string | null,
-        })),
+      : Array.from({ length: 4 }, () => ({ text: "", isCorrect: false, imageId: null, distractorExplanation: null })),
   );
+  // The latest choices and steps, for code that resumes after an await. The
+  // AI handlers below run for seconds; built from the render they started in,
+  // their results used to overwrite whatever the Owner typed meanwhile — a
+  // choice fixed during "Generate distractor notes" came back with its typo.
+  // Written only by updateChoices/updateSteps, in event handlers, never
+  // during render.
+  const choicesRef = useRef(choices);
+  const stepsRef = useRef(explanationSteps);
   const [generatingDistractors, setGeneratingDistractors] = useState(false);
   const walkthrough = useMemo(
     () =>
@@ -163,8 +186,29 @@ export function QuestionEditor({
   const [generateExplanationError, setGenerateExplanationError] = useState<string | null>(null);
   const [generatingDiagramForStep, setGeneratingDiagramForStep] = useState<number | null>(null);
 
-  const pendingPatch = useRef<QuestionContentPatch>({});
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autosave = useRef<Autosave>({ pending: {}, timer: null, chain: Promise.resolve(true), savedAny: false });
+
+  // Every change to the choices or steps goes through these, so the refs
+  // above, the form state and the save stay in step. `compute` gets the latest
+  // value, not the one this render closed over; returning it unchanged is a
+  // no-op.
+  function updateChoices(compute: (prev: ChoiceDraft[]) => ChoiceDraft[]) {
+    const prev = choicesRef.current;
+    const next = compute(prev);
+    if (next === prev) return;
+    choicesRef.current = next;
+    setChoices(next);
+    queueSave({ answerChoices: next });
+  }
+
+  function updateSteps(compute: (prev: StepDraft[]) => StepDraft[]) {
+    const prev = stepsRef.current;
+    const next = compute(prev);
+    if (next === prev) return;
+    stepsRef.current = next;
+    setExplanationSteps(next);
+    queueSave({ explanationSteps: next });
+  }
 
   // Fills the form from a photo/screenshot of a question — the uploaded
   // photo itself is never stored, it's only sent through once to produce a
@@ -178,8 +222,15 @@ export function QuestionEditor({
     setTranscribing(true);
     const formData = new FormData();
     formData.set("file", file);
-    const result = await transcribeQuestionImageAction(formData);
-    setTranscribing(false);
+    let result: Awaited<ReturnType<typeof transcribeQuestionImageAction>>;
+    try {
+      result = await transcribeQuestionImageAction(formData);
+    } catch (err) {
+      setTranscribeError(uploadFailureMessage(err, file.size));
+      return;
+    } finally {
+      setTranscribing(false);
+    }
     if (result.error) {
       setTranscribeError(result.error);
       return;
@@ -188,11 +239,11 @@ export function QuestionEditor({
     setQuestionText(transcribedText);
     queueSave({ questionText: transcribedText });
     if (answerChoices && question.questionType === "MULTIPLE_CHOICE") {
-      const nextChoices = choices.map((choice, i) =>
-        answerChoices[i] !== undefined ? { ...choice, text: answerChoices[i] } : choice,
+      // Only the text: a correct answer marked while the photo was being read
+      // stays marked.
+      updateChoices((prev) =>
+        prev.map((choice, i) => (answerChoices[i] !== undefined ? { ...choice, text: answerChoices[i] } : choice)),
       );
-      setChoices(nextChoices);
-      queueSave({ answerChoices: nextChoices });
     }
     if (transcribedImageId) {
       setQuestionImageId(transcribedImageId);
@@ -227,15 +278,22 @@ export function QuestionEditor({
   async function handleGenerateExplanation() {
     setGenerateExplanationError(null);
     setGeneratingExplanation(true);
-    const result = await generateExplanationAction(buildExplanationGenerationInput());
-    setGeneratingExplanation(false);
+    let result: Awaited<ReturnType<typeof generateExplanationAction>>;
+    try {
+      result = await generateExplanationAction(buildExplanationGenerationInput());
+    } catch (err) {
+      setGenerateExplanationError(actionFailureMessage(err, "Couldn't generate an explanation. Try again."));
+      return;
+    } finally {
+      setGeneratingExplanation(false);
+    }
     if (result.error) {
       setGenerateExplanationError(result.error);
       return;
     }
-    const next = result.steps!.map((s) => ({ text: s.text, imageId: null as string | null }));
-    setExplanationSteps(next);
-    queueSave({ explanationSteps: next });
+    // Replaces the whole list on purpose: that's what the button says.
+    const next = result.steps!.map((s): StepDraft => ({ text: s.text, imageId: null }));
+    updateSteps(() => next);
 
     // Best-effort, MULTIPLE_CHOICE only — needs the steps just generated
     // above as context (see generateDistractorExplanations). A failure here
@@ -248,27 +306,45 @@ export function QuestionEditor({
   }
 
   async function handleGenerateDistractors(correctExplanationSteps: string[]) {
-    const correctChoiceIndex = choices.findIndex((c) => c.isCorrect);
+    const current = choicesRef.current;
+    const correctChoiceIndex = current.findIndex((c) => c.isCorrect);
     if (correctChoiceIndex === -1 || correctExplanationSteps.length === 0) return;
 
     setGenerateExplanationError(null);
     setGeneratingDistractors(true);
-    const result = await generateDistractorExplanationsAction({
-      questionText,
-      category: CATEGORY_LABELS[category],
-      answerChoices: choices.map((c) => c.text),
-      correctChoiceIndex,
-      correctExplanationSteps,
-    });
-    setGeneratingDistractors(false);
+    let result: Awaited<ReturnType<typeof generateDistractorExplanationsAction>>;
+    try {
+      result = await generateDistractorExplanationsAction({
+        questionText,
+        category: CATEGORY_LABELS[category],
+        answerChoices: current.map((c) => c.text),
+        correctChoiceIndex,
+        correctExplanationSteps,
+      });
+    } catch (err) {
+      setGenerateExplanationError(actionFailureMessage(err, "Couldn't write the distractor notes. Try again."));
+      return;
+    } finally {
+      setGeneratingDistractors(false);
+    }
     if (result.error) {
       setGenerateExplanationError(result.error);
       return;
     }
     const byIndex = new Map(result.distractors!.map((d) => [d.choiceIndex, d.explanation]));
-    const next = choices.map((c, i) => ({ ...c, distractorExplanation: byIndex.get(i) ?? c.distractorExplanation }));
-    setChoices(next);
-    queueSave({ answerChoices: next });
+    let answerMoved = false;
+    updateChoices((prev) => {
+      // Notes written for one correct answer are wrong for another, so a key
+      // changed mid-generation discards them rather than misfiling them.
+      if (prev.findIndex((c) => c.isCorrect) !== correctChoiceIndex) {
+        answerMoved = true;
+        return prev;
+      }
+      return prev.map((c, i) => ({ ...c, distractorExplanation: byIndex.get(i) ?? c.distractorExplanation }));
+    });
+    if (answerMoved) {
+      setGenerateExplanationError("The correct answer changed while the notes were being written. Generate them again.");
+    }
   }
 
   // Separate, opt-in, and meaningfully more expensive than text generation
@@ -276,38 +352,62 @@ export function QuestionEditor({
   // Scoped to one step at a time so cost stays proportional to how many
   // diagrams are actually wanted, not generated automatically on every step.
   async function handleGenerateStepDiagram(index: number) {
+    const stepText = stepsRef.current[index]?.text;
+    if (stepText === undefined) return;
     setGeneratingDiagramForStep(index);
     setGenerateExplanationError(null);
-    const result = await generateStepDiagramAction({
-      ...buildExplanationGenerationInput(),
-      stepText: explanationSteps[index].text,
-    });
-    setGeneratingDiagramForStep(null);
+    let result: Awaited<ReturnType<typeof generateStepDiagramAction>>;
+    try {
+      result = await generateStepDiagramAction({ ...buildExplanationGenerationInput(), stepText });
+    } catch (err) {
+      setGenerateExplanationError(actionFailureMessage(err, "Couldn't draw the diagram. Try again."));
+      return;
+    } finally {
+      setGeneratingDiagramForStep(null);
+    }
     if (result.error) {
       setGenerateExplanationError(result.error);
       return;
     }
-    const next = explanationSteps.map((s, i) => (i === index ? { ...s, imageId: result.imageId ?? s.imageId } : s));
-    setExplanationSteps(next);
-    queueSave({ explanationSteps: next });
+    const imageId = result.imageId;
+    if (!imageId) return;
+    updateSteps((prev) => {
+      // The step it was drawn for, even if a step above it was removed
+      // meanwhile; failing that, the same position, if it still exists.
+      const target = prev[index]?.text === stepText ? index : prev.findIndex((s) => s.text === stepText);
+      const at = target !== -1 ? target : index < prev.length ? index : -1;
+      if (at === -1) return prev;
+      return prev.map((s, i) => (i === at ? { ...s, imageId } : s));
+    });
   }
 
   function queueSave(patch: QuestionContentPatch) {
     if (!isEditable) return;
-    pendingPatch.current = { ...pendingPatch.current, ...patch };
+    const a = autosave.current;
+    a.pending = { ...a.pending, ...patch };
     setSaveState("unsaved");
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => void flush(), 1500);
+    if (a.timer) clearTimeout(a.timer);
+    a.timer = setTimeout(() => void flush(), AUTOSAVE_DEBOUNCE_MS);
   }
 
-  async function flush(): Promise<boolean> {
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current);
-      debounceTimer.current = null;
+  // Resolves true once everything typed so far is saved. Chained, so a flush
+  // called while another save is in flight waits for it and then sends
+  // whatever arrived meanwhile.
+  function flush(): Promise<boolean> {
+    const a = autosave.current;
+    a.chain = a.chain.then(saveNow);
+    return a.chain;
+  }
+
+  async function saveNow(): Promise<boolean> {
+    const a = autosave.current;
+    if (a.timer) {
+      clearTimeout(a.timer);
+      a.timer = null;
     }
-    const patch = pendingPatch.current;
+    const patch = a.pending;
     if (Object.keys(patch).length === 0) return true;
-    pendingPatch.current = {};
+    a.pending = {};
     setSaveState("saving");
     let result: Awaited<ReturnType<typeof updateQuestionContentAction>>;
     try {
@@ -319,37 +419,77 @@ export function QuestionEditor({
       // common cause is a deploy landing while the editor is open — the
       // action ID no longer exists — so say that, and keep the edits.
       setSaveState("failed");
-      setSaveError(isStaleServerActionError(err) ? STALE_BUILD_MESSAGE : "Couldn't save. Check your connection and try again.");
-      pendingPatch.current = { ...patch, ...pendingPatch.current };
+      setSaveError(actionFailureMessage(err, "Couldn't save. Check your connection and try again."));
+      a.pending = { ...patch, ...a.pending };
       return false;
     }
-    if (result.error) {
+    if (result.error || !result.question) {
+      // Kept, merged under anything typed since, so the next keystroke's
+      // save carries it — which is how a live edit the server refused (see
+      // updateDraftContent: a choice cleared before it's retyped) goes
+      // through on its own once the Owner finishes it.
       setSaveState("failed");
-      setSaveError(result.error);
-      pendingPatch.current = { ...patch, ...pendingPatch.current };
+      setSaveError(result.error ?? "Couldn't save. Try again.");
+      a.pending = { ...patch, ...a.pending };
       return false;
     }
-    setSaveState("saved");
-    // A save can silently flip status — a Question Family member still
-    // starts that family's Draft Revision on first edit (see
-    // ensureDraftRevision), and Published standalone questions publish the
-    // edit immediately but the badge/aiAnswerReasoning banner can still
-    // depend on freshly-saved fields — so refresh either way to keep the
-    // badge/action buttons truthful.
-    await refreshQuestion();
+    a.savedAny = true;
+    // The action hands back the question as saved: a save can flip status (a
+    // Question Family member starts its family's Draft Revision on first edit,
+    // see ensureDraftRevision), and the badge and action buttons follow it.
+    setQuestion(result.question);
+    // "Saved" only if nothing new arrived while this one was in flight; the
+    // debounce timer queueSave armed for it is still running.
+    setSaveState(Object.keys(a.pending).length > 0 ? "unsaved" : "saved");
     return true;
   }
 
-  // PRD-015 §6.4: warn before leaving the tab while a save is pending or failed.
+  // PRD-015 §6.4: warn before leaving the tab while a save is pending or
+  // failed. The pending patch is checked directly as well as the indicator:
+  // an edit typed while a save is in flight sits there with no state of its own.
   useEffect(() => {
+    const a = autosave.current;
     function handler(e: BeforeUnloadEvent) {
-      if (saveState === "unsaved" || saveState === "saving" || saveState === "failed") {
+      if (Object.keys(a.pending).length > 0 || saveState === "unsaved" || saveState === "saving" || saveState === "failed") {
         e.preventDefault();
       }
     }
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [saveState]);
+
+  // Leaving by any in-app link unmounts the editor at once — "← Questions",
+  // a family link, a content tab, the sidebar — and used to drop whatever was
+  // typed inside the last debounce window. On the way out: after any save
+  // still in flight, send what's left, and refresh the content area's lists
+  // if anything was written. Fire-and-forget (nothing is left on screen to
+  // wait), so a refusal is reported as a toast, which outlives the page.
+  const questionId = question.id;
+  useEffect(() => {
+    const a = autosave.current;
+    return () => {
+      if (a.timer) {
+        clearTimeout(a.timer);
+        a.timer = null;
+      }
+      a.chain = a.chain.then(async () => {
+        const patch = a.pending;
+        const hasPatch = Object.keys(patch).length > 0;
+        // Also what makes React's dev-mode double mount harmless: nothing typed, nothing saved, nothing sent.
+        if (!hasPatch && !a.savedAny) return true;
+        a.pending = {};
+        try {
+          const result = await leaveQuestionEditorAction(questionId, hasPatch ? patch : null);
+          if (result.error) toast.add({ title: "Your last edit wasn't saved", description: result.error, type: "error" });
+        } catch (err) {
+          if (hasPatch) {
+            toast.add({ title: "Your last edit wasn't saved", description: actionFailureMessage(err), type: "error" });
+          }
+        }
+        return true;
+      });
+    };
+  }, [questionId]);
 
   async function refreshQuestion() {
     const fresh = await getQuestionAction(question.id);
@@ -360,13 +500,21 @@ export function QuestionEditor({
   async function openPreview() {
     const flushed = await flush();
     if (!flushed) return;
-    // The Sheet also marks preview-completion itself on open, but fire-and-forget
-    // there — awaiting it here closes the race where an Owner immediately hits
-    // Publish right after closing Preview, before that write has landed.
-    await markPreviewCompletedAction(question.id);
-    const fresh = await refreshQuestion();
-    setPreviewQuestion(fresh);
-    setPreviewOpen(true);
+    try {
+      // The Sheet also marks preview-completion itself on open, but fire-and-forget
+      // there — awaiting it here closes the race where an Owner immediately hits
+      // Publish right after closing Preview, before that write has landed.
+      const marked = await markPreviewCompletedAction(question.id);
+      if (marked.error) {
+        toast.add({ title: "Couldn't open the preview", description: marked.error, type: "error" });
+        return;
+      }
+      const fresh = await refreshQuestion();
+      setPreviewQuestion(fresh);
+      setPreviewOpen(true);
+    } catch (err) {
+      toast.add({ title: "Couldn't open the preview", description: actionFailureMessage(err), type: "error" });
+    }
   }
 
   // Flushes any pending debounced edit before leaving — a plain <Link> would
@@ -386,15 +534,22 @@ export function QuestionEditor({
 
   async function runStatusAction(action: (id: string) => Promise<{ error?: string }>, successMessage: string) {
     setActionPending(true);
-    const result = await action(question.id);
-    setActionPending(false);
-    if (result.error) {
-      toast.add({ title: "Action failed", description: result.error, type: "error" });
-      return;
+    try {
+      const result = await action(question.id);
+      if (result.error) {
+        toast.add({ title: "Action failed", description: result.error, type: "error" });
+        return;
+      }
+      toast.add({ title: successMessage, type: "success" });
+      await refreshQuestion();
+      router.refresh();
+    } catch (err) {
+      // Thrown rather than returned (a deploy while the editor was open, a
+      // dropped connection): without this the buttons stayed disabled.
+      toast.add({ title: "Action failed", description: actionFailureMessage(err), type: "error" });
+    } finally {
+      setActionPending(false);
     }
-    toast.add({ title: successMessage, type: "success" });
-    await refreshQuestion();
-    router.refresh();
   }
 
   // Publishes immediately on click, no confirmation step — flush() persists
@@ -723,9 +878,7 @@ export function QuestionEditor({
                       disabled={!isEditable}
                       checked={choice.isCorrect}
                       onChange={() => {
-                        const next = choices.map((c, i) => ({ ...c, isCorrect: i === index }));
-                        setChoices(next);
-                        queueSave({ answerChoices: next });
+                        updateChoices((prev) => prev.map((c, i) => ({ ...c, isCorrect: i === index })));
                       }}
                     />
                     <Label htmlFor={`choice-${index}`} className="sr-only">
@@ -737,9 +890,7 @@ export function QuestionEditor({
                       value={choice.text}
                       placeholder={`Choice ${index + 1}`}
                       onChange={(e) => {
-                        const next = choices.map((c, i) => (i === index ? { ...c, text: e.target.value } : c));
-                        setChoices(next);
-                        queueSave({ answerChoices: next });
+                        updateChoices((prev) => prev.map((c, i) => (i === index ? { ...c, text: e.target.value } : c)));
                       }}
                     />
                   </div>
@@ -748,14 +899,10 @@ export function QuestionEditor({
                     currentMediaId={choice.imageId}
                     currentUrl={mediaUrl(choice.imageId)}
                     onUploaded={(id) => {
-                      const next = choices.map((c, i) => (i === index ? { ...c, imageId: id } : c));
-                      setChoices(next);
-                      queueSave({ answerChoices: next });
+                      updateChoices((prev) => prev.map((c, i) => (i === index ? { ...c, imageId: id } : c)));
                     }}
                     onRemove={() => {
-                      const next = choices.map((c, i) => (i === index ? { ...c, imageId: null } : c));
-                      setChoices(next);
-                      queueSave({ answerChoices: next });
+                      updateChoices((prev) => prev.map((c, i) => (i === index ? { ...c, imageId: null } : c)));
                     }}
                     accept="image/png,image/jpeg,image/webp"
                   />
@@ -772,9 +919,7 @@ export function QuestionEditor({
                         placeholder="e.g. You may have forgotten to convert units before comparing."
                         onChange={(e) => {
                           const value = e.target.value || null;
-                          const next = choices.map((c, i) => (i === index ? { ...c, distractorExplanation: value } : c));
-                          setChoices(next);
-                          queueSave({ answerChoices: next });
+                          updateChoices((prev) => prev.map((c, i) => (i === index ? { ...c, distractorExplanation: value } : c)));
                         }}
                       />
                     </div>
@@ -857,9 +1002,7 @@ export function QuestionEditor({
                       size="sm"
                       variant="ghost"
                       onClick={() => {
-                        const next = explanationSteps.filter((_, i) => i !== index);
-                        setExplanationSteps(next);
-                        queueSave({ explanationSteps: next });
+                        updateSteps((prev) => prev.filter((_, i) => i !== index));
                       }}
                     >
                       Remove
@@ -870,9 +1013,7 @@ export function QuestionEditor({
                     rows={2}
                     value={step.text}
                     onChange={(e) => {
-                      const next = explanationSteps.map((s, i) => (i === index ? { ...s, text: e.target.value } : s));
-                      setExplanationSteps(next);
-                      queueSave({ explanationSteps: next });
+                      updateSteps((prev) => prev.map((s, i) => (i === index ? { ...s, text: e.target.value } : s)));
                     }}
                   />
                   <Button
@@ -894,14 +1035,10 @@ export function QuestionEditor({
                     currentMediaId={step.imageId}
                     currentUrl={mediaUrl(step.imageId)}
                     onUploaded={(id) => {
-                      const next = explanationSteps.map((s, i) => (i === index ? { ...s, imageId: id } : s));
-                      setExplanationSteps(next);
-                      queueSave({ explanationSteps: next });
+                      updateSteps((prev) => prev.map((s, i) => (i === index ? { ...s, imageId: id } : s)));
                     }}
                     onRemove={() => {
-                      const next = explanationSteps.map((s, i) => (i === index ? { ...s, imageId: null } : s));
-                      setExplanationSteps(next);
-                      queueSave({ explanationSteps: next });
+                      updateSteps((prev) => prev.map((s, i) => (i === index ? { ...s, imageId: null } : s)));
                     }}
                     accept="image/png,image/jpeg,image/webp"
                   />
@@ -914,9 +1051,7 @@ export function QuestionEditor({
                 variant="ghost"
                 className="w-fit"
                 onClick={() => {
-                  const next = [...explanationSteps, { text: "", imageId: null }];
-                  setExplanationSteps(next);
-                  queueSave({ explanationSteps: next });
+                  updateSteps((prev) => [...prev, { text: "", imageId: null }]);
                 }}
               >
                 Add step

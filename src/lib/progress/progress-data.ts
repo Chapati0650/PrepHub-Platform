@@ -5,6 +5,7 @@ import { CATEGORY_LABELS } from "@/lib/content/labels";
 import { emptyStudentActivity, getStudentActivity } from "@/lib/school/student-activity";
 import { buildJourneyNarrative } from "./journey-narrative";
 import { computeMilestones } from "./milestones";
+import { generateDiagnosticPrediction } from "@/lib/score/generate-diagnostic-prediction";
 
 export type ProgressHistoryPoint = {
   label: string; // "Diagnostic" or "Set 4"
@@ -44,7 +45,7 @@ export async function getProgressData(studentId: string): Promise<ProgressData> 
   // homework and rushes never showed here, and "Questions Answered" disagreed
   // with the dashboard's figure of the same name. `getStudentActivity` is the
   // same definition the student's school sees, session-length cap included.
-  const [predictions, categoryStates, activityByStudent, completedSets] = await Promise.all([
+  const [storedPredictions, categoryStates, activityByStudent, completedSets] = await Promise.all([
     prisma.predictionHistoryEntry.findMany({ where: { studentId }, orderBy: { createdAt: "asc" } }),
     prisma.categoryState.findMany({ where: { studentId } }),
     getStudentActivity([studentId]),
@@ -55,6 +56,12 @@ export async function getProgressData(studentId: string): Promise<ProgressData> 
     }),
   ]);
   const activity = activityByStudent.get(studentId) ?? emptyStudentActivity();
+  // Completion commits before the first prediction is written; if that second
+  // step failed, there is a finished Diagnostic and no prediction. Generated
+  // here (it's idempotent) as the results page does, rather than failing this
+  // page on every visit.
+  const predictions =
+    storedPredictions.length > 0 ? storedPredictions : [await generateDiagnosticPrediction(studentId)];
 
   const setById = new Map(completedSets.map((s) => [s.id, s]));
   const history: ProgressHistoryPoint[] = predictions.map((p) => {
@@ -89,9 +96,13 @@ export async function getProgressData(studentId: string): Promise<ProgressData> 
 
   const targetScore = user.targetScore;
   const remainingToTarget = targetScore !== null ? Math.max(0, targetScore - currentRange.max) : null;
+  // Midpoint to midpoint, so the bar is empty on the day of the Diagnostic.
+  // It went from the starting range's bottom to the current range's top, which
+  // counted the range's own width (60-80 points) as progress before any work.
+  const startMid = predictions[0].representativeMidpoint;
   const targetProgressFraction =
-    targetScore !== null && targetScore > startingRange.min
-      ? Math.min(1, Math.max(0, (currentRange.max - startingRange.min) / (targetScore - startingRange.min)))
+    targetScore !== null && targetScore > startMid
+      ? Math.min(1, Math.max(0, (latest.representativeMidpoint - startMid) / (targetScore - startMid)))
       : null;
 
   const weakestSkills = [...categoryStates]

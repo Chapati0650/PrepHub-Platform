@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { LIVE_LOBBY_STALE_MS, RUSH_DIFFICULTY, RUSH_SECTIONS } from "./config";
 import { createChallenge, createSet, isUniqueViolation } from "./create";
-import { RushError } from "./errors";
+import { RushError, rushError } from "./errors";
 import { joinLiveRoom } from "./live";
 
 /**
@@ -123,9 +123,9 @@ export async function getRematchState(studentId: string, challengeId: string): P
  */
 export async function requestRematch(studentId: string, challengeId: string): Promise<RematchDestination> {
   const match = await loadMatch(challengeId);
-  if (!match) throw new RushError("CHALLENGE_NOT_FOUND", "That rush doesn't exist.");
+  if (!match) throw rushError("CHALLENGE_NOT_FOUND", "not-found");
   const opponent = opponentIn(match, studentId);
-  if (!opponent) throw new RushError("NOT_JOINABLE", "There's nobody to rematch in that rush.");
+  if (!opponent) throw rushError("NOT_JOINABLE", "no-opponent");
 
   if (match.rematch) {
     const existing = match.rematch;
@@ -138,7 +138,7 @@ export async function requestRematch(studentId: string, challengeId: string): Pr
     } else if (existing.creatorId === studentId) {
       return destinationFor(studentId, existing.id, existing.live);
     } else {
-      throw new RushError("NOT_JOINABLE", "That rush has already been rematched.");
+      throw rushError("NOT_JOINABLE", "already-rematched");
     }
   }
 
@@ -171,7 +171,7 @@ export async function requestRematch(studentId: string, challengeId: string): Pr
     if (!winner) throw err;
     if (winner.invitedStudentId === studentId) return acceptRematch(studentId, winner.id);
     if (winner.creatorId === studentId) return destinationFor(studentId, winner.id, winner.live);
-    throw new RushError("NOT_JOINABLE", "That rush has already been rematched.");
+    throw rushError("NOT_JOINABLE", "already-rematched");
   }
 }
 
@@ -185,7 +185,7 @@ export async function acceptRematch(studentId: string, rematchId: string): Promi
     select: { id: true, live: true, invitedStudentId: true, creatorId: true, runs: { where: { studentId }, select: { id: true } } },
   });
   if (!rematch || (rematch.invitedStudentId !== studentId && rematch.creatorId !== studentId)) {
-    throw new RushError("CHALLENGE_NOT_FOUND", "That rematch isn't open to you.");
+    throw rushError("CHALLENGE_NOT_FOUND", "rematch-closed");
   }
   if (rematch.runs[0]) return destinationFor(studentId, rematch.id, rematch.live);
 

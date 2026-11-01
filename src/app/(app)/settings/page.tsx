@@ -4,6 +4,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { canUseStudentExperience } from "@/lib/access";
 import { getAccessSummary } from "@/lib/entitlements";
+import { PLAN_NAME, planLabel, subscriptionStatusLabel } from "@/lib/billing/display";
+import { formatLongLocalDate } from "@/lib/community/local-day";
 import { getDashboardData } from "@/lib/dashboard/dashboard-data";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
 import { logOutAllDevicesAction } from "../actions";
@@ -19,7 +21,8 @@ import { SettingsNav, type SettingsSectionLink } from "./settings-nav";
 import { LeaderboardForm } from "./leaderboard-form";
 import { JoinClassForm } from "../homework/join-class-form";
 
-const PLAN_LABEL: Record<string, string> = { MONTHLY: "Monthly ($25/mo)", ANNUAL: "Annual ($99/yr)" };
+export const metadata = { title: "Settings" };
+
 const ROLE_LABEL: Record<string, string> = {
   STUDENT: "Student",
   SCHOOL_ADMINISTRATOR: "School Administrator",
@@ -56,6 +59,24 @@ function Section({
       <div className="mt-5 flex flex-col gap-4">{children}</div>
     </section>
   );
+}
+
+function subscriptionLine(sub: {
+  status: "ACTIVE" | "CANCELED" | "PAST_DUE" | "EXPIRED";
+  cancelAtPeriodEnd: boolean;
+  currentPeriodEnd: Date | null;
+  pendingPlan: "MONTHLY" | "ANNUAL" | null;
+  pendingPlanStartsAt: Date | null;
+}): string {
+  const label = subscriptionStatusLabel(sub.status, sub.cancelAtPeriodEnd);
+  const ending = sub.status === "CANCELED" || sub.cancelAtPeriodEnd;
+  const date = sub.currentPeriodEnd ? formatLongLocalDate(sub.currentPeriodEnd) : null;
+  const when = date ? (ending ? ` · Premium until ${date}` : sub.status === "ACTIVE" ? ` · renews ${date}` : "") : "";
+  const pending =
+    sub.pendingPlan && sub.pendingPlanStartsAt
+      ? ` · switches to ${PLAN_NAME[sub.pendingPlan]} on ${formatLongLocalDate(sub.pendingPlanStartsAt)}`
+      : "";
+  return `${label}${when}${pending}`;
 }
 
 function Card({ className, children }: { className?: string; children: ReactNode }) {
@@ -95,7 +116,17 @@ export default async function SettingsPage() {
     isStudent && userId
       ? prisma.studentMembership.findUnique({
           where: { studentId: userId },
-          select: { status: true, expectedGraduationYear: true, school: { select: { officialName: true } } },
+          select: {
+            status: true,
+            expectedGraduationYear: true,
+            school: {
+              select: {
+                officialName: true,
+                rushLeaderboardEnabled: true,
+                parentDistrict: { select: { rushLeaderboardEnabled: true } },
+              },
+            },
+          },
         })
       : null,
     isStudent && userId ? getAccessSummary(userId) : null,
@@ -112,8 +143,15 @@ export default async function SettingsPage() {
     return !best || m.currentMastery > best.value ? { category: m.category, value: m.currentMastery } : best;
   }, null);
 
-  // Only a student with a school has a leaderboard to appear on.
-  const showLeaderboardSection = Boolean(showStudentSections && user && membership?.status === "ACTIVE");
+  // Only a student whose school shows a leaderboard has one to appear on —
+  // the same school-and-district rule as lib/rush/leaderboard.ts.
+  const showLeaderboardSection = Boolean(
+    showStudentSections &&
+      user &&
+      membership?.status === "ACTIVE" &&
+      membership.school.rushLeaderboardEnabled &&
+      membership.school.parentDistrict?.rushLeaderboardEnabled !== false,
+  );
 
   const sections: SettingsSectionLink[] = [
     { id: "profile", label: "Profile" },
@@ -296,13 +334,14 @@ export default async function SettingsPage() {
                       <>
                         <div>
                           <p className="flex flex-wrap items-center gap-2 text-lg font-semibold">
-                            {accessSummary.subscription.plan ? PLAN_LABEL[accessSummary.subscription.plan] : "Subscription"}
+                            {accessSummary.subscription.plan ? planLabel(accessSummary.subscription.plan) : "Subscription"}
                             <CurrentPlanBadge />
                           </p>
+                          {/* In words, and the date means what the status says: a
+                              plan that won't renew ends then, it doesn't renew.
+                              It printed the raw enum ("CANCELED · renews …"). */}
                           <p className="mt-1 text-sm text-muted-foreground">
-                            {accessSummary.subscription.status}
-                            {accessSummary.subscription.currentPeriodEnd &&
-                              ` · renews ${accessSummary.subscription.currentPeriodEnd.toLocaleDateString()}`}
+                            {subscriptionLine(accessSummary.subscription)}
                           </p>
                         </div>
                         <LinkButton variant="outline" className="shrink-0 rounded-full" href="/billing">
@@ -316,8 +355,8 @@ export default async function SettingsPage() {
                             Free plan <CurrentPlanBadge />
                           </p>
                           <p className="mt-1 text-sm text-muted-foreground">
-                            The Diagnostic and your baseline are free. Premium unlocks unlimited Personalized Practice
-                            Sets.
+                            The Diagnostic and your first Practice Set are free. Premium unlocks every Practice Set
+                            after it, the 800 Club, 1v1 Rush and The Curriculum.
                           </p>
                         </div>
                         <LinkButton className="shrink-0 rounded-full" href="/pricing">

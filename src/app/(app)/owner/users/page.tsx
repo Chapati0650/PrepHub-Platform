@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireOwnerPage } from "@/lib/owner/guard";
 
+export const metadata = { title: "Users" };
+
 const ROLE_LABELS: Record<string, string> = {
   OWNER: "Owner",
   SCHOOL_ADMINISTRATOR: "School Administrator",

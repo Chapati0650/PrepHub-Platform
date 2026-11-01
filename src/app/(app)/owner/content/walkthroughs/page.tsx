@@ -5,6 +5,8 @@ import { PageHeader } from "@/components/page-header";
 import { requireOwnerPage } from "@/lib/owner/guard";
 import type { QuestionCategory, QuestionDifficulty } from "@/generated/prisma/enums";
 
+export const metadata = { title: "Walkthrough feedback" };
+
 // What students said at the end of each walkthrough: "Got it" or "Still
 // confused", and which step lost them. The explanations to rewrite first are
 // at the top: the most confusing by share, then by count.

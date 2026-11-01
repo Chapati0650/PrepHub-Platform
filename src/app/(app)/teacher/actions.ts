@@ -2,18 +2,32 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import type { QuestionCategory, QuestionDifficulty, QuestionType } from "@/generated/prisma/client";
+import type { AssignmentMode, QuestionCategory, QuestionDifficulty, QuestionType } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireOwnedAssignment, requireTeacherAction } from "@/lib/teacher/access";
+import {
+  requireOwnedAssignment,
+  requireOwnedClassroom,
+  requireTeacherAction,
+  type TeacherContext,
+} from "@/lib/teacher/access";
 import {
   createClassroom,
   regenerateJoinCode,
   removeStudentFromClassroom,
   renameClassroom,
   setClassroomArchived,
+  setTeacherDisplayName,
 } from "@/lib/teacher/classrooms";
-import { createAssignment, deleteAssignment, setAssignmentClosed, updateAssignment } from "@/lib/teacher/assignments";
 import {
+  assignToMoreClasses,
+  createAssignments,
+  deleteAssignment,
+  remindUnfinished,
+  setAssignmentClosed,
+  updateAssignment,
+} from "@/lib/teacher/assignments";
+import {
+  assignedTitles,
   describeQuestions,
   getQuestionWithKey,
   pickRandomQuestions,
@@ -79,6 +93,19 @@ export async function removeStudentAction(classroomId: string, studentId: string
   revalidatePath(`/teacher/classes/${classroomId}`);
 }
 
+export async function setTeacherDisplayNameAction(_prev: TeacherActionState, formData: FormData): Promise<TeacherActionState> {
+  const context = await requireTeacherAction();
+  try {
+    await setTeacherDisplayName(context, String(formData.get("displayName") ?? ""));
+  } catch (err) {
+    const message = messageOf(err);
+    if (message) return { error: message };
+    throw err;
+  }
+  revalidatePath("/teacher", "layout");
+  return { success: true };
+}
+
 // ---- The question bank -----------------------------------------------------------
 
 const CATEGORIES = new Set(Object.keys(CATEGORY_LABELS));
@@ -92,18 +119,35 @@ function cleanFilters(raw: BankFilters): BankFilters {
     difficulty: raw.difficulty && DIFFICULTIES.has(raw.difficulty) ? (raw.difficulty as QuestionDifficulty) : undefined,
     questionType: raw.questionType && TYPES.has(raw.questionType) ? (raw.questionType as QuestionType) : undefined,
     search: raw.search?.slice(0, 120),
+    hideAssigned: raw.hideAssigned === true,
   };
 }
 
-export async function searchQuestionBankAction(filters: BankFilters, page: number) {
-  await requireTeacherAction();
-  return searchQuestionBank(cleanFilters(filters), page);
+/**
+ * The class the homework is being built for, checked to be this teacher's:
+ * it decides which questions read "already assigned", so a guessed id must
+ * not reveal another class's homework titles.
+ */
+async function builderClass(context: TeacherContext, classroomId: string): Promise<string> {
+  return (await requireOwnedClassroom(context, classroomId)).id;
 }
 
-export async function pickRandomQuestionsAction(filters: BankFilters, count: number, excludeIds: string[]) {
-  await requireTeacherAction();
-  const ids = await pickRandomQuestions(cleanFilters(filters), Math.min(Math.max(1, count), 30), excludeIds.slice(0, 60));
-  return describeQuestions(ids);
+export async function searchQuestionBankAction(classroomId: string, filters: BankFilters, page: number) {
+  const context = await requireTeacherAction();
+  return searchQuestionBank(cleanFilters(filters), page, await builderClass(context, classroomId));
+}
+
+export async function pickRandomQuestionsAction(classroomId: string, filters: BankFilters, count: number, excludeIds: string[]) {
+  const context = await requireTeacherAction();
+  const classId = await builderClass(context, classroomId);
+  const ids = await pickRandomQuestions(
+    cleanFilters(filters),
+    Math.min(Math.max(1, count), 30),
+    excludeIds.slice(0, 60),
+    classId,
+  );
+  const [summaries, assigned] = await Promise.all([describeQuestions(ids), assignedTitles(classId, ids)]);
+  return summaries.map((s) => ({ ...s, assignedIn: assigned.get(s.id) ?? [] }));
 }
 
 /** A question from the bank with its answer key, for deciding whether to assign it. */
@@ -132,23 +176,41 @@ function dueFrom(raw: FormDataEntryValue | string | null | undefined): Date | nu
   return endOfLocalDay(value) ?? "invalid";
 }
 
+function modeFrom(raw: unknown): AssignmentMode {
+  return raw === "QUIZ" ? "QUIZ" : "PRACTICE";
+}
+
+/**
+ * Assigns the homework to the class it was built in and any of the
+ * teacher's other classes ticked in the builder. Returns the builder's own
+ * class's new assignment, which is where the teacher lands.
+ */
 export async function createAssignmentAction(
   classroomId: string,
-  input: { title: string; instructions: string; dueOn: string; questionIds: string[] },
-): Promise<{ error: string } | { ok: true; assignmentId: string }> {
+  input: {
+    title: string;
+    instructions: string;
+    dueOn: string;
+    questionIds: string[];
+    mode: string;
+    alsoClassroomIds: string[];
+  },
+): Promise<{ error: string } | { ok: true; assignmentId: string; classCount: number }> {
   const context = await requireTeacherAction();
   const dueAt = dueFrom(input.dueOn);
   if (dueAt === "invalid") return { error: "Enter the due date as a date." };
   try {
-    const { id } = await createAssignment(context, classroomId, {
+    const created = await createAssignments(context, [classroomId, ...input.alsoClassroomIds.slice(0, 40)], {
       title: input.title,
       instructions: input.instructions,
       dueAt,
+      mode: modeFrom(input.mode),
       questionIds: input.questionIds.slice(0, 60),
     });
-    revalidatePath(`/teacher/classes/${classroomId}`);
+    revalidatePath("/teacher", "layout");
     revalidatePath("/homework");
-    return { ok: true, assignmentId: id };
+    const own = created.find((c) => c.classroomId === classroomId) ?? created[0];
+    return { ok: true, assignmentId: own.id, classCount: created.length };
   } catch (err) {
     const message = messageOf(err);
     if (message) return { error: message };
@@ -166,6 +228,7 @@ export async function updateAssignmentAction(_prev: TeacherActionState, formData
       title: String(formData.get("title") ?? ""),
       instructions: String(formData.get("instructions") ?? ""),
       dueAt,
+      mode: formData.has("mode") ? modeFrom(formData.get("mode")) : undefined,
     });
   } catch (err) {
     const message = messageOf(err);
@@ -175,6 +238,48 @@ export async function updateAssignmentAction(_prev: TeacherActionState, formData
   revalidatePath("/teacher", "layout");
   revalidatePath("/homework");
   return { success: true };
+}
+
+/**
+ * Copies this homework, at the revisions its class was given, to more of the
+ * teacher's classes with a new due date. The teacher stays on the page they
+ * started from; the result names each new copy so it can link to them.
+ */
+export async function assignToMoreClassesAction(
+  assignmentId: string,
+  input: { classroomIds: string[]; dueOn: string },
+): Promise<{ error: string } | { ok: true; created: { classroomId: string; assignmentId: string }[] }> {
+  const context = await requireTeacherAction();
+  const dueAt = dueFrom(input.dueOn);
+  if (dueAt === "invalid") return { error: "Enter the due date as a date." };
+  // From the browser, so each id is checked to be a string before it reaches a query.
+  const classroomIds = (Array.isArray(input.classroomIds) ? input.classroomIds : [])
+    .filter((id): id is string => typeof id === "string")
+    .slice(0, 40);
+  try {
+    const created = await assignToMoreClasses(context, assignmentId, classroomIds, { dueAt });
+    revalidatePath("/teacher", "layout");
+    revalidatePath("/homework");
+    return { ok: true, created: created.map((c) => ({ classroomId: c.classroomId, assignmentId: c.id })) };
+  } catch (err) {
+    const message = messageOf(err);
+    if (message) return { error: message };
+    throw err;
+  }
+}
+
+/** "Remind the N who haven't finished". Returned, not thrown, so the confirmation can say what went wrong. */
+export async function remindUnfinishedAction(assignmentId: string): Promise<TeacherActionState & { sent?: number }> {
+  const context = await requireTeacherAction();
+  try {
+    const { sent } = await remindUnfinished(context, assignmentId);
+    revalidatePath("/teacher", "layout");
+    return { success: true, sent };
+  } catch (err) {
+    const message = messageOf(err);
+    if (message) return { error: message };
+    throw err;
+  }
 }
 
 export async function setAssignmentClosedAction(assignmentId: string, closed: boolean): Promise<void> {

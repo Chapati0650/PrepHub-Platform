@@ -1,71 +1,96 @@
-"use client";
-
-import { useActionState, useState } from "react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Check, X } from "lucide-react";
-import { subscribeAction, type ActionState } from "./actions";
-import type { Plan } from "@/lib/billing";
-import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { auth } from "@/auth";
+import { getAccessContext, getAccessSummary } from "@/lib/entitlements";
+import { formatLongLocalDate } from "@/lib/community/local-day";
+import { LinkButton } from "@/components/ui/link-button";
 import { Marker } from "@/components/ui/marker";
 import { cn } from "@/lib/utils";
 import { PageViewBeacon } from "@/components/analytics/page-view-beacon";
-import { ANNUAL_PERIOD, ANNUAL_PRICE } from "@/lib/billing/display";
+import { COLLEGE_APPS_ENABLED } from "@/lib/features";
+import { PlanPicker } from "./plan-picker";
 
-const initialState: ActionState = {};
+export const metadata = { title: "Premium" };
 
-// Everything listed here sits behind hasPaidAccess (the /practice and
-// /practice/session gates) and nothing else does — the Diagnostic, its
-// results, the dashboard and Progress are all free, so they are deliberately
-// *not* dressed up as Premium features. A Free column of all-crosses is
-// honest here: these are precisely the things a free account cannot do.
-const PREMIUM_FEATURES = [
-  "Unlimited Personalized Practice Sets",
-  "Every set rebuilt around your weakest categories",
-  "Predicted SAT Score updated after every set",
-  "The 800 Club — the hardest questions in the bank",
-  "1v1 Rush — live head-to-head, start your own",
-  "College Apps — your list, deadlines and score fit",
-  "The Curriculum — video lessons as they're published",
-] as const;
+// Everything here sits behind hasPaidAccess, and the Free column says what a
+// free account gets of each: the Diagnostic and Practice Set 1 are free, and
+// Set 1 is built around the student's weakest categories and moves the
+// prediction exactly as every later set does — so those rows say "Set 1",
+// not a cross. The Diagnostic, its results, the dashboard and Progress are
+// free outright and deliberately not dressed up as Premium features.
+//
+// `free` is what a free account gets (null: not included); `premium`
+// replaces the Premium column's check where a word says more.
+const FEATURES: { feature: string; free: string | null; premium?: string }[] = [
+  { feature: "Personalized Practice Sets", free: "Set 1", premium: "Unlimited" },
+  { feature: "Every set built around your weakest categories", free: "Set 1" },
+  { feature: "Predicted SAT Score updated after every set", free: "Set 1" },
+  { feature: "Focused Practice — drill one category at the difficulty you pick", free: null },
+  { feature: "The 800 Club — the hardest questions in the bank", free: null },
+  { feature: "1v1 Rush — live head-to-head, start your own", free: null },
+  // Only while students can reach it (lib/features.ts).
+  ...(COLLEGE_APPS_ENABLED ? [{ feature: "College Apps — your list, deadlines and score fit", free: null }] : []),
+  { feature: "The Curriculum — every video lesson, as they're published", free: null },
+];
 
-// Display copy only. The amounts Stripe actually charges live on the Price
-// IDs in STRIPE_PRICE_IDS — $25/mo and $99/yr — and this page never sends a
-// number to checkout, only the plan name. The Monthly strikethrough is the
-// Owner's launch-pricing decision (regular $50, currently $25); Annual has no
-// invented "was" price because there isn't a real one to show.
-const PLANS: Record<
-  Plan,
-  { name: string; was: string | null; price: string; period: string; badge: string; note: string; cta: string }
-> = {
-  MONTHLY: {
-    name: "Monthly",
-    was: "$50",
-    price: "$25",
-    period: "/month",
-    badge: "50% off",
-    note: "Launch price. Billed monthly, cancel anytime.",
-    // e2e/billing.spec.ts and e2e/diagnostic-practice.spec.ts click the
-    // button named "Subscribe Monthly" — Playwright's role-name match is a
-    // substring, so the suffix is fine, but the prefix is a contract.
-    cta: "Subscribe Monthly — 50% off",
-  },
-  ANNUAL: {
-    name: "Annual",
-    was: null,
-    price: ANNUAL_PRICE,
-    period: ANNUAL_PERIOD,
-    badge: "Best value",
-    note: "$8.25 a month, billed once a year.",
-    cta: `Subscribe Annual — ${ANNUAL_PRICE}${ANNUAL_PERIOD}`,
-  },
-};
+// /pricing used to be the same sales page for everyone. A student whose school
+// covers them, or who already subscribes, was shown the whole pitch and then
+// told at checkout that they already had Premium; a teacher or the Owner could
+// buy a subscription that unlocked nothing. Who is looking is decided here,
+// from the entitlement service, and only a student without Premium is sold to
+// — or counted as having seen the paywall.
+export default async function PricingPage() {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/login");
+  const userId = session.user.id;
 
-const PLAN_ORDER: Plan[] = ["MONTHLY", "ANNUAL"];
+  const [{ user }, access] = await Promise.all([getAccessContext(userId), getAccessSummary(userId)]);
+  const role = user?.role ?? null;
 
-export default function PricingPage() {
-  const [state, formAction, pending] = useActionState(subscribeAction, initialState);
-  const [plan, setPlan] = useState<Plan>("MONTHLY");
+  if (role === "SCHOOL_ADMINISTRATOR") {
+    return (
+      <StatusBlock
+        title="Premium is included with your account."
+        body="School administrator accounts come with the full student experience, so there's nothing to buy."
+        href="/home?view=student"
+        cta="Open the student dashboard"
+      />
+    );
+  }
+  if (role !== "STUDENT") {
+    return (
+      <StatusBlock
+        title="Premium is for student accounts."
+        body="This account doesn't need a subscription, and can't buy one."
+        href="/home"
+        cta="Go to your dashboard"
+      />
+    );
+  }
+  if (access.type === "SCHOOL") {
+    return (
+      <StatusBlock
+        title="Your school covers Premium."
+        body={
+          `${access.organizationName} provides PrepHub Premium for you, so there's nothing to pay. Every Practice ` +
+          "Set, Focused Practice, the 800 Club, 1v1 Rush and the Curriculum are already open."
+        }
+        href="/home"
+        cta="Go to your dashboard"
+      />
+    );
+  }
+  if (access.type === "INDIVIDUAL") {
+    const sub = access.subscription;
+    const body =
+      sub.status === "PAST_DUE"
+        ? "Your last payment didn't go through. Update your card from Billing to keep it."
+        : sub.status === "CANCELED" && sub.currentPeriodEnd
+          ? `It's set to end on ${formatLongLocalDate(sub.currentPeriodEnd)}. You can keep it from Billing.`
+          : "You can change your plan, apply a promo code or see your receipts from Billing.";
+    return <StatusBlock title="You already have Premium." body={body} href="/billing" cta="Go to Billing" />;
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-10 p-6 pb-16 sm:p-10">
@@ -92,12 +117,6 @@ export default function PricingPage() {
         </p>
       </div>
 
-      {state.error && (
-        <Alert variant="destructive">
-          <AlertDescription>{state.error}</AlertDescription>
-        </Alert>
-      )}
-
       {/* A real table, because it is one: two columns of the same facts. The
           Premium column is a single dark block spanning header and rows —
           border-separate is what makes its rounded corners render, since
@@ -120,18 +139,18 @@ export default function PricingPage() {
           </tr>
         </thead>
         <tbody>
-          {PREMIUM_FEATURES.map((feature, i) => {
-            const last = i === PREMIUM_FEATURES.length - 1;
+          {FEATURES.map(({ feature, free, premium }, i) => {
+            const last = i === FEATURES.length - 1;
             return (
               <tr key={feature}>
                 <th scope="row" className="border-t border-border py-3.5 pr-4 text-left text-sm font-normal">
                   {feature}
                 </th>
                 <td className="border-t border-border py-3.5 text-center">
-                  <Mark included={false} />
+                  {free ? <span className="text-xs font-semibold text-foreground">{free}</span> : <Mark included={false} />}
                 </td>
                 <td className={cn("bg-surface-deep py-3.5 text-center", last && "rounded-b-2xl pb-5")}>
-                  <Mark included />
+                  {premium ? <span className="text-xs font-semibold text-marker">{premium}</span> : <Mark included />}
                 </td>
               </tr>
             );
@@ -139,82 +158,29 @@ export default function PricingPage() {
         </tbody>
       </table>
 
-      <form action={formAction} className="flex flex-col gap-6">
-        {/* Native radios, visually hidden, so the card gets keyboard
-            navigation (arrow keys move between plans) and form submission
-            for free — the action reads `plan` straight from the checked
-            input. The React state only exists so the CTA can name the plan
-            it's about to buy. */}
-        <fieldset className="flex flex-col gap-3">
-          <legend className="sr-only">Choose a plan</legend>
-          {PLAN_ORDER.map((id) => {
-            const p = PLANS[id];
-            const selected = plan === id;
-            return (
-              <label
-                key={id}
-                className={cn(
-                  "relative flex cursor-pointer items-start gap-4 rounded-2xl border-2 p-5 pt-6 transition-colors has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50",
-                  selected ? "border-primary bg-surface-tint" : "border-border hover:border-foreground/30",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="plan"
-                  value={id}
-                  checked={selected}
-                  onChange={() => setPlan(id)}
-                  className="sr-only"
-                />
-                <span
-                  aria-hidden
-                  className={cn(
-                    "mt-1 flex size-5 shrink-0 items-center justify-center rounded-full border-2",
-                    selected ? "border-primary" : "border-foreground/30",
-                  )}
-                >
-                  {selected && <span className="size-2.5 rounded-full bg-primary" />}
-                </span>
-
-                <span className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                    <span className="text-lg font-semibold">{p.name}</span>
-                    <span className="flex items-baseline gap-2 tabular-nums">
-                      {p.was && (
-                        <>
-                          <span className="sr-only">Regular price</span>
-                          <s className="text-lg text-muted-foreground">{p.was}</s>
-                          <span className="sr-only">now</span>
-                        </>
-                      )}
-                      <span className="font-heading text-3xl font-semibold tracking-tight">{p.price}</span>
-                      <span className="text-sm text-muted-foreground">{p.period}</span>
-                    </span>
-                  </span>
-                  <span className="text-sm text-muted-foreground">{p.note}</span>
-                </span>
-
-                <span className="absolute -top-3 right-5 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">
-                  {p.badge}
-                </span>
-              </label>
-            );
-          })}
-        </fieldset>
-
-        <div className="flex flex-col items-center gap-4">
-          <Button type="submit" size="cta" className="w-full" disabled={pending}>
-            {pending ? "Starting checkout…" : PLANS[plan].cta}
-          </Button>
-          <Link href="/home" className="text-sm text-muted-foreground underline-offset-4 hover:underline">
-            Not now
-          </Link>
-        </div>
-      </form>
+      <PlanPicker />
 
       <p className="text-center text-sm text-muted-foreground">
         Renews automatically. Cancel anytime from Billing. Have a promo code? Enter it at checkout.
       </p>
+    </div>
+  );
+}
+
+// Left-aligned on the tint, like every other status screen in the app.
+function StatusBlock({ title, body, href, cta }: { title: string; body: string; href: string; cta: string }) {
+  return (
+    <div className="mx-auto flex w-full max-w-2xl flex-col p-6 pb-16 sm:p-10">
+      <section className="rounded-3xl bg-surface-tint p-6 sm:p-10">
+        <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">PrepHub Premium</p>
+        <h1 className="mt-3 text-display-sm text-balance">{title}</h1>
+        <p className="mt-4 max-w-prose text-lg text-muted-foreground">{body}</p>
+        <div className="mt-8">
+          <LinkButton size="cta" href={href}>
+            {cta}
+          </LinkButton>
+        </div>
+      </section>
     </div>
   );
 }

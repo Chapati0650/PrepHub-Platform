@@ -88,6 +88,10 @@ test.describe("Owner schools management (PRD-017 §18)", () => {
     page,
     browser,
   }) => {
+    // Two full sign-ins (a new student through onboarding, then the Owner) and
+    // four membership actions: about 40s against the dev server, past
+    // Playwright's 30s default.
+    test.setTimeout(60_000);
     // A fresh student, signed up in an isolated context (separate cookie jar
     // from the Owner session in `page`).
     const studentContext = await browser.newContext();

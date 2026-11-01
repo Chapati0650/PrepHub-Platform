@@ -211,15 +211,64 @@ export async function ensureDraftRevision(tx: Client, question: QuestionWithCont
   return clone.id;
 }
 
+// Writes a revision's four answer choices in place, one row per position.
+//
+// Not deleteMany + createMany, which is what this was until 2026-11-01: that
+// gave every choice a new id on every save, and a multiple-choice answer is
+// stored and graded by choice id (grading.ts, finalize-answer.ts, homework).
+// Since an edit to a Published standalone question lands on the live revision
+// (see ensureDraftRevision), fixing a typo in a choice mid-day regraded every
+// in-flight answer as wrong, and orphaned every historical one — reviews lost
+// "Your answer" and a teacher's answer spread stopped counting it. Keyed by
+// (revisionId, order), which is unique, so a choice keeps its id for as long
+// as its position exists.
+async function writeAnswerChoices(tx: Client, revisionId: string, choices: AnswerChoiceInput[]): Promise<void> {
+  for (const [order, choice] of choices.entries()) {
+    const data = {
+      text: choice.text,
+      isCorrect: choice.isCorrect,
+      imageId: choice.imageId,
+      // Never shown for the correct choice, so never stored there either.
+      distractorExplanation: choice.isCorrect ? null : (choice.distractorExplanation ?? null),
+    };
+    await tx.questionAnswerChoice.upsert({
+      where: { revisionId_order: { revisionId, order } },
+      update: data,
+      create: { revisionId, order, ...data },
+    });
+  }
+  await tx.questionAnswerChoice.deleteMany({ where: { revisionId, order: { gte: choices.length } } });
+}
+
+// What a save must not do to a question students can already be served. An
+// edit to a Published standalone question applies to the live revision, and
+// autosave fires mid-edit — clearing a choice before retyping it, or the
+// correct-answer radio between two clicks — so without this check a half-typed
+// edit put an unanswerable question live for as long as the Owner paused.
+// Only issues this edit *introduces* refuse it: a live question that was
+// already short of the checklist (content from before a rule existed) can still
+// be fixed one field at a time.
+function assertLiveEditStaysPublishable(before: QuestionWithContent, after: QuestionWithContent): void {
+  const existing = new Set(getQuestionPublishIssues(before));
+  const introduced = getQuestionPublishIssues(after).filter((issue) => !existing.has(issue));
+  if (introduced.length === 0) return;
+  throw new ContentError(
+    "PUBLISH_VALIDATION_FAILED",
+    `This question is live, so the change wasn't saved yet: ${introduced.join(" ")} Finish the edit and it saves on its own.`,
+  );
+}
+
 // The single write path for content edits — the CMS editor's autosave calls
 // this with the full current form state on every debounce tick (PRD-015 §6.3).
 // Any call resets previewCompletedAt (PRD-015 §5.5: virtually every content
 // field resets the mandatory-preview requirement, so we reset unconditionally).
+// Returns the question as it stands after the save, read inside the same
+// transaction, so the editor needs no second round trip to see it.
 export async function updateDraftContent(
   questionId: string,
   patch: QuestionContentPatch,
 ): Promise<QuestionWithContent> {
-  await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     const question = await tx.question.findUnique({ where: { id: questionId }, include: QUESTION_INCLUDE });
     if (!question) throw new ContentError("QUESTION_NOT_FOUND", "This question no longer exists.");
     if (question.status === "ARCHIVED") {
@@ -228,6 +277,7 @@ export async function updateDraftContent(
 
     const revisionId = await ensureDraftRevision(tx, question);
     const isFamilyMember = question.familyId !== null;
+    const editsLiveRevision = revisionId === question.currentPublishedRevisionId;
 
     // Calculator access and suggested time are both fixed functions of
     // category/difficulty (see getCalculatorSettingForCategory /
@@ -271,17 +321,7 @@ export async function updateDraftContent(
           `Multiple-choice questions need exactly ${MULTIPLE_CHOICE_OPTION_COUNT} answer choices.`,
         );
       }
-      await tx.questionAnswerChoice.deleteMany({ where: { revisionId } });
-      await tx.questionAnswerChoice.createMany({
-        data: patch.answerChoices.map((choice, order) => ({
-          revisionId,
-          order,
-          text: choice.text,
-          isCorrect: choice.isCorrect,
-          imageId: choice.imageId,
-          distractorExplanation: choice.isCorrect ? null : (choice.distractorExplanation ?? null),
-        })),
-      });
+      await writeAnswerChoices(tx, revisionId, patch.answerChoices);
     }
 
     if (patch.explanationSteps !== undefined) {
@@ -309,9 +349,14 @@ export async function updateDraftContent(
         await tx.question.update({ where: { id: questionId }, data: questionData });
       }
     }
-  });
 
-  return getQuestionOrThrow(questionId);
+    const updated = await tx.question.findUnique({ where: { id: questionId }, include: QUESTION_INCLUDE });
+    if (!updated) throw new ContentError("QUESTION_NOT_FOUND", "This question no longer exists.");
+    // Throwing here rolls back every write above, so a refused live edit
+    // leaves students on exactly the question they had.
+    if (editsLiveRevision) assertLiveEditStaysPublishable(question, updated);
+    return updated;
+  });
 }
 
 export async function markPreviewCompleted(questionId: string): Promise<QuestionWithContent> {

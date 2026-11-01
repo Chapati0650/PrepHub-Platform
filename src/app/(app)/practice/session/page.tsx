@@ -6,6 +6,8 @@ import { canOpenPracticeSet } from "@/lib/practice/free-tier";
 import { getStudentQuestionContent, getStudentQuestionFeedback } from "@/lib/session/question-content";
 import { PracticeRunner } from "./practice-runner";
 
+export const metadata = { title: "Practice Session" };
+
 // PRD-006 — the active question-by-question Practice Session, reusing the
 // same SessionRunner the diagnostic uses. Always reached via the Practice
 // entry page (PRD-005 §7): never a direct link into a question.
@@ -28,6 +30,12 @@ export default async function PracticeSessionPage() {
   if (!set) redirect("/practice");
   // Set 1 is free; later sets need Premium (lib/practice/free-tier.ts).
   if (!(await canOpenPracticeSet(studentId, set.setNumber))) redirect("/practice");
+  // The set's study time runs from here, not from when it was generated
+  // (schema.prisma, PracticeSet.startedAt). Guarded so only the first visit
+  // writes it.
+  if (!set.startedAt) {
+    await prisma.practiceSet.updateMany({ where: { id: set.id, startedAt: null }, data: { startedAt: new Date() } });
+  }
 
   const items = set.slots.map((s) => ({
     id: s.id,

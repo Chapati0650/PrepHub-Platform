@@ -6,6 +6,8 @@ import { BillingError } from "@/lib/billing/errors";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { LinkButton } from "@/components/ui/link-button";
 
+export const metadata = { title: "Checkout" };
+
 // Stripe's success_url target. In production the webhook (src/app/api/stripe/webhook)
 // is the source of truth for activating the subscription; this page independently
 // reconciles the same checkout session so the student sees "you're subscribed"
@@ -21,8 +23,9 @@ export default async function BillingSuccessPage({
   if (!session?.user.id) redirect("/login");
   if (!sessionId) redirect("/pricing");
 
+  let outcome: Awaited<ReturnType<typeof reconcileCheckoutSession>>;
   try {
-    await reconcileCheckoutSession(sessionId, session.user.id);
+    outcome = await reconcileCheckoutSession(sessionId, session.user.id);
   } catch (err) {
     if (err instanceof BillingError) {
       return (
@@ -40,6 +43,28 @@ export default async function BillingSuccessPage({
       );
     }
     throw err;
+  }
+
+  // A bank debit completes checkout before the money arrives. Saying "active"
+  // then was untrue — Premium only switches on when Stripe reports the
+  // payment (checkout.session.async_payment_succeeded, through the webhook).
+  if (outcome === "PROCESSING") {
+    return (
+      <div className="mx-auto max-w-md p-8">
+        <Card>
+          <CardHeader>
+            <CardTitle>Payment processing</CardTitle>
+            <CardDescription>
+              Premium switches on as soon as your payment clears. Some payment methods take a few days; there&apos;s
+              nothing more you need to do, and no need to check out again.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <LinkButton href="/home">Go to Dashboard</LinkButton>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (

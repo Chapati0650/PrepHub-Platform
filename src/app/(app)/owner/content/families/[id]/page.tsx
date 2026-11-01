@@ -6,6 +6,8 @@ import { FAMILY_ELIGIBLE_CATEGORIES } from "@/lib/content/constants";
 import { FamilyDetail } from "./family-detail";
 import { requireOwnerPage } from "@/lib/owner/guard";
 
+export const metadata = { title: "Question Family" };
+
 export default async function FamilyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requireOwnerPage();
   const { id } = await params;

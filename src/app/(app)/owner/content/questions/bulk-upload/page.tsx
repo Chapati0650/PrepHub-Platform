@@ -6,6 +6,8 @@ import { getBulkUploadReadiness } from "@/lib/content/ai-readiness";
 import { BulkUploadForm } from "./bulk-upload-form";
 import { requireOwnerPage } from "@/lib/owner/guard";
 
+export const metadata = { title: "Bulk upload" };
+
 // Role gate already lives in the parent /owner layout — this page only needs
 // its own content. See src/lib/content/bulk-upload.ts for the pipeline this
 // drives: transcribe -> classify category -> determine the correct answer ->

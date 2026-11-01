@@ -114,22 +114,35 @@ If you didn't ask for this you can ignore this email and nothing changes. If you
   });
 }
 
+const INVALID_LINK = "This link has already been used or isn't valid.";
+const EXPIRED_LINK =
+  "This link has expired. If you were invited as a teacher, your administrator can also send the invitation again.";
+
+/**
+ * What's wrong with a reset link, before anyone types a password into it
+ * (null when it works). Read-only: a mail scanner opening the page uses
+ * nothing up.
+ */
+export async function resetLinkProblem(token: string): Promise<string | null> {
+  const record = await prisma.passwordResetToken.findUnique({
+    where: { token: hashToken(token) },
+    select: { usedAt: true, expiresAt: true },
+  });
+  if (!record || record.usedAt) return INVALID_LINK;
+  if (record.expiresAt < new Date()) return EXPIRED_LINK;
+  return null;
+}
+
 export async function confirmPasswordReset(token: string, newPassword: string): Promise<void> {
   const record = await prisma.passwordResetToken.findUnique({
     where: { token: hashToken(token) },
   });
 
   if (!record || record.usedAt) {
-    throw new AuthError(
-      "INVALID_TOKEN",
-      "This link has already been used or isn't valid.",
-    );
+    throw new AuthError("INVALID_TOKEN", INVALID_LINK);
   }
   if (record.expiresAt < new Date()) {
-    throw new AuthError(
-      "TOKEN_EXPIRED",
-      "This link has expired. If you were invited as a teacher, your administrator can also send the invitation again.",
-    );
+    throw new AuthError("TOKEN_EXPIRED", EXPIRED_LINK);
   }
 
   const passwordHash = await hashPassword(newPassword);

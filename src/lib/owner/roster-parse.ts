@@ -12,6 +12,8 @@
  * silent mis-parse here would enrol students at the wrong campus.
  */
 
+import { isPlausibleEmailAddress } from "@/lib/email-address";
+
 export type RosterCampus = { id: string; officialName: string };
 
 export type ParsedRosterRow = {
@@ -144,7 +146,9 @@ export function parseRoster(input: string, campuses: RosterCampus[]): ParsedRost
 
     const email = (headers ? cells[headers.email] : cells[0] ?? "").trim().toLowerCase();
     if (!email) continue; // a trailing comma or an empty cell, not worth reporting
-    if (!EMAIL_RE.test(email)) {
+    // The queue's own check too: an address it would refuse to send to would
+    // otherwise be marked invited and never hear from us.
+    if (!EMAIL_RE.test(email) || !isPlausibleEmailAddress(email)) {
       errors.push({ line, value: email, reason: "not a valid email address" });
       continue;
     }

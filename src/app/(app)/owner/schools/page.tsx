@@ -15,6 +15,8 @@ import { EmptyState } from "@/components/empty-state";
 import { CreateOrganizationForm } from "./create-organization-form";
 import { requireOwnerPage } from "@/lib/owner/guard";
 
+export const metadata = { title: "Schools" };
+
 function formatDate(date: Date): string {
   return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }

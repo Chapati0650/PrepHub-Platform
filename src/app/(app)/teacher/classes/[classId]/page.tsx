@@ -1,14 +1,23 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireTeacher } from "@/lib/teacher/access";
-import { getClassroomDetail, type ClassroomDetail } from "@/lib/teacher/classrooms";
+import { getClassroomDetail, type ClassroomDetail, type ClassroomStudent } from "@/lib/teacher/classrooms";
 import { TeacherError } from "@/lib/teacher/errors";
 import { formatJoinCode } from "@/lib/teacher/join-code";
-import { joinedAfterDeadline } from "@/lib/teacher/deadline";
+import {
+  gradebookCell,
+  homeworkOwed,
+  submissionKey,
+  submissionsByKey,
+  type GradebookCell,
+} from "@/lib/teacher/gradebook-export";
+import { studentFullName, studentRosterName } from "@/lib/teacher/names";
 import { formatGoalDate } from "@/lib/community/goal";
 import { LinkButton } from "@/components/ui/link-button";
 import { StaffHeader, StaffPage, StaffSection, StatusChip } from "@/components/staff/staff-ui";
 import { ClassCodePanel, ClassSettings, RemoveStudentButton } from "./class-controls";
+
+export const metadata = { title: "Class" };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -40,6 +49,8 @@ export default async function ClassroomPage({ params }: { params: Promise<{ clas
   const joinUrl = `${process.env.NEXTAUTH_URL ?? "http://localhost:3000"}/join/${detail.joinCode}`;
   const now = new Date();
   const studentCount = detail.students.length;
+  const formerCount = detail.formerStudents.length;
+  const missingLastNames = detail.students.filter((s) => !s.lastName).length;
 
   return (
     <StaffPage>
@@ -89,6 +100,7 @@ export default async function ClassroomPage({ params }: { params: Promise<{ clas
                       <span className="block text-lg font-medium">{a.title}</span>
                       <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-muted-foreground">
                         <StatusChip tone={due.tone}>{due.text}</StatusChip>
+                        {a.mode === "QUIZ" && <StatusChip tone="muted">Quiz</StatusChip>}
                         <span>
                           {a.questionCount} question{a.questionCount === 1 ? "" : "s"}
                         </span>
@@ -127,8 +139,19 @@ export default async function ClassroomPage({ params }: { params: Promise<{ clas
         title={`Who's done what (${studentCount} student${studentCount === 1 ? "" : "s"})`}
         description={
           studentCount > 0 && detail.assignments.length > 0
-            ? "Each student's score on each homework. “Missing” means the due date passed before they started; “Joined later” means it was already due when they joined, so it isn't held against them."
+            ? "Each student's score on each homework. “Missing” means the due date passed before they started; “Joined later” means it was already due when they joined, so it isn't held against them. “Finished” counts homework that's due or closed, plus anything turned in early."
             : undefined
+        }
+        action={
+          studentCount + formerCount > 0 && detail.assignments.length > 0 ? (
+            // A download, not a page: a plain link, so the browser saves the file.
+            <a
+              href={`/teacher/classes/${detail.id}/export`}
+              className="inline-flex h-11 items-center rounded-md border border-border px-4 text-base font-medium hover:bg-muted"
+            >
+              Download gradebook (CSV)
+            </a>
+          ) : undefined
         }
       >
         {studentCount === 0 ? (
@@ -137,7 +160,33 @@ export default async function ClassroomPage({ params }: { params: Promise<{ clas
             here the moment they do.
           </p>
         ) : (
-          <Gradebook detail={detail} now={now} />
+          <>
+            {missingLastNames > 0 && (
+              <p className="text-base text-muted-foreground">
+                {missingLastNames === 1 ? "One student" : `${missingLastNames} students`} joined before classes asked for
+                a last name, so they&apos;re listed by first name at the bottom. PrepHub asks them for it on their
+                Homework page.
+              </p>
+            )}
+            <Gradebook detail={detail} students={detail.students} now={now} />
+          </>
+        )}
+        {/* Collapsed: they're not the class any more, but their grades are
+            still the teacher's to record, and the download includes them. */}
+        {formerCount > 0 && (
+          <details className="rounded-2xl border border-border">
+            <summary className="cursor-pointer p-5 text-base font-medium">
+              Left the class ({formerCount})
+            </summary>
+            <div className="flex flex-col gap-3 px-5 pb-5">
+              <p className="text-base text-muted-foreground">
+                Students who left or were removed after doing some of this class&apos;s homework. Their work is kept,
+                and it&apos;s in the gradebook download, marked as having left. They aren&apos;t counted in any
+                &ldquo;of&rdquo; above.
+              </p>
+              <Gradebook detail={detail} students={detail.formerStudents} now={now} former />
+            </div>
+          </details>
         )}
       </StaffSection>
 
@@ -151,21 +200,32 @@ export default async function ClassroomPage({ params }: { params: Promise<{ clas
  * meet. The view a teacher already knows from a paper gradebook or Google
  * Classroom, so it needs no explaining. Scrolls sideways once there's more
  * homework than fits, with the names pinned so a row never loses its student.
+ *
+ * Each cell is gradebookCell's verdict, the same one the CSV download writes,
+ * so the page and the spreadsheet never disagree. `former` draws the students
+ * who have left: their work is listed, nothing is "Missing", and there's no
+ * Remove button.
  */
-function Gradebook({ detail, now }: { detail: ClassroomDetail; now: Date }) {
-  const results = new Map(detail.submissions.map((s) => [`${s.studentId}:${s.assignmentId}`, s]));
+function Gradebook({
+  detail,
+  students,
+  now,
+  former = false,
+}: {
+  detail: ClassroomDetail;
+  students: (ClassroomStudent & { leftAt?: Date })[];
+  now: Date;
+  former?: boolean;
+}) {
+  const results = submissionsByKey(detail);
   const assignments = detail.assignments;
-  // The homework a student was in the class for, plus any from before they
-  // joined that they did anyway, so a late joiner isn't "0 of 5" for work set
-  // before they arrived, and "done" can never exceed "of".
-  const owedBy = (s: ClassroomDetail["students"][number]) =>
-    assignments.filter(
-      (a) =>
-        !joinedAfterDeadline(s.joinedAt, a) || results.get(`${s.studentId}:${a.id}`)?.status === "COMPLETED",
-    ).length;
+  const removable = !detail.archived && !former;
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border">
+    // `relative`: the sr-only labels in its cells are absolutely positioned,
+    // and without a positioned ancestor inside the scroller they escape it
+    // and widen the whole page on a phone.
+    <div className="relative overflow-x-auto rounded-2xl border border-border">
       <table className="w-full border-collapse text-base">
         <thead className="text-left text-sm">
           <tr className="border-b border-border">
@@ -188,7 +248,7 @@ function Gradebook({ detail, now }: { detail: ClassroomDetail; now: Date }) {
             <th scope="col" className="min-w-24 bg-muted/60 px-3 py-3 align-bottom font-medium">
               Finished
             </th>
-            {!detail.archived && (
+            {removable && (
               <th scope="col" className="bg-muted/60 px-3 py-3">
                 <span className="sr-only">Remove from class</span>
               </th>
@@ -196,45 +256,29 @@ function Gradebook({ detail, now }: { detail: ClassroomDetail; now: Date }) {
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
-          {detail.students.map((s) => (
+          {students.map((s) => (
             <tr key={s.studentId} className="group">
               <th scope="row" className="sticky left-0 z-10 bg-background px-4 py-3 text-left font-normal group-hover:bg-muted">
-                <span className="block font-medium">{s.firstName}</span>
+                <span className="block font-medium">{studentRosterName(s)}</span>
                 <span className="block max-w-56 truncate text-sm text-muted-foreground">{s.email}</span>
+                {s.leftAt && <span className="block text-sm text-muted-foreground">Left {formatGoalDate(s.leftAt)}</span>}
               </th>
-              {assignments.map((a) => {
-                const r = results.get(`${s.studentId}:${a.id}`);
-                // Already due (or closed) when they joined: never "Missing".
-                const joinedLater = !r && joinedAfterDeadline(s.joinedAt, a);
-                const missed = !r && !joinedLater && (a.closed || (a.dueAt !== null && a.dueAt < now));
-                return (
-                  <td key={a.id} className="px-3 py-3 tabular-nums group-hover:bg-muted/40">
-                    {r?.status === "COMPLETED" ? (
-                      <span title={a.questionCount > 0 ? `${Math.round((r.correct / a.questionCount) * 100)}% correct` : undefined}>
-                        <span className="font-semibold">{r.correct}</span>
-                        <span className="text-muted-foreground">/{a.questionCount}</span>
-                      </span>
-                    ) : r ? (
-                      <StatusChip tone="warn">Started</StatusChip>
-                    ) : missed ? (
-                      <StatusChip tone="bad">Missing</StatusChip>
-                    ) : joinedLater ? (
-                      <StatusChip tone="muted">Joined later</StatusChip>
-                    ) : (
-                      <span className="text-muted-foreground">
-                        <span aria-hidden>—</span>
-                        <span className="sr-only">Not started</span>
-                      </span>
-                    )}
-                  </td>
-                );
-              })}
+              {assignments.map((a) => (
+                <td key={a.id} className="px-3 py-3 tabular-nums group-hover:bg-muted/40">
+                  <GradebookCellView
+                    cell={gradebookCell(s, a, results.get(submissionKey(s.studentId, a.id)), now, { left: former })}
+                  />
+                </td>
+              ))}
               <td className="px-3 py-3 tabular-nums group-hover:bg-muted/40">
-                {s.completedAssignments} of {owedBy(s)}
+                {/* Someone who has left owes nothing more, so theirs is a plain count. */}
+                {former
+                  ? s.completedAssignments
+                  : `${s.completedAssignments} of ${homeworkOwed(s, assignments, results, now)}`}
               </td>
-              {!detail.archived && (
+              {removable && (
                 <td className="px-3 py-3 text-right group-hover:bg-muted/40">
-                  <RemoveStudentButton classroomId={detail.id} studentId={s.studentId} firstName={s.firstName} />
+                  <RemoveStudentButton classroomId={detail.id} studentId={s.studentId} firstName={studentFullName(s)} />
                 </td>
               )}
             </tr>
@@ -243,4 +287,33 @@ function Gradebook({ detail, now }: { detail: ClassroomDetail; now: Date }) {
       </table>
     </div>
   );
+}
+
+function GradebookCellView({ cell }: { cell: GradebookCell }) {
+  switch (cell.kind) {
+    case "score":
+      return (
+        <span className="flex flex-col items-start gap-1">
+          <span title={cell.percent !== null ? `${cell.percent}% correct` : undefined}>
+            <span className="font-semibold">{cell.correct}</span>
+            <span className="text-muted-foreground">/{cell.total}</span>
+          </span>
+          {/* The same "Late" as the homework's own results (turnedInLate). */}
+          {cell.late && <StatusChip tone="warn">Late</StatusChip>}
+        </span>
+      );
+    case "started":
+      return <StatusChip tone="warn">Started</StatusChip>;
+    case "missing":
+      return <StatusChip tone="bad">Missing</StatusChip>;
+    case "joinedLater":
+      return <StatusChip tone="muted">Joined later</StatusChip>;
+    case "notStarted":
+      return (
+        <span className="text-muted-foreground">
+          <span aria-hidden>—</span>
+          <span className="sr-only">Not started</span>
+        </span>
+      );
+  }
 }

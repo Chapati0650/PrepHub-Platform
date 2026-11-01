@@ -10,10 +10,12 @@ import { sanitizeDraftPatch, type DraftPatch } from "@/lib/session/draft";
 import { sessionBlocked, type SessionBlocked } from "@/lib/session/blocked";
 import { TeacherError } from "@/lib/teacher/errors";
 import {
+  answersVisible,
   completeHomeworkSession,
   finalizeHomeworkAnswer,
   joinClassroom,
   leaveClassroom,
+  setClassLastName,
   startHomework,
 } from "@/lib/teacher/homework";
 
@@ -35,7 +37,10 @@ async function requireStudentId(): Promise<string> {
 // GER §2: a student only ever touches their own slots; a guessed id is logged
 // as a privilege-boundary attempt, the same shape as the 800 Club's guard.
 async function requireOwnedSlot(studentId: string, slotId: string) {
-  const slot = await prisma.homeworkSlot.findUnique({ where: { id: slotId }, include: { session: true } });
+  const slot = await prisma.homeworkSlot.findUnique({
+    where: { id: slotId },
+    include: { session: { include: { assignment: { select: { mode: true } } } } },
+  });
   if (!slot) throw new Error("Question not found.");
   if (slot.session.studentId !== studentId) {
     logUnauthorizedAccess("Student attempted to access another student's homework slot", {
@@ -47,12 +52,12 @@ async function requireOwnedSlot(studentId: string, slotId: string) {
   return slot;
 }
 
-export type JoinState = { error?: string };
+export type JoinState = { error?: string; success?: boolean };
 
 export async function joinClassAction(_prev: JoinState, formData: FormData): Promise<JoinState> {
   const studentId = await requireStudentId();
   try {
-    await joinClassroom(studentId, String(formData.get("code") ?? ""));
+    await joinClassroom(studentId, String(formData.get("code") ?? ""), String(formData.get("lastName") ?? ""));
   } catch (err) {
     if (err instanceof TeacherError) return { error: err.message };
     throw err;
@@ -60,6 +65,19 @@ export async function joinClassAction(_prev: JoinState, formData: FormData): Pro
   // The nav's Homework item depends on being in a class, so the layout re-renders.
   revalidatePath("/", "layout");
   redirect("/homework?joined=1");
+}
+
+/** For a student who joined before classes asked for a last name. */
+export async function setClassLastNameAction(_prev: JoinState, formData: FormData): Promise<JoinState> {
+  const studentId = await requireStudentId();
+  try {
+    await setClassLastName(studentId, String(formData.get("classroomId") ?? ""), String(formData.get("lastName") ?? ""));
+  } catch (err) {
+    if (err instanceof TeacherError) return { error: err.message };
+    throw err;
+  }
+  revalidatePath("/homework");
+  return { success: true };
 }
 
 export async function leaveClassAction(classroomId: string): Promise<void> {
@@ -85,17 +103,18 @@ export async function loadHomeworkQuestionAction(slotId: string) {
   const studentId = await requireStudentId();
   const slot = await requireOwnedSlot(studentId, slotId);
   const content = await getStudentQuestionContent(slot.questionRevisionId);
-  const feedback = slot.finalizedAt ? await getStudentQuestionFeedback(slot.questionRevisionId) : null;
+  const visible = answersVisible(slot.session.assignment.mode, slot.finalizedAt !== null, slot.session.status === "COMPLETED");
+  const feedback = visible ? await getStudentQuestionFeedback(slot.questionRevisionId) : null;
   return { content, feedback };
 }
 
 export async function loadHomeworkQuestionDetailAction(slotId: string) {
   const studentId = await requireStudentId();
   const slot = await requireOwnedSlot(studentId, slotId);
-  // The answer key only once this question is answered or the session is
-  // over: the review screen calls this, but so could a hand-made request for a
-  // question still waiting to be answered.
-  const reviewable = slot.finalizedAt !== null || slot.session.status === "COMPLETED";
+  // The answer key only once this question is answered (a quiz: once the
+  // homework is turned in) or the session is over: the review screen calls
+  // this, but so could a hand-made request for a question still waiting.
+  const reviewable = answersVisible(slot.session.assignment.mode, slot.finalizedAt !== null, slot.session.status === "COMPLETED");
   const [content, feedback] = await Promise.all([
     getStudentQuestionContent(slot.questionRevisionId),
     reviewable ? getStudentQuestionFeedback(slot.questionRevisionId) : null,
@@ -143,6 +162,11 @@ export async function submitHomeworkAnswerAction(slotId: string, answer: string)
     const blocked = blockedBy(err);
     if (blocked) return blocked;
     throw err;
+  }
+  // A quiz says nothing about this answer until the homework is turned in —
+  // not even right or wrong — so none of it is in the response.
+  if (!answersVisible(slot.session.assignment.mode, true, result.completed)) {
+    return { isCorrect: null, studentAnswer: result.answer, feedback: null };
   }
   const feedback = await getStudentQuestionFeedback(slot.questionRevisionId);
   return { isCorrect: result.isCorrect, studentAnswer: result.answer, feedback };

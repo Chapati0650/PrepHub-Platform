@@ -8,6 +8,9 @@ import { youTubeEmbedUrl } from "@/lib/curriculum/youtube";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
 import { markLessonCompleteAction } from "../actions";
+import { LessonState } from "../lesson-state";
+
+export const metadata = { title: "The Curriculum" };
 
 export default async function LessonPage({ params }: { params: Promise<{ lessonId: string }> }) {
   const session = await auth();
@@ -116,6 +119,7 @@ export default async function LessonPage({ params }: { params: Promise<{ lessonI
               <ol className="flex flex-col gap-0.5">
                 {m.lessons.map((l) => {
                   const current = l.id === lesson.id;
+                  const locked = !l.isFree && !course.paidAccess;
                   return (
                     <li key={l.id}>
                       <Link
@@ -132,12 +136,19 @@ export default async function LessonPage({ params }: { params: Promise<{ lessonI
                           className={
                             l.completed
                               ? "flex size-4 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
-                              : "size-4 shrink-0 rounded-full border border-foreground/25"
+                              : "flex size-4 shrink-0 items-center justify-center rounded-full border border-foreground/25"
                           }
                         >
-                          {l.completed && <Check className="size-2.5" strokeWidth={3} />}
+                          {l.completed ? (
+                            <Check className="size-2.5" strokeWidth={3} />
+                          ) : (
+                            locked && <Lock className="size-2" />
+                          )}
                         </span>
-                        <span className="truncate">{l.title}</span>
+                        <span className="truncate">
+                          {l.title}
+                          <LessonState completed={l.completed} locked={locked} />
+                        </span>
                       </Link>
                     </li>
                   );

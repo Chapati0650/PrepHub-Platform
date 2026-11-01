@@ -8,6 +8,8 @@ import { StaffHeader, StaffNote, StaffPage, StaffUnavailable } from "@/component
 import { OwnerSchoolSwitcher } from "../school-switcher";
 import { saveSchoolGoalAction } from "./actions";
 
+export const metadata = { title: "Community goal" };
+
 // One goal the whole school works toward, with a prize if the school offers
 // one (2026-10-24). The Administrator sets it here; students see it on School
 // Community. Progress is a school total — nothing on either page can name a

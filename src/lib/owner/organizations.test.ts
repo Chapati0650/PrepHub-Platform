@@ -14,8 +14,8 @@ import { prisma } from "@/lib/prisma";
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     organization: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
-    studentMembership: { count: vi.fn() },
-    administratorAssignment: { count: vi.fn() },
+    studentMembership: { count: vi.fn(), groupBy: vi.fn() },
+    administratorAssignment: { count: vi.fn(), groupBy: vi.fn() },
   },
 }));
 
@@ -200,20 +200,26 @@ describe("listOrganizations", () => {
         updatedAt: new Date(),
       },
     ]);
-    mocked.studentMembership.count.mockResolvedValue(5);
-    mocked.administratorAssignment.count.mockResolvedValue(2);
+    // Grouped once for every organization: d1's students attend s1 and s9,
+    // and the district counts all of them; s1 counts only its own.
+    mocked.studentMembership.groupBy.mockImplementation(async ({ by }: { by: string[] }) =>
+      by[0] === "schoolId"
+        ? [
+            { schoolId: "s1", _count: { _all: 3 } },
+            { schoolId: "s9", _count: { _all: 2 } },
+          ]
+        : [{ organizationId: "d1", _count: { _all: 5 } }],
+    );
+    mocked.administratorAssignment.groupBy.mockResolvedValue([{ organizationId: "d1", _count: { _all: 2 } }]);
 
     const rows = await listOrganizations();
 
-    expect(mocked.studentMembership.count).toHaveBeenCalledWith({
-      where: { organizationId: "d1", status: "ACTIVE" },
-    });
-    expect(mocked.studentMembership.count).toHaveBeenCalledWith({
-      where: { schoolId: "s1", status: "ACTIVE" },
-    });
+    expect(mocked.studentMembership.count).not.toHaveBeenCalled();
     expect(rows).toHaveLength(2);
     expect(rows[0].activeStudentCount).toBe(5);
     expect(rows[0].administratorCount).toBe(2);
+    expect(rows[1].activeStudentCount).toBe(3);
+    expect(rows[1].administratorCount).toBe(0);
   });
 });
 

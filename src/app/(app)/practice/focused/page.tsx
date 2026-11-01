@@ -19,6 +19,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Marker } from "@/components/ui/marker";
 import { startFocusedSessionAction } from "./actions";
 
+export const metadata = { title: "Focused Practice" };
+
 // Focused Practice — the student picks a category and a difficulty and
 // drills it. Deliberately a picker rather than a browsable question bank:
 // see the comment at the top of src/lib/focused/config.ts for why.
@@ -95,7 +97,10 @@ export default async function FocusedPracticePage({
         </Alert>
       )}
 
-      {activeSession && (
+      {/* Not offered without Premium: the session page sends a student
+          without it straight back here, so Resume would only loop. Their
+          drill is kept for when Premium is back. */}
+      {activeSession && paidAccess && (
         <Alert>
           <AlertDescription className="flex flex-wrap items-center gap-3">
             <span>

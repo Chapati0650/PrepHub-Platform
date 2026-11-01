@@ -82,7 +82,7 @@ export function CreateFamilyDialog() {
             <Label htmlFor="familyCategory">Category</Label>
             <Select value={category} onValueChange={(v) => setCategory(v as QuestionCategory)}>
               <SelectTrigger id="familyCategory">
-                <SelectValue />
+                <SelectValue>{(v: QuestionCategory) => CATEGORY_LABELS[v]}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {FAMILY_ELIGIBLE_CATEGORIES.map((c) => (
@@ -97,7 +97,7 @@ export function CreateFamilyDialog() {
             <Label htmlFor="familyDifficulty">Difficulty</Label>
             <Select value={difficulty} onValueChange={(v) => setDifficulty(v as QuestionDifficulty)}>
               <SelectTrigger id="familyDifficulty">
-                <SelectValue />
+                <SelectValue>{(v: QuestionDifficulty) => DIFFICULTY_LABELS[v]}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {DIFFICULTY_ORDER.map((d) => (

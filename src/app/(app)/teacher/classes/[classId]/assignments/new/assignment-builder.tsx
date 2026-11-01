@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, X } from "lucide-react";
 import type { QuestionCategory, QuestionDifficulty, QuestionType } from "@/generated/prisma/client";
+import { ActionFailureNote, actionFailure, type ActionFailure } from "@/components/staff/action-failure";
 import {
   createAssignmentAction,
   pickRandomQuestionsAction,
@@ -24,21 +25,111 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 type Results = { items: BankItem[]; total: number; page: number; pageCount: number };
 type Preview = { content: StudentQuestionContent; feedback: StudentQuestionFeedback };
+type Mode = "PRACTICE" | "QUIZ";
 
 const ANY = "ANY";
+
+const MODES: { value: Mode; title: string; body: string }[] = [
+  { value: "PRACTICE", title: "Practice", body: "Students see right or wrong, and the explanation, after each answer." },
+  { value: "QUIZ", title: "Quiz", body: "Nothing is shown until they turn it in; then they see every answer and explanation." },
+];
+
+// ---- The draft, kept in this browser ------------------------------------------
+//
+// A teacher can spend twenty minutes choosing questions, so what they've built
+// is kept in localStorage per class until it's assigned: a reload, a stale
+// page after a deploy, or a closed tab no longer throws it away. Only here,
+// not on the server — a half-built homework is nobody else's business — and
+// every access is wrapped, because school Chromebooks can block storage.
+
+type Draft = {
+  savedAt: number;
+  selected: BankItemSummary[];
+  title: string;
+  instructions: string;
+  dueOn: string;
+  mode: Mode;
+  alsoClasses: string[];
+};
+
+const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const draftKey = (classroomId: string) => `prephub:homework-draft:${classroomId}`;
+
+function isSummary(value: unknown): value is BankItemSummary {
+  if (!value || typeof value !== "object") return false;
+  const q = value as Record<string, unknown>;
+  return (
+    typeof q.id === "string" &&
+    typeof q.snippet === "string" &&
+    typeof q.category === "string" &&
+    q.category in CATEGORY_LABELS &&
+    typeof q.difficulty === "string" &&
+    q.difficulty in DIFFICULTY_LABELS &&
+    typeof q.questionType === "string" &&
+    (q.passageSnippet === null || typeof q.passageSnippet === "string")
+  );
+}
+
+/** The saved draft, checked field by field (it came from storage), or null. */
+function readDraft(classroomId: string, maxQuestions: number): Draft | null {
+  try {
+    const raw = window.localStorage.getItem(draftKey(classroomId));
+    if (!raw) return null;
+    const d = JSON.parse(raw) as Partial<Draft>;
+    if (typeof d.savedAt !== "number" || Date.now() - d.savedAt > DRAFT_MAX_AGE_MS) return null;
+    return {
+      savedAt: d.savedAt,
+      selected: Array.isArray(d.selected) ? d.selected.filter(isSummary).slice(0, maxQuestions) : [],
+      title: typeof d.title === "string" ? d.title : "",
+      instructions: typeof d.instructions === "string" ? d.instructions : "",
+      dueOn: typeof d.dueOn === "string" ? d.dueOn : "",
+      mode: d.mode === "QUIZ" ? "QUIZ" : "PRACTICE",
+      alsoClasses: Array.isArray(d.alsoClasses) ? d.alsoClasses.filter((id): id is string => typeof id === "string") : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(classroomId: string, draft: Omit<Draft, "savedAt">) {
+  try {
+    const empty = draft.selected.length === 0 && !draft.title.trim() && !draft.instructions.trim() && !draft.dueOn;
+    if (empty) window.localStorage.removeItem(draftKey(classroomId));
+    else window.localStorage.setItem(draftKey(classroomId), JSON.stringify({ ...draft, savedAt: Date.now() }));
+  } catch {
+    // Storage full or blocked: the builder still works, it just won't survive a reload.
+  }
+}
+
+function clearDraft(classroomId: string) {
+  try {
+    window.localStorage.removeItem(draftKey(classroomId));
+  } catch {
+    // As above.
+  }
+}
+
+const noSubscription = () => () => {};
 
 /**
  * The bank on the left, the homework on the right. Every search, preview and
  * random pick is a server action called from an event handler, so nothing
  * here fetches in an effect (and the lint rule against setState in effects
- * has nothing to object to).
+ * has nothing to object to). Each call is caught: a failure says so where it
+ * happened and never takes the page — and the teacher's chosen questions —
+ * with it.
  */
 export function AssignmentBuilder({
   classroomId,
+  className,
+  otherClasses,
   initialResults,
   maxQuestions,
 }: {
   classroomId: string;
+  className: string;
+  /** The teacher's other open classes, offered as "also assign to". */
+  otherClasses: { id: string; name: string }[];
   initialResults: Results;
   maxQuestions: number;
 }) {
@@ -49,12 +140,43 @@ export function AssignmentBuilder({
   const [loading, startLoading] = useTransition();
   const [previews, setPreviews] = useState<Map<string, Preview>>(new Map());
   const [openPreview, setOpenPreview] = useState<string | null>(null);
+  // With the call to retry, so "Try again" repeats what failed.
+  const [bankFailure, setBankFailure] = useState<{ failure: ActionFailure; retry: () => void } | null>(null);
+  const [previewFailure, setPreviewFailure] = useState<{ id: string; failure: ActionFailure } | null>(null);
 
   const [selected, setSelected] = useState<BankItemSummary[]>([]);
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
   const [dueOn, setDueOn] = useState("");
+  const [mode, setMode] = useState<Mode>("PRACTICE");
+  const [alsoClasses, setAlsoClasses] = useState<Set<string>>(new Set());
+
+  // The saved draft exists only in the browser, so the server's render and
+  // hydration are the empty builder, and the draft is read in on the first
+  // render after (useSyncExternalStore: false on the server, true in the
+  // browser — the theme toggle's pattern). It's applied by adjusting state
+  // during that render, not in an effect and not by remounting: React replays
+  // a click that landed during hydration on this instance, and a remount had
+  // thrown away whatever that click did ("Add 5 at random" adding nothing).
+  const inBrowser = useSyncExternalStore(noSubscription, () => true, () => false);
+  const [draftRead, setDraftRead] = useState(false);
+  const [restored, setRestored] = useState(false);
+  if (inBrowser && !draftRead) {
+    setDraftRead(true);
+    const draft = readDraft(classroomId, maxQuestions);
+    if (draft) {
+      setSelected(draft.selected);
+      setTitle(draft.title);
+      setInstructions(draft.instructions);
+      setDueOn(draft.dueOn);
+      setMode(draft.mode);
+      // A class archived since the draft was saved is simply no longer offered.
+      setAlsoClasses(new Set(draft.alsoClasses.filter((id) => otherClasses.some((c) => c.id === id))));
+      setRestored(true);
+    }
+  }
   const [error, setError] = useState<string | null>(null);
+  const [submitFailure, setSubmitFailure] = useState<ActionFailure | null>(null);
   const [saving, startSaving] = useTransition();
   // Stays true from the click until the page changes. `saving` alone ends the
   // moment router.push is called, so during a slow navigation the button came
@@ -64,24 +186,64 @@ export function AssignmentBuilder({
 
   const selectedIds = new Set(selected.map((q) => q.id));
   const full = selected.length >= maxQuestions;
+  const classCount = 1 + alsoClasses.size;
+
+  // Writes only once the draft has been read (before that, this would save an
+  // empty builder over it), and not once the homework has been assigned.
+  useEffect(() => {
+    if (!draftRead || submitted) return;
+    writeDraft(classroomId, { selected, title, instructions, dueOn, mode, alsoClasses: [...alsoClasses] });
+  }, [draftRead, submitted, classroomId, selected, title, instructions, dueOn, mode, alsoClasses]);
+
+  function startOver() {
+    setSelected([]);
+    setTitle("");
+    setInstructions("");
+    setDueOn("");
+    setMode("PRACTICE");
+    setAlsoClasses(new Set());
+    setRestored(false);
+    clearDraft(classroomId);
+  }
 
   function runSearch(next: BankFilters, page = 1) {
     setFilters(next);
     setRandomNotice(null);
+    setBankFailure(null);
     startLoading(async () => {
-      setResults(await searchQuestionBankAction(next, page));
+      try {
+        setResults(await searchQuestionBankAction(classroomId, next, page));
+      } catch (err) {
+        setBankFailure({
+          failure: actionFailure(err, "Couldn't load questions just now. Your homework so far is kept; try again."),
+          retry: () => runSearch(next, page),
+        });
+      }
+    });
+  }
+
+  function loadPreview(id: string) {
+    setPreviewFailure(null);
+    startLoading(async () => {
+      try {
+        const loaded = await previewBankQuestionAction(id);
+        setPreviews((prev) => new Map(prev).set(id, loaded));
+      } catch (err) {
+        setPreviewFailure({
+          id,
+          failure: actionFailure(
+            err,
+            "Couldn't open this question. It may have just been taken out of the bank; try again.",
+          ),
+        });
+      }
     });
   }
 
   function togglePreview(id: string) {
     if (openPreview === id) return setOpenPreview(null);
     setOpenPreview(id);
-    if (!previews.has(id)) {
-      startLoading(async () => {
-        const loaded = await previewBankQuestionAction(id);
-        setPreviews((prev) => new Map(prev).set(id, loaded));
-      });
-    }
+    if (!previews.has(id)) loadPreview(id);
   }
 
   function add(item: BankItemSummary) {
@@ -103,27 +265,48 @@ export function AssignmentBuilder({
     });
   }
 
+  function toggleAlso(id: string) {
+    setAlsoClasses((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   // Says what actually happened: a small pool or a nearly full homework can
   // add fewer than asked, or none, which otherwise looks like a broken button.
   function addRandom(count: number) {
     const wanted = Math.min(count, maxQuestions - selected.length);
     setRandomNotice(null);
+    setBankFailure(null);
     startLoading(async () => {
-      const picked = await pickRandomQuestionsAction(filters, wanted, [...selectedIds]);
+      let picked: Awaited<ReturnType<typeof pickRandomQuestionsAction>>;
+      try {
+        picked = await pickRandomQuestionsAction(classroomId, filters, wanted, [...selectedIds]);
+      } catch (err) {
+        setBankFailure({
+          failure: actionFailure(err, "Couldn't add questions just now. Your homework so far is kept; try again."),
+          retry: () => addRandom(count),
+        });
+        return;
+      }
       const fresh = picked.filter((p) => !selectedIds.has(p.id)).slice(0, wanted);
       setSelected((prev) => [...prev, ...fresh.filter((p) => !prev.some((q) => q.id === p.id))].slice(0, maxQuestions));
-      const filtered = Boolean(filters.category || filters.difficulty || filters.questionType || filters.search);
+      const filtered = Boolean(filters.category || filters.difficulty || filters.questionType || filters.search || filters.hideAssigned);
       const which = filtered ? "matching these filters" : "in the bank";
+      const repeats = fresh.filter((p) => p.assignedIn.length > 0).length;
+      const repeatNote = repeats > 0 ? ` ${repeats} of them this class has had before.` : "";
       if (fresh.length === 0) {
         setRandomNotice(`Every question ${which} is already on this homework.`);
       } else if (fresh.length < wanted) {
         setRandomNotice(
-          `Added ${fresh.length} — that's every question ${which} not already on this homework.${filtered ? " Change the filters to add more." : ""}`,
+          `Added ${fresh.length} — that's every question ${which} not already on this homework.${filtered ? " Change the filters to add more." : ""}${repeatNote}`,
         );
       } else if (wanted < count) {
-        setRandomNotice(`Added ${fresh.length}. That fills the homework: it can have up to ${maxQuestions} questions.`);
+        setRandomNotice(`Added ${fresh.length}. That fills the homework: it can have up to ${maxQuestions} questions.${repeatNote}`);
       } else {
-        setRandomNotice(`Added ${fresh.length} question${fresh.length === 1 ? "" : "s"}.`);
+        setRandomNotice(`Added ${fresh.length} question${fresh.length === 1 ? "" : "s"}.${repeatNote}`);
       }
     });
   }
@@ -131,20 +314,39 @@ export function AssignmentBuilder({
   function submit() {
     if (submitted) return;
     setError(null);
+    setSubmitFailure(null);
     setSubmitted(true);
     startSaving(async () => {
-      const result = await createAssignmentAction(classroomId, {
-        title,
-        instructions,
-        dueOn,
-        questionIds: selected.map((q) => q.id),
-      });
+      let result: Awaited<ReturnType<typeof createAssignmentAction>>;
+      try {
+        result = await createAssignmentAction(classroomId, {
+          title,
+          instructions,
+          dueOn,
+          questionIds: selected.map((q) => q.id),
+          mode,
+          alsoClassroomIds: [...alsoClasses],
+        });
+      } catch (err) {
+        // Not "nothing was assigned": the request may have landed before the
+        // connection dropped, so the teacher is sent to look before retrying.
+        setSubmitFailure(
+          actionFailure(
+            err,
+            "Couldn't confirm the homework was assigned. Check the class page before trying again, so it isn't assigned twice. Your questions are kept here.",
+          ),
+        );
+        setSubmitted(false);
+        return;
+      }
       if ("error" in result) {
         setError(result.error);
         setSubmitted(false);
         return;
       }
-      router.push(`/teacher/classes/${classroomId}/assignments/${result.assignmentId}`);
+      clearDraft(classroomId);
+      const notice = result.classCount > 1 ? `?assigned=${result.classCount}` : "";
+      router.push(`/teacher/classes/${classroomId}/assignments/${result.assignmentId}${notice}`);
     });
   }
 
@@ -200,6 +402,15 @@ export function AssignmentBuilder({
             Search
           </Button>
         </form>
+        <label className="flex w-fit items-center gap-2.5 text-base">
+          <input
+            type="checkbox"
+            checked={filters.hideAssigned === true}
+            onChange={(e) => runSearch({ ...filters, hideAssigned: e.target.checked || undefined })}
+            className="size-4.5 accent-primary"
+          />
+          Hide questions {className} has already had
+        </label>
 
         <div className="flex flex-wrap items-center justify-between gap-2 text-base">
           <p className="text-muted-foreground" aria-live="polite">
@@ -225,10 +436,13 @@ export function AssignmentBuilder({
             {randomNotice}
           </p>
         )}
+        {bankFailure && <ActionFailureNote failure={bankFailure.failure} onRetry={bankFailure.retry} />}
 
         {results.items.length === 0 ? (
           <p className="rounded-2xl bg-surface-tint p-5 text-base text-muted-foreground">
-            No published questions match. Try a different category or difficulty, or clear the search.
+            {filters.hideAssigned
+              ? `No published questions match that ${className} hasn't already had. Try another category or difficulty, or show the ones it has had.`
+              : "No published questions match. Try a different category or difficulty, or clear the search."}
           </p>
         ) : (
           <ul className="divide-y divide-border border-y border-border">
@@ -242,11 +456,22 @@ export function AssignmentBuilder({
                       <p className="text-sm text-muted-foreground">
                         {CATEGORY_LABELS[item.category]} · {DIFFICULTY_LABELS[item.difficulty]} ·{" "}
                         {QUESTION_TYPE_LABELS[item.questionType]}
-                        {item.hasPassage && " · with passage"}
                       </p>
+                      {/* The passage first: Reading and Writing stems repeat, so it's
+                          the passage that tells one question from the next. */}
+                      {item.passageSnippet && (
+                        <div className="mt-1 line-clamp-2 border-l-2 border-border pl-2.5 text-sm text-muted-foreground">
+                          <LatexText text={item.passageSnippet} />
+                        </div>
+                      )}
                       <div className="mt-1 line-clamp-3 text-base">
                         <LatexText text={item.snippet} />
                       </div>
+                      {item.assignedIn.length > 0 && (
+                        <p className="mt-1 text-sm font-medium text-amber-800 dark:text-amber-300">
+                          Already assigned in {item.assignedIn.map((t) => `“${t}”`).join(", ")}
+                        </p>
+                      )}
                       <button
                         type="button"
                         onClick={() => togglePreview(item.id)}
@@ -269,7 +494,13 @@ export function AssignmentBuilder({
                   </div>
                   {openPreview === item.id && (
                     <div className="mt-3 rounded-xl border border-border p-4">
-                      {preview ? <AnswerKey content={preview.content} feedback={preview.feedback} /> : <p className="text-sm text-muted-foreground">Loading…</p>}
+                      {preview ? (
+                        <AnswerKey content={preview.content} feedback={preview.feedback} />
+                      ) : previewFailure?.id === item.id ? (
+                        <ActionFailureNote failure={previewFailure.failure} onRetry={() => loadPreview(item.id)} />
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Loading…</p>
+                      )}
                     </div>
                   )}
                 </li>
@@ -305,6 +536,18 @@ export function AssignmentBuilder({
 
       {/* ---- The homework ---- */}
       <aside className="flex flex-col gap-4 rounded-2xl border border-border p-5 lg:sticky lg:top-6" aria-label="This homework">
+        {restored && (
+          <div role="status" className="flex flex-col items-start gap-2 rounded-xl bg-surface-tint p-3 text-base">
+            <p>
+              Picked up where you left off
+              {selected.length > 0 && ` · ${selected.length} question${selected.length === 1 ? "" : "s"}`}. It&apos;s kept
+              in this browser until you assign it.
+            </p>
+            <Button variant="outline" size="lg" onClick={startOver}>
+              Start over
+            </Button>
+          </div>
+        )}
         <div className="flex flex-col gap-2">
           <Label htmlFor="hw-title" className="text-base">Title</Label>
           <Input id="hw-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} placeholder="e.g. Linear equations warm-up" className="h-11 text-base md:text-base" />
@@ -312,8 +555,35 @@ export function AssignmentBuilder({
         <div className="flex flex-col gap-2">
           <Label htmlFor="hw-due" className="text-base">Due date <span className="font-normal text-muted-foreground">(optional)</span></Label>
           <Input id="hw-due" type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} className="h-11 w-fit text-base md:text-base" />
-          <p className="text-sm text-muted-foreground">Due at the end of that day, Central time. Late work is still accepted and marked late.</p>
+          <p className="text-sm text-muted-foreground">
+            Due at the end of that day, Central time. Students who haven&apos;t finished get a reminder email the day before.
+            Late work is still accepted and marked late.
+          </p>
         </div>
+
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-2 text-base font-medium">How students do it</legend>
+          {MODES.map((m) => (
+            <label
+              key={m.value}
+              className={`flex cursor-pointer gap-3 rounded-xl border p-3 text-base ${mode === m.value ? "border-primary bg-primary/5" : "border-border"}`}
+            >
+              <input
+                type="radio"
+                name="mode"
+                value={m.value}
+                checked={mode === m.value}
+                onChange={() => setMode(m.value)}
+                className="mt-1 size-4 accent-primary"
+              />
+              <span>
+                <span className="block font-medium">{m.title}</span>
+                <span className="text-sm text-muted-foreground">{m.body}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+
         <div className="flex flex-col gap-2">
           <Label htmlFor="hw-instructions" className="text-base">Instructions <span className="font-normal text-muted-foreground">(optional)</span></Label>
           <Textarea
@@ -342,7 +612,7 @@ export function AssignmentBuilder({
                       {CATEGORY_LABELS[q.category]} · {DIFFICULTY_LABELS[q.difficulty]}
                     </span>
                     <span className="line-clamp-2">
-                      <LatexText text={q.snippet} />
+                      <LatexText text={q.passageSnippet ?? q.snippet} />
                     </span>
                   </span>
                   <span className="flex shrink-0 flex-col">
@@ -362,16 +632,37 @@ export function AssignmentBuilder({
           )}
         </div>
 
+        {otherClasses.length > 0 && (
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-1 text-base font-medium">Also assign to</legend>
+            <p className="text-sm text-muted-foreground">
+              Each class gets its own copy, with its own results. {className} always gets it.
+            </p>
+            {otherClasses.map((c) => (
+              <label key={c.id} className="flex items-center gap-2.5 text-base">
+                <input
+                  type="checkbox"
+                  checked={alsoClasses.has(c.id)}
+                  onChange={() => toggleAlso(c.id)}
+                  className="size-4.5 accent-primary"
+                />
+                {c.name}
+              </label>
+            ))}
+          </fieldset>
+        )}
+
         {error && (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
+        {submitFailure && <ActionFailureNote failure={submitFailure} />}
         <Button size="cta" onClick={submit} disabled={saving || submitted || selected.length === 0 || !title.trim()}>
-          {saving || submitted ? "Assigning…" : "Assign to class"}
+          {saving || submitted ? "Assigning…" : classCount > 1 ? `Assign to ${classCount} classes` : "Assign to class"}
         </Button>
         <p className="text-sm text-muted-foreground">
-          Students see it on their Homework page as soon as you assign it.
+          Students see it on their Homework page as soon as you assign it, and get an email saying it&apos;s there.
         </p>
       </aside>
     </div>

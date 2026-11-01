@@ -43,11 +43,13 @@ export default function RootPage() {
       <PageViewBeacon />
       <SiteHeader />
 
-      <Hero />
-      <CredibilityBand />
-      <HowItWorks />
-      <FeatureSections />
-      <ClosingCta />
+      <main className="flex flex-1 flex-col">
+        <Hero />
+        <CredibilityBand />
+        <HowItWorks />
+        <FeatureSections />
+        <ClosingCta />
+      </main>
 
       <SiteFooter />
     </div>
@@ -139,7 +141,7 @@ async function CredibilityBand() {
           <div>
             <p className="font-heading text-hero font-semibold tracking-tight tabular-nums">8M+</p>
             <p className="mt-2 text-lg text-surface-deep-foreground/75">
-              Views across the PrepHub channels, from the same person writing every question here.
+              Views across the PrepHub channels, from the same person who built PrepHub.
             </p>
           </div>
           <div>

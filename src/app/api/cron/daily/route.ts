@@ -4,6 +4,7 @@ import { logEvent } from "@/lib/logger";
 import { runDailyLifecycle } from "@/lib/lifecycle/emails";
 import { runGraduationSweep } from "@/lib/owner/graduation";
 import { purgeExpiredMail } from "@/lib/retention";
+import { queueHomeworkReminders } from "@/lib/teacher/homework-email";
 
 /**
  * Below the host's request limit with room to answer. The lifecycle pass
@@ -36,13 +37,19 @@ export async function POST(request: Request) {
   // rollover, the lifecycle emails, and housekeeping. Each is caught on its
   // own, so a failed graduation sweep no longer means nobody is reminded.
   const graduation = await job("graduation sweep", () => runGraduationSweep());
+  // Homework due tomorrow, to students who haven't finished it. Before the
+  // lifecycle pass, not after: it's the one job here that's only right on the
+  // day it runs, and a few queries, while the lifecycle pass is the one that
+  // can use up the whole budget on a big district. Claimed per assignment, so
+  // the 22:10 and 22:20 reruns add nothing.
+  const homework = await job("homework reminders", () => queueHomeworkReminders(new Date()));
   const lifecycle = await job("lifecycle email", () => runDailyLifecycle(new Date(), deadline));
   const retention = await job("mail retention", () => purgeExpiredMail());
 
-  const ok = graduation.ok && lifecycle.ok && retention.ok;
+  const ok = graduation.ok && lifecycle.ok && homework.ok && retention.ok;
   // A failure answers 500 so the scheduled function's log shows it.
   return NextResponse.json(
-    { ok, graduation, lifecycle, retention, ranAt: new Date().toISOString() },
+    { ok, graduation, lifecycle, homework, retention, ranAt: new Date().toISOString() },
     { status: ok ? 200 : 500 },
   );
 }

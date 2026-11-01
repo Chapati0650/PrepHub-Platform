@@ -64,6 +64,17 @@ export const RATE_LIMITS = {
    * never shares a bucket and this one needs no second dimension.
    */
   SCHOOL_EMAIL_VERIFICATION_REQUEST: { limit: 5, windowMs: 15 * 60 * 1000 },
+
+  /**
+   * The public page-view beacon (/api/beacon), which needs no account and
+   * writes a row per request. A person loads a few pages a minute, and a
+   * script replaying the beacon stops filling the analytics table. A whole
+   * campus signing up from one address on rollout day can go over it, which
+   * costs only some page-view counts: signups and everything after them are
+   * counted from their own tables (src/lib/analytics/funnel.ts). Excess is
+   * dropped silently, so a throttled visitor sees nothing.
+   */
+  BEACON_PER_IP: { limit: 60, windowMs: 60 * 1000 },
 } as const satisfies Record<string, RateLimitConfig>;
 
 type Bucket = { count: number; resetAt: number };

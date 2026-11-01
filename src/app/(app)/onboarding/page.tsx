@@ -3,6 +3,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { OnboardingWizard } from "./onboarding-wizard";
 
+export const metadata = { title: "Getting started" };
+
 // Shown once, right after signup, before access selection — a short quiz
 // (grade/target score/study commitment) that personalizes the product before
 // the student ever has to decide how to pay for it. Never shown to

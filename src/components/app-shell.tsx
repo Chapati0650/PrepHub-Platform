@@ -295,7 +295,11 @@ export function AppShell({
   const isTeacher = role === "TEACHER";
   const isStudentExperience = role === "STUDENT" || isAdmin;
 
-  const studentItems = showHomework ? [STUDENT_ITEMS[0], HOMEWORK_ITEM, ...STUDENT_ITEMS.slice(1)] : STUDENT_ITEMS;
+  // School Community is a school's page. A student without an ACTIVE
+  // membership (the `provider` above) has no school to show, and the item
+  // only led to a page saying so — most students, so most of the time.
+  const ownItems = provider ? STUDENT_ITEMS : STUDENT_ITEMS.filter((item) => item.href !== "/community");
+  const studentItems = showHomework ? [ownItems[0], HOMEWORK_ITEM, ...ownItems.slice(1)] : ownItems;
   const sections: NavSection[] = isOwner
     ? [{ items: OWNER_ITEMS }]
     : isTeacher
@@ -405,6 +409,13 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen">
+      {/* A keyboard user's first Tab: past the dozen sidebar links. */}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:shadow-md"
+      >
+        Skip to content
+      </a>
       {/* Desktop sidebar — hidden below sm, where the mobile header below takes over */}
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground sm:flex">
         {sidebarBody}
@@ -440,7 +451,8 @@ export function AppShell({
           </div>
         )}
         <header data-wt-cover="" className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background/85 px-4 py-3 backdrop-blur-sm sm:hidden">
-          <Link href="/home" className="flex items-center">
+          {/* The mark is aria-hidden, so the link needs its own name. */}
+          <Link href="/home" className="flex items-center" aria-label="PrepHub home">
             <LogoMark className="size-6 text-primary" />
           </Link>
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -455,7 +467,9 @@ export function AppShell({
             </SheetContent>
           </Sheet>
         </header>
-        <main className="flex-1">{children}</main>
+        <main id="main" tabIndex={-1} className="flex-1 outline-none">
+          {children}
+        </main>
       </div>
       {/* Never on a focus-mode route (that branch returns above), so it can't
           land on top of a question; it waits for the next ordinary page. */}

@@ -18,7 +18,9 @@ export default function RequestResetPage() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-display-sm font-semibold">Check your email</CardTitle>
+          <CardTitle>
+            <h1 className="text-display-sm font-semibold">Check your email</h1>
+          </CardTitle>
           <CardDescription className="text-base">
             If an account exists for that email, we&apos;ve sent a link to reset your password.
             The link expires in 1 hour.
@@ -36,7 +38,9 @@ export default function RequestResetPage() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-display-sm font-semibold">Reset your password</CardTitle>
+        <CardTitle>
+          <h1 className="text-display-sm font-semibold">Reset your password</h1>
+        </CardTitle>
         <CardDescription className="text-base">We&apos;ll email you a link to set a new one.</CardDescription>
       </CardHeader>
       <CardContent>

@@ -1556,6 +1556,58 @@ questions as homework with a due date. `src/lib/teacher/`,
   random) → assign → a student joins by link → does it with scratch work and
   a highlight → turns it in → the teacher's results and class page.
 
+### The teacher pass (2026-10-31, Owner decisions)
+
+The Owner asked for the teacher side to be "really really good". A
+walkthrough as a teacher found what would frustrate one; all of it changed:
+
+- **Students give a last name to each class they join** (the join form
+  requires it; `cleanLastName` in `src/lib/teacher/names.ts`). It lives on
+  `ClassroomEnrollment.lastName`, seen by that class's teacher only — the
+  account stays first-name only, so PRD-001's rule holds for the account.
+  Rosters read "Last, First" (`studentRosterName`) sorted by last name
+  (`compareRosterNames`); sentences use "First Last" (`studentFullName`).
+  Students who joined earlier get an inline prompt on their Homework page,
+  and sort last until they answer it. Two Masons in a gradebook was the bug.
+- **Teachers choose the name students see** (`User.teacherDisplayName`,
+  "Ms. Alvarez"; `teacherName()` falls back to the first name), set on
+  `/teacher` and used on homework, the join page and every email.
+- **Practice or Quiz, per homework** (`Assignment.mode`). A quiz shows no
+  right/wrong and no explanation until it's turned in. One rule,
+  `answersVisible(mode, answered, turnedIn)` in `homework.ts`, gates the
+  runner's page and every homework action that could return an answer key —
+  the submit action leaves `isCorrect` and `feedback` out of its response
+  entirely for a quiz, and `SessionRunner`'s `revealAnswers={false}` shows
+  "Answer saved." The mode can change only until a student starts.
+- **Homework emails** (`src/lib/teacher/homework-email.ts`): every student is
+  emailed when homework is assigned (rows queued in the same transaction as
+  the homework), and students who haven't finished get one reminder the day
+  before it's due, from the daily cron (`queueHomeworkReminders`, claimed per
+  assignment via `Assignment.reminderQueuedAt`, so the reruns add nothing;
+  a new due date re-arms it). No reminder for homework assigned under 20
+  hours earlier — its students were just told.
+- **The builder**: assign to several of your classes at once ("Also assign
+  to": one copy per class, each with its own results); a passage's opening
+  shows above each Reading & Writing question (their stems repeat, so the
+  list was twenty identical rows); questions this class already had say
+  "Already assigned in …", with a filter to hide them.
+- **Results**: what each student chose on the questions they missed, each
+  question's answer spread ("A 2 · B 9 (right) · C 3") with the common wrong
+  answer named, and up to two "Most missed" questions (`answer-stats.ts`,
+  pure, tested).
+- **Gradebook download** (`/teacher/classes/[classId]/export`): percentages
+  as plain numbers, because "7/10" opens in Excel as the 10th of July.
+- **Students' dashboard** shows a homework row when there's anything to do.
+- `scripts/demo-district.ts` gives fictional students last names matching
+  their email's initial (no extra random draws, so the demo is unchanged);
+  `demo-district.ts names` fills them in for a demo built before this.
+- `e2e/teacher-homework.spec.ts` is the first end-to-end test of the
+  teacher side: Owner adds a teacher → invite → class → a student joins
+  with a last name → a quiz → the student's email, dashboard row and a quiz
+  that never says right or wrong → the teacher's results and gradebook CSV.
+- Deploying needs migration `20261101022051_teacher_classes_pass` on Neon
+  first.
+
 ## Scratch work and annotation (2026-10-24)
 
 - **Scratch work** (`src/components/session/scratchpad.tsx`): a draggable,
@@ -2191,3 +2243,240 @@ additions are optional fields, so every earlier walkthrough still validates.
   fraction in a label. `import.ts` and `bank.ts check` print it as `~` lines.
 - Deploying needs migration `20261028120000_walkthrough_feedback` on Neon
   first.
+
+## Full-site pass (2026-11-01)
+
+The Owner asked for another run through the whole site, to fix whatever was
+missing or could be better, without stopping to ask. Four read-only reviews
+(student core; public pages, Premium modes and the shell; administrators and
+teachers; Owner CMS and infrastructure) plus a browser tour of every page as
+each role, on a desktop and a phone (no page scrolls sideways; no console
+errors beyond the expected 404 and unauthorized-access logs). The fixes, and
+the rules that keep each from coming back:
+
+**Students**
+
+- **A Practice Set's study time starts when it's opened**, not when it was
+  generated. Every set is generated the moment the previous one (or the
+  Diagnostic) finishes, so `createdAt` made "Set 2, done Thursday in 30
+  minutes" read as "4350m" on its results page and three capped hours in every
+  study-time figure. `PracticeSet.startedAt` is written on the session page's
+  first visit (`updateMany … startedAt: null`); migration
+  `20261101200000_practice_set_started_at` backfills earlier sets from their
+  first answer. `sessionActivity` reads `COALESCE("startedAt", "createdAt")`.
+  The results page applies `SESSION_HOUR_CAP` too and prints hours.
+- **College Apps is advertised only while `COLLEGE_APPS_ENABLED`** (dashboard
+  Premium panel, /pricing). It was sold as Premium while switched off.
+- **The parent summary quotes a price only to a family that would pay**: a
+  school-covered student's names the school; a paid one says so.
+- **Mark for Review survives choosing an answer.** A draft save carried
+  `skipped: false`, so the moment a student picked a tentative answer — exactly
+  when they mark a question — the mark cleared. Draft saves now send the
+  answer only. The mark is hidden once a question is submitted (it's graded
+  here, unlike Bluebook, and the server keeps no mark on a finalized row). On
+  the last question, the footer's "N left" never points at the question on
+  screen ("Answer this one to finish" when it's the only one open), and Skip
+  goes back to the first open question.
+- **Answered cells in the navigator are a solid foreground fill, not green**:
+  in a Practice Set they include wrong answers, and green is this app's word
+  for correct. The "skipped" state is announced as "marked for review".
+- The suggested-time clock (and its toggle, now labelled "Hide timer"/"Show
+  timer") is shown only while a question is open.
+- **Progress never throws on a finished Diagnostic with no prediction** (it
+  generates it, idempotently, as the results page does), always shows the
+  current prediction (with "Set a target score" when there's none), and its
+  target bar runs midpoint to midpoint, so it's empty on the Diagnostic's day.
+- **Community is in a student's sidebar only with an ACTIVE membership**; the
+  not-applicable page is a left-aligned tint block linking to
+  `/access/verify-school` (the icon tile is gone), and the stats are rules in
+  one box.
+- Premium-only doors (Focused Practice, 1v1 Rush on the pre-Diagnostic
+  dashboard; the Focused Practice door under /practice) carry a "Premium" tag
+  for a student without it; Focused Practice's "Resume" is hidden without
+  Premium (the session page would send them straight back).
+- A paywalled set that already has answers (Premium lapsed mid-set) says how
+  far along it is instead of "Your next set is ready".
+- The Daily Challenge says when the next question arrives in Central time
+  (`nextUtcDayLocalTime`, tested) — "midnight UTC" and "come back tomorrow"
+  were both wrong for a student in Texas, who meets it the same evening.
+- Settings: the reminder's description matches its taper, the never-built
+  "Streak Lost Email" is gone, the free plan names Set 1, and the Leaderboard
+  setting shows only where the school and district allow a board.
+- Copy: an unchanged prediction no longer says "excellent level" to a 500.
+  The results page has one pill; "Back to Dashboard" is a plain button, and
+  for an Administrator it goes to `/home?view=student`.
+
+**Signing in, and public pages**
+
+- **`?next=` survives login** (`src/lib/auth/next-path.ts`, `safeNextPath`,
+  tested: same-site paths only, no `//`, backslashes or control characters,
+  never an auth page). Middleware now also covers `/homework`, `/practice`,
+  `/daily` and `/diagnostic` — the targets of every email link — and sends a
+  signed-out visitor to `/login?next=<path>`; `loginAction` and both Google
+  routes follow it. Before, every email link ended on /home.
+- **A failed Google sign-in is explained on /login** (`pages.error: "/login"`
+  in `auth.config.ts`), with a pointer to setting a password for a school
+  account that blocks third-party sign-in.
+- **A used or expired set-password link says so before the form**
+  (`resetLinkProblem`, read-only, so a mail scanner opening it uses nothing),
+  and setting a password lands on `/login?password=set`, which says it worked
+  — a teacher finishing an invitation used to land on a blank login.
+- **/signup sends a signed-in visitor to /home** (the landing page can't check;
+  it's prerendered). Sign-up and login keep what was typed after an error
+  (`fields` on `ActionState`; React 19 resets forms after an action), and a
+  taken email offers "Log in instead".
+- The unsubscribe page checks the token's signature on render (changes
+  nothing) and says a broken link is broken, with a way to Settings.
+- Landing visuals derive their reduced-motion state instead of seeding
+  `useState` from a value that is `false` during hydration ("0 of 7", forever).
+- Accessibility: a skip link and `<main id="main">` in the app shell; `<main>`
+  on the landing, /schools, auth, signup, Terms and Privacy; real `<h1>`s on
+  the auth cards (CardTitle is a div); the phone header's logo link has a
+  name; the public header's logo links home; tab titles on every student page
+  and the auth pages (Terms/Privacy no longer read "— PrepHub · PrepHub").
+- **Claims**: "the same person writing every question" (landing) and "every
+  question and explanation is written by a person" (/schools FAQ) weren't true
+  — questions are transcribed from practice tests and explanations are written
+  with AI — and now say what is. The hero's "Crafted by perfect scorers …
+  AI-adaptive" is the Owner's copy and was left alone.
+- **The Privacy Policy describes the product as it is** (version
+  `2026-11-01`): what administrators see (engagement, never correctness or
+  scores), what teachers see (the homework they assign, the last name given to
+  their class, email), the Rush leaderboard and opponents, every service
+  provider (Resend, Netlify, Neon, Cloudflare, Upstash, YouTube, the AI
+  providers that only ever see question content), email retention, and a real
+  contact address (`SCHOOLS_CONTACT_EMAIL`, also on Terms).
+
+**Teachers and administrators**
+
+- **Due-date edits compare calendar days** (`localDateInputValue` on both
+  sides), so a due time that isn't end-of-day Central (all demo homework) no
+  longer blocks a title edit on past-due homework or quietly moves and
+  re-arms the reminder.
+- **"Remind the N who haven't finished"** on an assignment's results
+  (`remindUnfinished`): the current roster minus finished students and anyone
+  who joined after the due date (`needsNudge`, the same rule as the button's
+  count), before or after the due date while the homework is open, once per
+  24 hours (`Assignment.lastNudgedAt`, `HOMEWORK_NUDGE_COOLDOWN_HOURS`, claimed
+  in the transaction that queues the mail). `homeworkNudgeMessage` never says
+  "tomorrow" after the fact.
+- **"Assign to another class"** (`assignToMoreClasses`) copies the pinned
+  revisions as they were, through the builder's own create-and-email path
+  (`insertAssignments`).
+- **One gradebook rule** (`gradebookCell`/`homeworkOwed` in
+  `gradebook-export.ts`) for the class page and the CSV. "Late" shows in the
+  cell and is its own CSV column, so percentages stay numeric. Students removed
+  after doing work are `formerStudents` — a collapsed "Left the class" table
+  and the end of the CSV — never counted in "of N". "Finished X of Y" counts
+  homework that's due or closed, plus anything finished early. A class card
+  shows its most recent overdue homework and how many haven't finished it.
+- **The builder keeps a draft** per class in localStorage and loads it in
+  place after hydration. Don't remount the builder to load it: React replays a
+  click made during hydration on the existing instance, and a remount threw it
+  away. Every builder and preview action is caught (`staff/action-failure.tsx`,
+  Reload for a stale build), so one failed request no longer loses the list.
+- Delete and the mode change are single `deleteMany`/`updateMany` statements
+  guarded on `sessions: { none: {} }`. The join, last-name, new-class and
+  add-teacher forms submit through `onSubmit` + `startTransition` (React 19
+  form reset). `inviteTeacher` reports `inviteEmailFailed`, and the Owner's and
+  the Administrator's pages both say so. Homework a student started that was
+  closed stays on /homework under "Closed before you finished". The join and
+  homework pages list exactly what a teacher sees (first name, the class's
+  last name, email, homework results). Admin links keep `?school=` in the
+  Owner's preview. The daily cron runs homework reminders before the
+  lifecycle pass.
+
+**Billing (live money — not yet exercised against real Stripe)**
+
+- **Plan switches go through a Stripe Subscription Schedule**, never an
+  in-place price change. Moving to a price with a different interval makes
+  Stripe restart the billing cycle and invoice immediately with no credit —
+  $99 the day a monthly student "switched at renewal". `switchPlan` writes the
+  current price until the phase ends, then the new price for one interval,
+  `end_behavior: "release"`. Asking for the current plan releases a waiting
+  switch; a subscription set to end is refused rather than having its
+  cancellation undone; only schedules tagged `prephub: plan_switch`, or ones
+  that just mirror the subscription, are rewritten. Cancellation, district
+  non-renewal and deletion release the schedule first (Stripe refuses
+  cancellation changes on a scheduled subscription); a promo code goes onto
+  every phase while a switch waits. The pending switch is
+  `Subscription.pendingPlan`/`pendingPlanStartsAt`, written only by
+  `syncSubscriptionFromStripe`; Billing and Settings both show it. Test it in
+  Stripe test mode before relying on it.
+- The past-due email is sent only by the sync whose conditional update claimed
+  the move into PAST_DUE. `reconcileCheckoutSession` returns ACTIVE/PROCESSING,
+  so a bank debit isn't shown as active. `/pricing` is a server page that sells
+  only to students without Premium (a school-covered student is told their
+  school covers it; `subscribeAction` allows STUDENT only) and counts only them
+  as paywall views; its Free column says what Set 1 includes. Status words,
+  prices and what Premium includes come from `lib/billing/display.ts`
+  (`subscriptionStatusLabel`, `planLabel`, `PREMIUM_INCLUDES`).
+- Still open: no way to update a card from /billing (a Stripe Billing Portal
+  link would do it), and a student past their grace period can start a second
+  checkout while the old subscription is still alive in Stripe.
+
+**1v1 Rush and The Curriculum**
+
+- The hub's `?error=` is a key into `RUSH_HUB_ERRORS`, never printed text (it
+  was a content-spoofing hole). Runner actions return a `RushProblem` instead
+  of rethrowing (production replaces thrown messages); serve and submit retry
+  through `rush/retry.ts`, and the live room stops only for a stale build.
+  Copy no longer mentions difficulty or "easy to hard".
+- The Curriculum no longer claims the Diagnostic picks lessons (nothing maps
+  them), and lesson state has screen-reader text, not icons alone.
+
+**Owner CMS and infrastructure**
+
+- **Answer choices keep their ids.** `updateDraftContent` upserts on
+  `(revisionId, order)`: answers are stored and graded by choice id, and an
+  edit to a Published standalone question lands on the live revision, so a new
+  id per save regraded in-flight answers and orphaned historical ones.
+- **A live edit may not make a question unpublishable**: it's validated inside
+  the transaction, and only issues the edit introduces refuse it; the editor
+  keeps the refused patch and saves it on the next keystroke. Scripts that call
+  `updateDraftContent` on live questions (the import tools) are refused the
+  same way, deliberately.
+- **Autosave**: saves run one after another; "Saved" shows only when nothing
+  is pending (which made e2e's `waitForAutosave` deterministic — the family
+  test also needed `test.setTimeout(120_000)`, the real cause of its
+  failures); the action returns the saved question instead of revalidating;
+  leaving the editor by any link sends the remaining patch
+  (`leaveQuestionEditorAction`); code resuming after an await reads
+  `choicesRef`/`stepsRef`. Every async handler in the editor, media upload and
+  lesson editor is caught, with `upload-errors.ts` messages (stale build, too
+  large for this host).
+- **Next dispatches Server Actions one at a time per client.** A client-side
+  pool must call a Route Handler with `fetch`: bulk upload's
+  `bulk-upload/process` and `estimate-difficulty`, guarded by
+  `owner/content/owner-request.ts`. They now really run three at a time.
+- **Email queue**: `isPlausibleEmailAddress` (`src/lib/email-address.ts`, also
+  used by roster parsing, so an address the queue would refuse is caught at
+  upload instead of being marked invited) filters `queueRows`; a batch the
+  provider refuses is split in half until the bad address is found (at most 16
+  calls, within the drain's deadline), so one typo no longer dead-letters
+  ninety-nine good addresses.
+- Daily reminders load full rows only for students active in the last 30 days
+  (the id scan still walks every opted-in student).
+- `/api/beacon`: only `beaconPath`'s pages, `BEACON_PER_IP` (60/min, excess
+  dropped silently), and **reset tokens are never stored** — it used to record
+  `/reset-password/<live token>` as the path. Production rows from before this
+  still hold them and need a one-time scrub (a production write).
+- Status page: R2 through `storage.ts`'s `R2_CONFIGURED` (`R2_ACCOUNT_ID` is
+  read by nothing), presence of the webhook/auth/Upstash/AI secrets, and when
+  the daily run last queued mail. Coverage counts step-by-step explanations;
+  the create dialogs show labels, not enum values; the questions table's
+  category/difficulty sorts page an id projection; walkthrough feedback is one
+  SQL query excluding every `example.com` subdomain.
+- Owner → Schools (`listOrganizations`) is four queries — the organizations
+  and three `groupBy` counts — instead of two counts per organization fired
+  at once, which outnumbered the connection pool for any district with
+  campuses. `e2e/owner-schools.spec.ts`'s membership test has 60s: two full
+  sign-ins and four actions take about 40s against the dev server.
+
+**Deploying this pass**: four migrations on Neon first, in order —
+`20261101022051_teacher_classes_pass`, `20261101200000_practice_set_started_at`,
+`20261101210000_assignment_last_nudged_at`,
+`20261101220000_subscription_pending_plan`. The last one matters most: every
+page's access check reads the subscription row. Optionally subscribe the
+Stripe webhook endpoint to `subscription_schedule.*` events, so a switch
+edited in the Stripe dashboard shows on Billing.

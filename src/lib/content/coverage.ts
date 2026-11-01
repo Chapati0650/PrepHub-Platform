@@ -8,12 +8,17 @@ export type CoverageCell = {
   publishedCount: number;
   draftCount: number;
   missingVideoCount: number;
-  missingWrittenExplanationCount: number;
+  missingExplanationCount: number;
 };
 
+const REVISION_COVERAGE_INCLUDE = {
+  standaloneVideo: true,
+  _count: { select: { explanationSteps: true } },
+} satisfies Prisma.QuestionRevisionInclude;
+
 const COVERAGE_INCLUDE = {
-  currentDraftRevision: { include: { standaloneVideo: true } },
-  currentPublishedRevision: { include: { standaloneVideo: true } },
+  currentDraftRevision: { include: REVISION_COVERAGE_INCLUDE },
+  currentPublishedRevision: { include: REVISION_COVERAGE_INCLUDE },
   family: { include: { sharedVideo: true } },
 } satisfies Prisma.QuestionInclude;
 
@@ -35,7 +40,7 @@ export async function getContentCoverage(): Promise<CoverageCell[]> {
         publishedCount: 0,
         draftCount: 0,
         missingVideoCount: 0,
-        missingWrittenExplanationCount: 0,
+        missingExplanationCount: 0,
       });
     }
   }
@@ -53,8 +58,12 @@ export async function getContentCoverage(): Promise<CoverageCell[]> {
       : editableRevision?.standaloneVideo?.status === "READY";
     if (!videoReady) cell.missingVideoCount += 1;
 
-    const hasWrittenExplanation = Boolean(editableRevision?.writtenExplanation?.trim());
-    if (!hasWrittenExplanation) cell.missingWrittenExplanationCount += 1;
+    // Either form counts. Bulk upload and the Claude import write the
+    // step-by-step explanation and leave the written one empty, so counting
+    // only writtenExplanation reported nearly the whole bank as missing one.
+    const hasExplanation =
+      Boolean(editableRevision?.writtenExplanation?.trim()) || (editableRevision?._count.explanationSteps ?? 0) > 0;
+    if (!hasExplanation) cell.missingExplanationCount += 1;
   }
 
   return Array.from(cells.values());

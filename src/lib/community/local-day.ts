@@ -80,3 +80,19 @@ export function formatGoalDate(at: Date, timeZone: string = GOAL_TIME_ZONE): str
 export function formatLongLocalDate(at: Date | string, timeZone: string = GOAL_TIME_ZONE): string {
   return new Date(at).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone });
 }
+
+/**
+ * When the next UTC day starts, as a time of day where the students are
+ * ("6 p.m." in Central winter, "7 p.m." in summer). The Daily Challenge turns
+ * over at midnight UTC, which a student in Texas meets on the same evening —
+ * "tomorrow" and "midnight UTC" were both wrong to them.
+ */
+export function nextUtcDayLocalTime(now: Date = new Date(), timeZone: string = GOAL_TIME_ZONE): string {
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  // Built from parts: the formatted string's spacing before AM/PM differs
+  // between ICU versions (a narrow no-break space in newer ones).
+  const parts = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone }).formatToParts(next);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const minute = part("minute");
+  return `${part("hour")}${minute === "00" ? "" : `:${minute}`} ${part("dayPeriod") === "AM" ? "a.m." : "p.m."}`;
+}

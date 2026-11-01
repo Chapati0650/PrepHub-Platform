@@ -39,8 +39,13 @@ model User {
   id   String @id @default(cuid())
   role Role   @default(STUDENT)
 
-  // PRD-001: only first name is collected, never last name/username/phone
+  // PRD-001: only first name is collected, never last name/username/phone.
+  // (A student's last name for one class lives on ClassroomEnrollment, given
+  // to that teacher when joining; it never becomes part of the account.)
   firstName     String
+  /// A teacher's name as their students see it ("Ms. Alvarez"); null means
+  /// their first name. Teachers only.
+  teacherDisplayName String?
   email         String    @unique
   emailVerified DateTime?
   passwordHash  String? // null when the account only has an OAuth identity
@@ -212,6 +217,10 @@ model Subscription {
   currentPeriodEnd     DateTime?
   cancelAtPeriodEnd    Boolean            @default(false)
   gracePeriodEndsAt    DateTime? // PRD-003: 7-day grace period after failed payment
+  // A plan switch waiting for the next renewal (a Stripe Subscription Schedule's next phase). Written only by
+  // syncSubscriptionFromStripe, from Stripe's own schedule, so Billing shows what Stripe will actually do.
+  pendingPlan          SubscriptionPlan?
+  pendingPlanStartsAt  DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -750,9 +759,10 @@ model QuestionAnswerChoice {
 // graph, or number line, or a manually uploaded one) — the Brilliant.org-style
 // step-by-step explanation. writtenExplanation is untouched and still used as
 // a fallback for older/simpler content; where both exist, steps take priority
-// in the student-facing renderer. Deleting/recreating the whole set on every
-// save (rather than diffing) mirrors how QuestionAnswerChoice's fixed 4-slot
-// array is already patched wholesale in this editor.
+// in the student-facing renderer. The whole set is deleted and recreated on
+// every save (rather than diffed): nothing stores a step's id. Answer choices
+// are the opposite — answers are stored by choice id — so they are updated in
+// place by (revisionId, order) and keep their ids (lib/content/questions.ts).
 model ExplanationStep {
   id         String           @id @default(cuid())
   revisionId String
@@ -818,6 +828,12 @@ model PracticeSet {
   currentPosition Int               @default(0)
 
   createdAt   DateTime  @default(now())
+  /// When the student first opened the set. Not `createdAt`: every set is
+  /// generated the moment the one before it (or the Diagnostic) finishes, so
+  /// a set opened three days later would otherwise report three days of
+  /// study. Null until opened; sets from before this column were backfilled
+  /// with their first answer's time.
+  startedAt   DateTime?
   completedAt DateTime?
 
   student           User                         @relation(fields: [studentId], references: [id], onDelete: Cascade)
@@ -1865,6 +1881,10 @@ model ClassroomEnrollment {
   /// Removed by the teacher or left by the student. Soft, so homework the
   /// student already finished still shows in the class's results.
   removedAt   DateTime?
+  /// The student's last name, given to this class's teacher when joining so
+  /// two students with one first name can be told apart. Scoped to this
+  /// class: the account itself stays first-name only (PRD-001).
+  lastName    String?
 
   classroom Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
   student   User      @relation(fields: [studentId], references: [id], onDelete: Cascade)
@@ -1872,6 +1892,13 @@ model ClassroomEnrollment {
   @@unique([classroomId, studentId])
   @@index([studentId, removedAt])
   @@map("classroom_enrollments")
+}
+
+/// How students do a homework: PRACTICE shows right/wrong and the
+/// explanation after every answer; QUIZ keeps both until it's turned in.
+enum AssignmentMode {
+  PRACTICE
+  QUIZ
 }
 
 /// Homework: a fixed list of questions assigned to one class.
@@ -1884,6 +1911,17 @@ model Assignment {
   /// Closed by the teacher: nothing new can be started or answered. Work
   /// already done is kept and still counts.
   closedAt     DateTime?
+  /// PRACTICE shows right/wrong and the explanation after every answer;
+  /// QUIZ keeps both until the student turns the homework in.
+  mode         AssignmentMode @default(PRACTICE)
+  /// When the day-before-due reminder was queued; set once, by the claim
+  /// that queues it, so a re-run of the cron can't send it twice.
+  reminderQueuedAt DateTime?
+  /// When the teacher last emailed the students who hadn't finished it
+  /// ("Remind the N who haven't finished"). Claimed like reminderQueuedAt,
+  /// and at most once a day, so a double click or an impatient teacher
+  /// can't flood a class's inboxes.
+  lastNudgedAt     DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

@@ -7,6 +7,8 @@ import { CLUB_SECTIONS } from "@/lib/club/config";
 import { getClubSessionForRunner } from "@/lib/club/sessions";
 import { ClubRunner } from "./club-runner";
 
+export const metadata = { title: "800 Club" };
+
 // The 800 Club question flow — the same SessionRunner the Diagnostic and
 // Practice Sessions use, so a hard question looks and behaves exactly like
 // any other question. Reached only from the 800 Club page's "Open".

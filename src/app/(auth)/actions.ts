@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { safeNextPath } from "@/lib/auth/next-path";
 import { cookies } from "next/headers";
 import { RUSH_JOIN_COOKIE } from "@/lib/rush/join-cookie";
 import { readPendingRushCode } from "@/lib/rush/pending-join";
@@ -21,9 +22,29 @@ import { logEvent, logRateLimitExceeded } from "@/lib/logger";
 
 const TOO_MANY_REQUESTS_MESSAGE = "Too many attempts. Please wait a few minutes and try again.";
 
-export type ActionState = { error?: string; success?: boolean };
+export type ActionState = {
+  error?: string;
+  success?: boolean;
+  /** The account already exists: the form offers Log in. */
+  emailTaken?: boolean;
+  /**
+   * What was typed, handed back with an error: React 19 resets a form after
+   * its action, so without this one mistake cleared every field. Never the
+   * password.
+   */
+  fields?: { firstName?: string; email?: string };
+};
+
+function typedFields(formData: FormData): ActionState["fields"] {
+  const text = (name: string) => {
+    const value = formData.get(name);
+    return typeof value === "string" ? value.slice(0, 200) : undefined;
+  };
+  return { firstName: text("firstName"), email: text("email") };
+}
 
 export async function signUpAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const fields = typedFields(formData);
   const parsed = signUpSchema.safeParse({
     firstName: formData.get("firstName"),
     email: formData.get("email"),
@@ -34,7 +55,7 @@ export async function signUpAction(_prev: ActionState, formData: FormData): Prom
   });
 
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input", fields };
   }
 
   // GER §3: account creation is rate-limited by client IP — the target of
@@ -50,14 +71,14 @@ export async function signUpAction(_prev: ActionState, formData: FormData): Prom
     : await checkRateLimitEnforced(`signup:${ip}`, RATE_LIMITS.ACCOUNT_CREATION_PER_IP);
   if (!rateLimit.allowed) {
     logRateLimitExceeded("Account creation rate limit exceeded", { ip });
-    return { error: TOO_MANY_REQUESTS_MESSAGE };
+    return { error: TOO_MANY_REQUESTS_MESSAGE, fields };
   }
 
   let created: Awaited<ReturnType<typeof createAccount>>;
   try {
     created = await createAccount(parsed.data);
   } catch (err) {
-    if (err instanceof AuthError) return { error: err.message };
+    if (err instanceof AuthError) return { error: err.message, emailTaken: err.code === "EMAIL_TAKEN", fields };
     throw err;
   }
 
@@ -121,13 +142,14 @@ export async function signUpAction(_prev: ActionState, formData: FormData): Prom
 }
 
 export async function loginAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const fields = { email: typedFields(formData)?.email };
   const parsed = loginSchema.safeParse({
     email: formData.get("email"),
     password: formData.get("password"),
   });
 
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input", fields };
   }
 
   // GER §3's login rate limit and the failed-login log both live in the
@@ -140,12 +162,14 @@ export async function loginAction(_prev: ActionState, formData: FormData): Promi
       redirect: false,
     });
   } catch (err) {
-    if (err instanceof LoginRateLimited) return { error: TOO_MANY_REQUESTS_MESSAGE };
-    if (err instanceof NextAuthError) return { error: "Incorrect email or password." };
+    if (err instanceof LoginRateLimited) return { error: TOO_MANY_REQUESTS_MESSAGE, fields };
+    if (err instanceof NextAuthError) return { error: "Incorrect email or password.", fields };
     throw err;
   }
 
-  redirect("/home");
+  // Back to the page the student was on their way to (a homework link in an
+  // email, say) when middleware sent them here; /home otherwise.
+  redirect(safeNextPath(formData.get("next")) ?? "/home");
 }
 
 export async function requestPasswordResetAction(
@@ -196,5 +220,5 @@ export async function confirmPasswordResetAction(
     throw err;
   }
 
-  redirect("/login");
+  redirect("/login?password=set");
 }

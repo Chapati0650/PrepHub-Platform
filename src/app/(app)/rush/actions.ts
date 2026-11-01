@@ -8,7 +8,7 @@ import { logUnauthorizedAccess } from "@/lib/logger";
 import { getStudentQuestionContent, getStudentQuestionFeedback } from "@/lib/session/question-content";
 import { RUSH_PLAY_OPTIONS, isRushPlayOption, isRushSection } from "@/lib/rush/config";
 import { normalizeRushCode } from "@/lib/rush/codes";
-import { RushError } from "@/lib/rush/errors";
+import { RushError, rushProblem, type RushProblem } from "@/lib/rush/errors";
 import {
   getReviewableSlot,
   joinChallenge,
@@ -53,8 +53,11 @@ function str(fd: FormData, key: string): string {
   return typeof v === "string" ? v : "";
 }
 
+// Back to the hub with a key for what went wrong; the hub maps it to fixed
+// copy (RUSH_HUB_ERRORS). Never a message in the URL — the page used to print
+// whatever `?error=` held.
 function toHubError(err: unknown): never {
-  if (err instanceof RushError) redirect(`/rush?error=${encodeURIComponent(err.message)}`);
+  if (err instanceof RushError) redirect(`/rush?error=${err.hubKey}`);
   throw err;
 }
 
@@ -93,7 +96,7 @@ export async function startRushAction(formData: FormData): Promise<void> {
 export async function joinRushAction(formData: FormData): Promise<void> {
   const studentId = await requireStudentId();
   const code = normalizeRushCode(str(formData, "code"));
-  if (!code) redirect(`/rush?error=${encodeURIComponent("A code is six letters and numbers, like ABC234.")}`);
+  if (!code) redirect("/rush?error=bad-code");
 
   let href: string;
   try {
@@ -106,23 +109,32 @@ export async function joinRushAction(formData: FormData): Promise<void> {
 }
 
 // ---- Recorded (async) runs, called from the RushRunner --------------------
+//
+// An expected RushError comes back as a RushProblem rather than being thrown:
+// production replaces a thrown action's message with a generic one, so the
+// runner could never tell "this rush is finished" from a dropped connection.
+// Anything unexpected still throws, and the runner treats it as the latter.
 
-export async function serveRushQuestionAction(runId: string): Promise<ServedQuestion | null> {
+export async function serveRushQuestionAction(runId: string): Promise<ServedQuestion | null | RushProblem> {
   const studentId = await requireStudentId();
   try {
     return await serveCurrentQuestion(studentId, runId);
   } catch (err) {
-    if (err instanceof RushError) throw new Error(err.message);
+    if (err instanceof RushError) return rushProblem(err);
     throw err;
   }
 }
 
-export async function submitRushAnswerAction(runId: string, position: number, answer: string | null): Promise<RushAnswerResult> {
+export async function submitRushAnswerAction(
+  runId: string,
+  position: number,
+  answer: string | null,
+): Promise<RushAnswerResult | RushProblem> {
   const studentId = await requireStudentId();
   try {
     return await submitRushAnswer({ studentId, runId, position, answer });
   } catch (err) {
-    if (err instanceof RushError) throw new Error(err.message);
+    if (err instanceof RushError) return rushProblem(err);
     throw err;
   }
 }
@@ -134,24 +146,28 @@ export async function pollLiveAction(challengeId: string): Promise<LiveState | n
   return getLiveState(studentId, challengeId);
 }
 
-export async function serveLiveQuestionAction(challengeId: string): Promise<LiveServedQuestion | { notYet: true }> {
+export async function serveLiveQuestionAction(challengeId: string): Promise<LiveServedQuestion | { notYet: true } | RushProblem> {
   const studentId = await requireStudentId();
   try {
     return await serveLiveQuestion(studentId, challengeId);
   } catch (err) {
     if (err instanceof RushError && err.code === "NOT_SERVED") return { notYet: true };
-    if (err instanceof RushError) throw new Error(err.message);
+    if (err instanceof RushError) return rushProblem(err);
     throw err;
   }
 }
 
-export async function submitLiveAnswerAction(challengeId: string, position: number, answer: string | null): Promise<LiveAnswerResult | { over: true }> {
+export async function submitLiveAnswerAction(
+  challengeId: string,
+  position: number,
+  answer: string | null,
+): Promise<LiveAnswerResult | { over: true } | RushProblem> {
   const studentId = await requireStudentId();
   try {
     return await submitLiveAnswer({ studentId, challengeId, position, answer });
   } catch (err) {
     if (err instanceof RushError && (err.code === "RUN_COMPLETED" || err.code === "NOT_SERVED")) return { over: true };
-    if (err instanceof RushError) throw new Error(err.message);
+    if (err instanceof RushError) return rushProblem(err);
     throw err;
   }
 }

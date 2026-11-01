@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { ALL_CATEGORIES } from "@/lib/adaptive/config";
 import { generateDiagnosticPrediction } from "@/lib/score/generate-diagnostic-prediction";
 import { generateAdaptivePrediction } from "@/lib/score/generate-adaptive-prediction";
+import { SESSION_HOUR_CAP } from "@/lib/school/student-activity";
 
 export type SessionResultsData = {
   sourceType: "DIAGNOSTIC" | "ADAPTIVE_SET";
@@ -21,8 +22,11 @@ export type SessionResultsData = {
 // never affects adaptivity or scoring, so it was never modeled as more than a
 // display nicety) — this derives the two required display stats from the
 // timestamps we do have rather than adding storage purely for a stat.
+// Capped like every other study-time figure (SESSION_HOUR_CAP): a Diagnostic
+// paused overnight is not a fourteen-hour sitting.
 function timeStats(startedAt: Date, completedAt: Date, questionCount: number) {
-  const totalSessionTime = Math.max(0, Math.round((completedAt.getTime() - startedAt.getTime()) / 1000));
+  const elapsed = Math.max(0, Math.round((completedAt.getTime() - startedAt.getTime()) / 1000));
+  const totalSessionTime = Math.min(elapsed, SESSION_HOUR_CAP * 3600);
   return {
     totalTimeSeconds: totalSessionTime,
     avgTimeSeconds: questionCount === 0 ? 0 : Math.round(totalSessionTime / questionCount),
@@ -115,7 +119,7 @@ export async function getPracticeSetResultsData(studentId: string, practiceSetId
       correct,
       total: set.slots.length,
       accuracy: Math.round((correct / set.slots.length) * 100),
-      ...timeStats(set.createdAt, set.completedAt ?? new Date(), set.slots.length),
+      ...timeStats(set.startedAt ?? set.createdAt, set.completedAt ?? new Date(), set.slots.length),
     },
     mastery: ALL_CATEGORIES.map((category) => {
       const before = snapshotByCategory.get(category);

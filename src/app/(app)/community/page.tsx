@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Users2, Megaphone } from "lucide-react";
+import { Megaphone } from "lucide-react";
 import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
@@ -7,6 +8,8 @@ import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { getSchoolCommunityData } from "@/lib/community/school-community-data";
 import { PageHeader } from "@/components/page-header";
 import { GoalCard } from "@/components/community/goal-card";
+
+export const metadata = { title: "School Community" };
 
 // PRD-009 — collaborative, aggregate-only view of a student's school. Only
 // reachable by students with an active school membership; individual/unpaid
@@ -35,15 +38,24 @@ export default async function SchoolCommunityPage() {
 
   if (!schoolId) {
     return (
-      <div className="mx-auto flex max-w-lg flex-col items-center gap-4 p-8 text-center">
-        <div className="inline-flex size-10 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-          <Users2 className="size-5" aria-hidden />
+      // Left-aligned on a tint, like every status screen here (CLAUDE.md),
+      // with the one way forward: connecting a school email.
+      <div className="mx-auto max-w-2xl p-4 sm:p-8">
+        <div className="rounded-3xl bg-surface-tint p-6 sm:p-10">
+          <h1 className="text-display-sm font-semibold tracking-tight">
+            School Community is available for school-sponsored students.
+          </h1>
+          <p className="mt-3 max-w-prose text-muted-foreground">
+            This page shows your school&apos;s collective progress. It becomes available once you&apos;re verified with a
+            partner school.
+          </p>
+          <Link
+            href="/access/verify-school"
+            className="mt-6 inline-block text-sm font-medium underline underline-offset-4"
+          >
+            Does your school provide PrepHub? Connect your school email
+          </Link>
         </div>
-        <h1 className="text-xl sm:text-2xl">School Community is available for school-sponsored students.</h1>
-        <p className="text-muted-foreground">
-          This page shows your school&apos;s collective progress. It becomes available once you&apos;re verified with a partner
-          school.
-        </p>
       </div>
     );
   }
@@ -59,8 +71,8 @@ export default async function SchoolCommunityPage() {
           student can change, and the prize is the reason to. */}
       {data.goal && <GoalCard goal={data.goal} />}
 
-      {/* School Progress */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      {/* School Progress — rules inside one box, not six boxes. */}
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border sm:grid-cols-3">
         <Stat label="Questions Answered" value={data.stats.totalQuestionsAnswered.toLocaleString()} />
         <Stat label="Study Hours" value={data.stats.totalStudyHours.toLocaleString()} />
         <Stat label="Practice Sets" value={data.stats.totalAdaptiveSessionsCompleted.toLocaleString()} />
@@ -73,9 +85,9 @@ export default async function SchoolCommunityPage() {
       {data.updates.length > 0 && (
         <div className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold">Community Updates</h2>
-          <ul className="flex flex-col gap-2">
+          <ul className="flex flex-col divide-y divide-border border-y border-border">
             {data.updates.map((update) => (
-              <li key={update} className="flex items-start gap-2.5 rounded-md bg-muted p-2.5 text-sm">
+              <li key={update} className="flex items-start gap-2.5 py-3 text-sm">
                 <Megaphone className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
                 {update}
               </li>
@@ -107,9 +119,9 @@ export default async function SchoolCommunityPage() {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border p-3 text-center">
-      <p className="font-heading text-lg font-semibold tabular-nums">{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
+    <div className="bg-background p-4">
+      <p className="font-heading text-2xl font-semibold tabular-nums">{value}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{label}</p>
     </div>
   );
 }

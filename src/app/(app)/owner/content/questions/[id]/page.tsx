@@ -5,6 +5,8 @@ import { listQuestionIds, parseQuestionListFilters } from "@/lib/content/list-qu
 import { QuestionEditor } from "./question-editor";
 import { requireOwnerPage } from "@/lib/owner/guard";
 
+export const metadata = { title: "Edit question" };
+
 type SearchParams = Record<string, string | string[] | undefined>;
 
 function toQueryString(searchParams: SearchParams): string {

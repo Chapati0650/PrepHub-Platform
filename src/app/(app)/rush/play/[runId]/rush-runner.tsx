@@ -6,10 +6,28 @@ import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
 import { RUSH_BASE_POINTS, RUSH_SPEED_POINTS, RUSH_STREAK_MAX_BONUS, RUSH_STREAK_STEP_POINTS } from "@/lib/rush/config";
 import type { RunContext, RushAnswerResult, ServedQuestion } from "@/lib/rush/runs";
+import { isRushProblem, type RushProblem } from "@/lib/rush/errors";
+import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
 import { RushQuestion, TimeBar, formatSeconds } from "../../rush-question";
 import { GoCountdown, PointsPop, SoundControls, StreakFlame, useRushMusic, useRushSound } from "../../game-fx";
+import { withRetry } from "../../retry";
 
 type Phase = "intro" | "countdown" | "loading" | "question" | "feedback" | "error";
+
+// Why the runner stopped. Fixed copy for each, never an action's own error
+// message: in production that is always Next's generic one, which said
+// nothing a student could act on.
+type Failure = "offline" | "stale" | "gone";
+const FAILURE_COPY: Record<Failure, { title: string; body: string }> = {
+  offline: {
+    title: "We lost the connection.",
+    body:
+      "PrepHub didn't answer just then. Your earlier answers are saved — try again and the rush picks up where it " +
+      "stopped.",
+  },
+  stale: { title: "PrepHub was just updated.", body: STALE_BUILD_MESSAGE },
+  gone: { title: "This rush isn't available.", body: "It may have been removed, or it was started from a different account." },
+};
 
 // How long the ✓/✗ + points linger before the next question is served. The
 // next question's clock starts only when it is served, so this pause never
@@ -32,8 +50,8 @@ export function RushRunner({
   submit,
 }: {
   run: RunContext;
-  serve: (runId: string) => Promise<ServedQuestion | null>;
-  submit: (runId: string, position: number, answer: string | null) => Promise<RushAnswerResult>;
+  serve: (runId: string) => Promise<ServedQuestion | null | RushProblem>;
+  submit: (runId: string, position: number, answer: string | null) => Promise<RushAnswerResult | RushProblem>;
 }) {
   const router = useRouter();
   const sound = useRushSound();
@@ -45,11 +63,20 @@ export function RushRunner({
   const [result, setResult] = useState<RushAnswerResult | null>(null);
   const [score, setScore] = useState(run.score);
   const [streak, setStreak] = useState(run.streak);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<Failure | null>(null);
   const inFlight = useRef(false);
   const lastTick = useRef<number | null>(null);
   const resultsHref = `/rush/results/${run.challengeId}`;
   const streaks = run.scoringVersion >= 2;
+
+  function fail(kind: Failure) {
+    setFailure(kind);
+    setPhase("error");
+  }
+
+  function failFrom(err: unknown) {
+    fail(isStaleServerActionError(err) ? "stale" : "offline");
+  }
 
   async function loadNext() {
     setPhase("loading");
@@ -57,7 +84,12 @@ export function RushRunner({
     setResult(null);
     lastTick.current = null;
     try {
-      const q = await serve(run.id);
+      const q = await withRetry(() => serve(run.id));
+      if (isRushProblem(q)) {
+        if (q.problem === "FINISHED") router.replace(resultsHref);
+        else fail("gone");
+        return;
+      }
       if (!q) {
         router.replace(resultsHref);
         return;
@@ -70,8 +102,7 @@ export function RushRunner({
       setRemainingMs(q.remainingMs);
       setPhase("question");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
-      setPhase("error");
+      failFrom(err);
     }
   }
 
@@ -79,7 +110,15 @@ export function RushRunner({
     if (!current || inFlight.current) return;
     inFlight.current = true;
     try {
-      const r = await submit(run.id, current.position, answer);
+      const r = await withRetry(() => submit(run.id, current.position, answer));
+      if (isRushProblem(r)) {
+        // Finished in another tab; or this device fell a question behind,
+        // so serve whatever is actually current.
+        if (r.problem === "FINISHED") router.replace(resultsHref);
+        else if (r.problem === "OUT_OF_STEP") void loadNext();
+        else fail("gone");
+        return;
+      }
       setResult(r);
       setScore(r.score);
       setStreak(r.streak);
@@ -91,8 +130,7 @@ export function RushRunner({
         else void loadNext();
       }, FEEDBACK_MS);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
-      setPhase("error");
+      failFrom(err);
     } finally {
       inFlight.current = false;
     }
@@ -194,17 +232,26 @@ export function RushRunner({
   }
 
   if (phase === "error") {
+    const kind = failure ?? "offline";
+    const copy = FAILURE_COPY[kind];
     return (
       <div className="mx-auto flex max-w-2xl flex-col gap-6 p-4 pb-16 sm:p-8">
         <section className="rounded-3xl bg-surface-tint p-6 sm:p-10">
           <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">{eyebrow}</p>
-          <h1 className="mt-3 text-page-title">Something went wrong.</h1>
-          <p className="mt-3 text-muted-foreground">{error ?? "Please try again."}</p>
+          <h1 className="mt-3 text-page-title">{copy.title}</h1>
+          <p className="mt-3 max-w-prose text-muted-foreground">{copy.body}</p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <Button size="cta" onClick={() => void loadNext()}>
-              Try again
-            </Button>
-            <LinkButton size="cta" variant="ghost" href="/rush">
+            {kind === "offline" && (
+              <Button size="cta" onClick={() => void loadNext()}>
+                Try again
+              </Button>
+            )}
+            {kind === "stale" && (
+              <Button size="cta" onClick={() => window.location.reload()}>
+                Reload
+              </Button>
+            )}
+            <LinkButton size="cta" variant={kind === "gone" ? "default" : "ghost"} href="/rush">
               Back to 1v1 Rush
             </LinkButton>
           </div>
