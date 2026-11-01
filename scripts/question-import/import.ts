@@ -190,6 +190,28 @@ function contentKey(passage: string | null, stem: string, choices: string[] = []
   return options.length ? `${text} | ${options.join(" | ")}` : text;
 }
 
+/**
+ * A grid-in has no choices, so its answer stands in for them: "A right
+ * triangle has the dimensions shown… What is the area?" is the same stem for
+ * legs 9 and 4 and for legs 4 and 6. Each accepted form becomes its value to
+ * one decimal place, so "3/4", ".75" and "0.75" are one answer and a list
+ * that also accepts "16.66" and "16.67" still matches one that gives "50/3".
+ */
+function gridInValues(answers: string[]): string[] {
+  const values = answers.map((answer) => {
+    const a = answer.trim();
+    const fraction = /^(-?\d*\.?\d+)\/(\d*\.?\d+)$/.exec(a);
+    const n = fraction ? Number(fraction[1]) / Number(fraction[2]) : Number(a);
+    return Number.isFinite(n) ? (Math.round(n * 10) / 10).toString() : a.toLowerCase();
+  });
+  return [...new Set(values)].sort();
+}
+
+/** What contentKey compares beside the text: the choices, or a grid-in's answers. */
+function optionsOf(choices: string[] | null, acceptedAnswers: string[]): string[] {
+  return choices?.length ? choices : gridInValues(acceptedAnswers);
+}
+
 function pagePath(page: number): string {
   return path.join(folder!, "pages", `page-${String(page).padStart(3, "0")}.png`);
 }
@@ -249,8 +271,8 @@ async function main() {
     select: {
       id: true,
       status: true,
-      currentPublishedRevision: { select: { questionText: true, passageText: true, answerChoices: { orderBy: { order: "asc" }, select: { text: true } } } },
-      currentDraftRevision: { select: { questionText: true, passageText: true, answerChoices: { orderBy: { order: "asc" }, select: { text: true } } } },
+      currentPublishedRevision: { select: { questionText: true, passageText: true, acceptedAnswers: true, answerChoices: { orderBy: { order: "asc" }, select: { text: true } } } },
+      currentDraftRevision: { select: { questionText: true, passageText: true, acceptedAnswers: true, answerChoices: { orderBy: { order: "asc" }, select: { text: true } } } },
     },
   });
   const known = new Map<string, { id: string; status: string }>();
@@ -258,7 +280,11 @@ async function main() {
   for (const q of existing) {
     for (const revision of [q.currentPublishedRevision, q.currentDraftRevision]) {
       if (revision) {
-        const key = contentKey(revision.passageText, revision.questionText, revision.answerChoices.map((c) => c.text));
+        const key = contentKey(
+          revision.passageText,
+          revision.questionText,
+          optionsOf(revision.answerChoices.map((c) => c.text), revision.acceptedAnswers),
+        );
         known.set(key, { id: q.id, status: q.status });
       }
     }
@@ -270,7 +296,7 @@ async function main() {
 
   for (const q of batch.questions) {
     const problems = problemsWith(q);
-    const key = contentKey(q.passageText, q.questionText, q.choices ?? []);
+    const key = contentKey(q.passageText, q.questionText, optionsOf(q.choices, q.acceptedAnswers));
     if (seenInBatch.has(key)) problems.push("appears twice in this batch");
     seenInBatch.add(key);
     for (const page of q.pages) {
@@ -377,7 +403,7 @@ async function attachToExisting(
   let rewritten = 0;
   let refused = 0;
   for (const { q } of items) {
-    const match = known.get(contentKey(q.passageText, q.questionText, q.choices ?? []));
+    const match = known.get(contentKey(q.passageText, q.questionText, optionsOf(q.choices, q.acceptedAnswers)));
     if (!match) continue;
     const question = await prisma.question.findUniqueOrThrow({
       where: { id: match.id },
