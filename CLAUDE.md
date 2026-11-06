@@ -260,7 +260,11 @@ Prediction, the session-results Score Prediction) are set large and bold
 (`text-6xl sm:text-7xl font-heading tabular-nums`) against otherwise quiet
 surrounding UI — small uppercase labels, plain bordered stat tiles — so they
 read as the obvious focal point rather than competing with everything else
-on the page. Keep any new "headline number" (a stat tile, a streak count) on
+on the page. The dashboard's score card is ~320px inside at every desktop
+width, too narrow for "1130–1200" at the hero size, so it passes `fit` to
+`ScorePrediction` (sized to its own width by container query, never above
+the hero size, never wrapping); `fit` needs a parent-given width, so the
+results page's content-sized row doesn't use it. Keep any new "headline number" (a stat tile, a streak count) on
 this same `tabular-nums` + size-contrast pattern rather than a same-size
 label+value pair.
 

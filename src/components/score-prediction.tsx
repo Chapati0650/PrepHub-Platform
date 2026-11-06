@@ -15,11 +15,19 @@ export function ScorePrediction({
   max,
   label,
   className,
+  fit = false,
 }: {
   min: number;
   max: number;
   label: string;
   className?: string;
+  /** Size the number to this component's own width instead of the fixed hero
+   *  scale, never above it. The dashboard's score card is ~320px inside at
+   *  every desktop width, which broke "1130–1200" across two lines. With
+   *  `fit` the component is its own size container, so its width must come
+   *  from its parent (a stretched flex child or a block), never from its
+   *  content: in a content-sized row (session results) it would collapse. */
+  fit?: boolean;
 }) {
   const left = ((min - SAT_SCALE_MIN) / (SAT_SCALE_MAX - SAT_SCALE_MIN)) * 100;
   // A typical 60-80 point range is only ~5% of the 1200-point scale, so the
@@ -31,9 +39,14 @@ export function ScorePrediction({
   const width = Math.max(((max - min) / (SAT_SCALE_MAX - SAT_SCALE_MIN)) * 100, 4);
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div className={cn("flex flex-col gap-2", fit && "@container", className)}>
       <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">{label}</p>
-      <p className="font-heading text-hero font-semibold tracking-tight tabular-nums sm:text-hero-lg">
+      <p
+        className={cn(
+          "font-heading font-semibold tracking-tight tabular-nums",
+          fit ? "text-[length:clamp(2.25rem,17cqi,var(--text-hero-lg))] whitespace-nowrap" : "text-hero sm:text-hero-lg",
+        )}
+      >
         {min}–{max}
       </p>
       {/* The scale keeps its 400/1600 end labels so the bar reads as a real

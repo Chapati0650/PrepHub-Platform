@@ -98,7 +98,7 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
                 </span>
                 {q.first.kind === "choices" && q.first.commonWrong && (
                   <span className="mt-1 block">
-                    <StatusChip tone="warn">Most chose {q.first.commonWrong}</StatusChip>
+                    <StatusChip tone="warn">Most who missed it chose {q.first.commonWrong}</StatusChip>
                   </span>
                 )}
               </span>

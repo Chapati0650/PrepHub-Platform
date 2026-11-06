@@ -420,7 +420,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
           <Panel title="Your Score">
             <div className="flex flex-col gap-6">
               {data.currentRange ? (
-                <ScorePrediction min={data.currentRange.min} max={data.currentRange.max} label="PrepHub Score Prediction" />
+                <ScorePrediction min={data.currentRange.min} max={data.currentRange.max} label="PrepHub Score Prediction" fit />
               ) : (
                 <div>
                   <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
