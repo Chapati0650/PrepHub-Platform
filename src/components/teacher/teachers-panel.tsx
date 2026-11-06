@@ -17,6 +17,7 @@ export type TeacherPanelRow = {
   activated: boolean;
   classCount: number;
   studentCount: number;
+  guidedSessionCount?: number;
 };
 
 export type TeacherPanelState = { error?: string; success?: boolean; message?: string };
@@ -130,8 +131,11 @@ export function TeachersPanel({
                   )}
                   <p className="truncate text-base text-muted-foreground">{t.email}</p>
                 </div>
-                <p className="text-base tabular-nums lg:w-48 lg:text-right">
+                <p className="text-base tabular-nums lg:w-56 lg:text-right">
                   {plural(t.classCount, "class", "classes")} · {plural(t.studentCount, "student")}
+                  {!!t.guidedSessionCount && (
+                    <span className="block text-muted-foreground">{plural(t.guidedSessionCount, "Guided Session")} run</span>
+                  )}
                 </p>
                 {!readOnly && (
                   <div className="flex shrink-0 flex-wrap gap-2">

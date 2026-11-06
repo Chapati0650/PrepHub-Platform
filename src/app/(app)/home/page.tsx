@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { readPendingRushCode } from "@/lib/rush/pending-join";
 import { readPendingClassCode } from "@/lib/teacher/pending-join";
 import { listHomework, type HomeworkItem } from "@/lib/teacher/homework";
+import { listOpenSessionsForStudent, recentSessionsWithWork, type OpenSessionLink, type RecentSession } from "@/lib/guided/queries";
 import { formatGoalDate, nextUtcDayLocalTime } from "@/lib/community/local-day";
 import { TrendingUp, Check, ChevronRight, Pencil, Flame, NotebookPen } from "lucide-react";
 import { auth } from "@/auth";
@@ -151,6 +152,11 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   // Homework a teacher set: the same "to do" list as the Homework page, so a
   // student never has to remember to look there. Empty for anyone not in a class.
   const homeworkToDo = isStudent ? (await listHomework(session.user.id)).todo : [];
+  // Guided Sessions: one running now in the student's class leads the page; a
+  // recent one with a catch-up or a question to retry gets a row.
+  const [liveSessions, guidedWork] = isStudent
+    ? await Promise.all([listOpenSessionsForStudent(session.user.id), recentSessionsWithWork(session.user.id)])
+    : [[], []];
   const communitySchoolId =
     schoolMembership?.status === "ACTIVE" ? schoolMembership.schoolId : adminAssignment?.organizationId;
   const hasSchoolCommunity = Boolean(communitySchoolId);
@@ -190,6 +196,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   if (data.diagnosticStatus !== "COMPLETED") {
     return (
       <div className="mx-auto flex max-w-2xl flex-col gap-8 p-6 sm:p-10">
+        <LiveSessionBanner sessions={liveSessions} />
         <AnnouncementsBanner announcements={announcements} />
         {/* Left-aligned, not centered: there is exactly one thing to do here,
             and a centered column of text with a button under it is the shape
@@ -220,6 +227,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         </div>
 
         <HomeworkDoor todo={homeworkToDo} />
+        <GuidedWorkDoor sessions={guidedWork} />
 
         {/* The Diagnostic stays the lead, but it is no longer the only thing
             on the page. This screen used to be a single button, which read as
@@ -264,6 +272,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-8 p-4 pb-16 sm:p-8">
+      <LiveSessionBanner sessions={liveSessions} />
       <AnnouncementsBanner announcements={announcements} />
 
       {/* Greeting row — the reference's "Good late night, <name>" with the
@@ -305,6 +314,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       </section>
 
       <HomeworkDoor todo={homeworkToDo} />
+      <GuidedWorkDoor sessions={guidedWork} />
 
       {/* The Daily Challenge — free for everyone, the reason to open the app
           tomorrow. One row, not a panel: it is a door, not a dashboard. */}
@@ -551,6 +561,66 @@ function HomeworkDoor({ todo }: { todo: HomeworkItem[] }) {
       <span className="shrink-0 text-sm font-medium text-primary">
         {next.status === "IN_PROGRESS" ? `${next.answered}/${next.questionCount} answered` : "Start"}
       </span>
+    </Link>
+  );
+}
+
+/**
+ * A Guided Session running now in one of the student's classes. It leads the
+ * page while it runs: in a classroom, this is the one thing to do. Joining
+ * itself is a button on the session page, so a preview of this link never
+ * puts anyone in the room.
+ */
+function LiveSessionBanner({ sessions }: { sessions: OpenSessionLink[] }) {
+  if (sessions.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-3">
+      {sessions.map((s) => (
+        <div
+          key={s.id}
+          className="flex flex-col gap-4 rounded-2xl bg-surface-deep p-5 text-surface-deep-foreground sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="flex items-start gap-3">
+            <span className="mt-2 size-2.5 shrink-0 rounded-full bg-marker" aria-hidden />
+            <div>
+              <p className="text-lg font-semibold">Live now · {s.className}</p>
+              <p className="text-base opacity-85">
+                {s.joined ? "You're in this Guided Session." : `${s.teacherName} started a Guided Session.`}
+              </p>
+            </div>
+          </div>
+          <Link
+            href={`/live/${s.id}`}
+            className="inline-flex h-11 w-fit items-center rounded-md bg-surface-deep-foreground px-5 text-base font-semibold text-surface-deep"
+          >
+            {s.joined ? "Go back in" : "Join"}
+          </Link>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A recent Guided Session with a catch-up or a question to retry. One row, like homework. */
+function GuidedWorkDoor({ sessions }: { sessions: RecentSession[] }) {
+  if (sessions.length === 0) return null;
+  const next = sessions[0];
+  const what =
+    next.toCatchUp > 0
+      ? `Catch up: ${next.toCatchUp} question${next.toCatchUp === 1 ? "" : "s"} from ${next.joined ? "the part you missed" : "the session you missed"}`
+      : `${next.toRetry} question${next.toRetry === 1 ? "" : "s"} to try again`;
+  return (
+    <Link
+      href={`/live/${next.id}`}
+      className="flex items-center justify-between gap-4 rounded-2xl border border-border px-5 py-4 transition-colors hover:border-foreground/30"
+    >
+      <span className="min-w-0">
+        <span className="block font-medium">Guided Session · {next.categoryLabel}</span>
+        <span className="block truncate text-sm text-muted-foreground">
+          {what} · {next.className}
+        </span>
+      </span>
+      <span className="shrink-0 text-sm font-medium text-primary">{next.toCatchUp > 0 ? "Catch up" : "Try again"}</span>
     </Link>
   );
 }

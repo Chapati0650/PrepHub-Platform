@@ -10,6 +10,7 @@ import {
 } from "@/lib/admin/impact";
 import { formatContractDate, type SchoolAccessInfo, type SchoolAccessState } from "@/lib/admin/access-info";
 import { getStudentDirectorySummary } from "@/lib/admin/student-directory";
+import { schoolGuidedTotals } from "@/lib/guided/queries";
 import { SCHOOLS_CONTACT_EMAIL } from "@/components/marketing/site-chrome";
 import {
   StaffHeader,
@@ -80,11 +81,12 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
 
   // The student counts come from the Students page's own summary, so the two
   // pages can never disagree about how many have started or are active.
-  const [data, impact, setup, students] = await Promise.all([
+  const [data, impact, setup, students, guided] = await Promise.all([
     getAdminOverviewData(schoolId),
     getCampusImpact(schoolId),
     getAdminSetupProgress(schoolId),
     getStudentDirectorySummary(schoolId),
+    schoolGuidedTotals(schoolId, 30),
   ]);
 
   const { enrollment, stats } = data;
@@ -238,6 +240,22 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
       </StaffSection>
 
       <ReadinessSection impact={impact} />
+
+      {guided.sessions > 0 && (
+        <StaffSection
+          title="Guided Sessions"
+          description="Live, whole-class sessions your teachers ran from the front, in the last 30 days. Totals only; teachers see their own class's results."
+        >
+          <StatStrip
+            columns={3}
+            stats={[
+              { label: "Sessions run", value: guided.sessions.toLocaleString() },
+              { label: "Students who took part", value: guided.students.toLocaleString(), hint: "each counted once" },
+              { label: "Class time", value: `${Math.round(guided.minutes / 60).toLocaleString()} hr`, hint: "from Start to the end" },
+            ]}
+          />
+        </StaffSection>
+      )}
 
       <StaffSection
         title="Your school's access"

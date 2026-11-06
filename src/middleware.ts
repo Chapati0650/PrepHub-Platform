@@ -37,8 +37,10 @@ import { CLASS_JOIN_COOKIE, CLASS_JOIN_COOKIE_MAX_AGE, CLASS_JOIN_CODE_SHAPE } f
 // /homework, /practice, /daily and /diagnostic are here for the links in
 // email (homework, reminders, the Diagnostic nudge): signed out, those land on
 // /login with the page kept in `next`, so signing in finishes the click
-// instead of dropping the student on /home.
-const APP_PREFIXES = ["/home", "/settings", "/homework", "/practice", "/daily", "/diagnostic"];
+// instead of dropping the student on /home. /live is what a Guided Session's
+// board tells a class to open, so a student who isn't signed in yet comes back
+// to it after logging in.
+const APP_PREFIXES = ["/home", "/settings", "/homework", "/practice", "/daily", "/diagnostic", "/live"];
 const isAppRoute = (pathname: string) => APP_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
 // The landing page is deliberately NOT matched. Middleware here is a Netlify
@@ -133,6 +135,7 @@ export const config = {
     "/practice/:path*",
     "/daily/:path*",
     "/diagnostic/:path*",
+    "/live/:path*",
     "/rush/join/:path*",
     "/join/:path*",
   ],

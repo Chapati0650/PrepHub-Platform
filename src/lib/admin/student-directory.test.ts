@@ -208,8 +208,9 @@ describe("activity filters", () => {
     const { text, values } = flattenSql(mocked.$queryRaw.mock.calls[0]);
     expect(text).toContain('m."schoolId" =');
     expect(text).toContain(`m."status" = 'ACTIVE'`);
-    // One bound value per answer table, whatever the size of the school.
-    expect(values.filter((v) => v === "school1").length).toBe(7);
+    // One bound value per answer table (nine, with Guided Sessions' two),
+    // whatever the size of the school.
+    expect(values.filter((v) => v === "school1").length).toBe(9);
   });
 
   it("puts a student in exactly the groups their last answer says", () => {

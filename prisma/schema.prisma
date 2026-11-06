@@ -42,14 +42,14 @@ model User {
   // PRD-001: only first name is collected, never last name/username/phone.
   // (A student's last name for one class lives on ClassroomEnrollment, given
   // to that teacher when joining; it never becomes part of the account.)
-  firstName     String
+  firstName          String
   /// A teacher's name as their students see it ("Ms. Alvarez"); null means
   /// their first name. Teachers only.
   teacherDisplayName String?
-  email         String    @unique
-  emailVerified DateTime?
-  passwordHash  String? // null when the account only has an OAuth identity
-  image         String? // imported from Google, editable; falls back to initials in UI
+  email              String    @unique
+  emailVerified      DateTime?
+  passwordHash       String? // null when the account only has an OAuth identity
+  image              String? // imported from Google, editable; falls back to initials in UI
 
   grade        Int? // 9-12, required for students; null for OWNER/SCHOOL_ADMINISTRATOR
   ageConfirmed Boolean @default(false)
@@ -119,6 +119,10 @@ model User {
   classroomsTaught        Classroom[]              @relation("ClassroomTeacher")
   classroomEnrollments    ClassroomEnrollment[]
   homeworkSessions        HomeworkSession[]
+  guidedSessionsRun       GuidedSession[]          @relation("GuidedSessionTeacher")
+  guidedParticipations    GuidedParticipant[]
+  guidedResponses         GuidedResponse[]
+  guidedOwnSlots          GuidedOwnSlot[]
 
   @@map("users")
 }
@@ -631,7 +635,7 @@ model Question {
   publishedAt DateTime?
   archivedAt  DateTime?
 
-  revisions QuestionRevision[] @relation("QuestionRevisions")
+  revisions           QuestionRevision[]    @relation("QuestionRevisions")
   walkthroughFeedback WalkthroughFeedback[]
 
   blueprintSlots      BlueprintSlot[]
@@ -643,6 +647,8 @@ model Question {
   dailyChallenges     DailyChallenge[]
   assignmentQuestions AssignmentQuestion[]
   homeworkSlots       HomeworkSlot[]
+  guidedItems         GuidedItem[]
+  guidedOwnSlots      GuidedOwnSlot[]
 
   @@index([sourceImageHash])
   /// The Questions table filters by family, and publishing a family touches
@@ -722,6 +728,8 @@ model QuestionRevision {
   dailyChallenges     DailyChallenge[]
   assignmentQuestions AssignmentQuestion[]
   homeworkSlots       HomeworkSlot[]
+  guidedItems         GuidedItem[]
+  guidedOwnSlots      GuidedOwnSlot[]
 
   /// The editor lists a question's revision history.
   @@index([questionId])
@@ -1863,10 +1871,11 @@ model Classroom {
   updatedAt  DateTime  @updatedAt
   archivedAt DateTime?
 
-  teacher     User                  @relation("ClassroomTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
-  school      Organization          @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  enrollments ClassroomEnrollment[]
-  assignments Assignment[]
+  teacher        User                  @relation("ClassroomTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  school         Organization          @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  enrollments    ClassroomEnrollment[]
+  assignments    Assignment[]
+  guidedSessions GuidedSession[]
 
   @@index([teacherId, archivedAt])
   @@index([schoolId])
@@ -1885,6 +1894,10 @@ model ClassroomEnrollment {
   /// two students with one first name can be told apart. Scoped to this
   /// class: the account itself stays first-name only (PRD-001).
   lastName    String?
+  /// A testing accommodation (504 plan or IEP) the teacher sets once,
+  /// privately. Guided Sessions read it: no countdown in the class rounds,
+  /// and a longer clock for the student's own questions.
+  extraTime   ExtraTime @default(NONE)
 
   classroom Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
   student   User      @relation(fields: [studentId], references: [id], onDelete: Cascade)
@@ -1903,17 +1916,17 @@ enum AssignmentMode {
 
 /// Homework: a fixed list of questions assigned to one class.
 model Assignment {
-  id           String    @id @default(cuid())
-  classroomId  String
-  title        String
-  instructions String?   @db.Text
-  dueAt        DateTime?
+  id               String         @id @default(cuid())
+  classroomId      String
+  title            String
+  instructions     String?        @db.Text
+  dueAt            DateTime?
   /// Closed by the teacher: nothing new can be started or answered. Work
   /// already done is kept and still counts.
-  closedAt     DateTime?
+  closedAt         DateTime?
   /// PRACTICE shows right/wrong and the explanation after every answer;
   /// QUIZ keeps both until the student turns the homework in.
-  mode         AssignmentMode @default(PRACTICE)
+  mode             AssignmentMode @default(PRACTICE)
   /// When the day-before-due reminder was queued; set once, by the claim
   /// that queues it, so a re-run of the cron can't send it twice.
   reminderQueuedAt DateTime?
@@ -1922,8 +1935,8 @@ model Assignment {
   /// and at most once a day, so a double click or an impatient teacher
   /// can't flood a class's inboxes.
   lastNudgedAt     DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   classroom Classroom            @relation(fields: [classroomId], references: [id], onDelete: Cascade)
   questions AssignmentQuestion[]
@@ -2027,4 +2040,226 @@ model WalkthroughFeedback {
   @@unique([studentId, questionRevisionId])
   @@index([questionId])
   @@map("walkthrough_feedback")
+}
+
+// ---------------------------------------------------------------------------
+// Guided Sessions (2026-11-05): one adult runs a live, teacher-paced session
+// for one class. The questions go up on a projector and onto every student's
+// screen at once; students answer alone, the room talks it over or the
+// teacher explains, and the session ends with a few questions picked for each
+// student. Designed with Houston ISD's CCMR team in mind.
+//
+// Outside the adaptive engine like every mode after it: answers given after a
+// discussion aren't a student's own work, so nothing here moves a predicted
+// score or a practice level. GuidedResponse and GuidedOwnSlot are the eighth
+// answer source in lib/school/student-activity.ts.
+// ---------------------------------------------------------------------------
+
+enum GuidedSessionStatus {
+  OPEN
+  ENDED
+}
+
+/// Where the room is. The teacher moves it; students' screens follow.
+enum GuidedPhase {
+  LOBBY // joining, with a warm-up question on every screen
+  PLAN
+  EXAMPLE // a worked example, stepped through from the front
+  THINK // a class question, answered alone
+  TALK // partner talk before a second vote
+  REVOTE
+  REVEAL
+  EXPLAIN
+  OWN // each student's own questions
+  RECAP
+}
+
+enum GuidedItemKind {
+  WARMUP
+  EXAMPLE
+  CLASS
+  /// "One like it", added during the session after the teacher explains a
+  /// question most of the room missed.
+  TWIN
+}
+
+enum GuidedConfidence {
+  SURE
+  THINK_SO
+  GUESSING
+}
+
+enum GuidedPace {
+  TOO_FAST
+  ABOUT_RIGHT
+  TOO_SLOW
+}
+
+/// The College Board's two extended-time accommodations.
+enum ExtraTime {
+  NONE
+  TIME_AND_HALF
+  DOUBLE
+}
+
+model GuidedSession {
+  id               String              @id @default(cuid())
+  classroomId      String
+  teacherId        String
+  category         QuestionCategory
+  /// What the teacher was shown when the skill was chosen, kept for the
+  /// report. Counts per skill only; never a student.
+  pickSnapshot     Json?
+  /// What a student types at /live to join from outside the class.
+  joinCode         String              @unique
+  /// Unguessable key for the shared state every screen polls. That state
+  /// carries nothing per student, so it can be cached for a second at the
+  /// edge: thirty screens cost about one database read a second.
+  stateKey         String              @unique
+  status           GuidedSessionStatus @default(OPEN)
+  phase            GuidedPhase         @default(LOBBY)
+  /// The item (by position) the current phase is about.
+  position         Int                 @default(0)
+  /// The explanation step on the board in EXAMPLE and EXPLAIN.
+  step             Int                 @default(0)
+  /// "Pause screens": every student screen says to look at the board.
+  paused           Boolean             @default(false)
+  phaseStartedAt   DateTime            @default(now())
+  /// When the current phase's clock runs out; null means no clock. The
+  /// clock is a guide: the teacher always makes the move.
+  phaseEndsAt      DateTime?
+  /// Bumped by every teacher action. Screens refetch their own state when
+  /// it changes.
+  version          Int                 @default(0)
+  ownQuestionCount Int                 @default(4)
+  ownSeconds       Int                 @default(420)
+  /// When the teacher left the lobby.
+  startedAt        DateTime?
+  endedAt          DateTime?
+  createdAt        DateTime            @default(now())
+
+  classroom    Classroom           @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  teacher      User                @relation("GuidedSessionTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  items        GuidedItem[]
+  participants GuidedParticipant[]
+  responses    GuidedResponse[]
+  ownSlots     GuidedOwnSlot[]
+
+  @@index([classroomId, createdAt])
+  @@index([teacherId, status])
+  @@map("guided_sessions")
+}
+
+/// One question the whole room sees, pinned to the revision that was
+/// published when it was chosen.
+model GuidedItem {
+  id                 String             @id @default(cuid())
+  sessionId          String
+  position           Int
+  kind               GuidedItemKind
+  questionId         String
+  questionRevisionId String
+  difficulty         QuestionDifficulty
+  /// PrepHub's estimate before class: the chance the class's typical student
+  /// gets it right alone, 0 to 1. Null where there was no data to estimate.
+  plannedChance      Float?
+  openedAt           DateTime?
+  revealedAt         DateTime?
+  /// Whether the room talked it over and voted again.
+  talked             Boolean            @default(false)
+
+  session          GuidedSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question         Question         @relation(fields: [questionId], references: [id])
+  questionRevision QuestionRevision @relation(fields: [questionRevisionId], references: [id])
+  responses        GuidedResponse[]
+
+  @@index([sessionId, position])
+  @@index([questionId])
+  @@map("guided_items")
+}
+
+model GuidedParticipant {
+  id            String      @id @default(cuid())
+  sessionId     String
+  studentId     String
+  joinedAt      DateTime    @default(now())
+  /// Bumped by the student's screen every few seconds; the teacher sees
+  /// "Away" when it goes quiet or the tab is hidden.
+  lastSeenAt    DateTime    @default(now())
+  hidden        Boolean     @default(false)
+  /// Answering on paper: added by the teacher, who enters their answers.
+  onPaper       Boolean     @default(false)
+  /// Copied from the class enrollment when they join.
+  extraTime     ExtraTime   @default(NONE)
+  pace          GuidedPace?
+  ownFinishedAt DateTime?
+
+  session GuidedSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student User          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, studentId])
+  @@index([studentId])
+  @@map("guided_participants")
+}
+
+/// One student's answers to one class question: the vote before any talk,
+/// and the vote after it.
+model GuidedResponse {
+  id               String            @id @default(cuid())
+  sessionId        String
+  itemId           String
+  studentId        String
+  /// The choice on screen but not yet submitted. Becomes the answer if the
+  /// room moves on before the student presses Submit.
+  draft            String?
+  firstAnswer      String?
+  firstCorrect     Boolean?
+  firstAt          DateTime?
+  confidence       GuidedConfidence?
+  secondAnswer     String?
+  secondCorrect    Boolean?
+  secondAt         DateTime?
+  /// Answered on paper and entered by the teacher.
+  enteredByTeacher Boolean           @default(false)
+  /// Answered afterwards, in the catch-up, not live.
+  catchUp          Boolean           @default(false)
+
+  session GuidedSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  item    GuidedItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  student User          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, studentId])
+  @@index([sessionId])
+  @@index([studentId, firstAt])
+  @@map("guided_responses")
+}
+
+/// One of a student's own questions: same skill as the session, picked for
+/// their level.
+model GuidedOwnSlot {
+  id                 String             @id @default(cuid())
+  sessionId          String
+  studentId          String
+  position           Int
+  /// The optional extra question for students who finish early.
+  bonus              Boolean            @default(false)
+  questionId         String
+  questionRevisionId String
+  difficulty         QuestionDifficulty
+  answer             String?
+  isCorrect          Boolean?
+  answeredAt         DateTime?
+  /// A second try from the recap, after the session.
+  retryAnswer        String?
+  retryCorrect       Boolean?
+
+  session          GuidedSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student          User             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  question         Question         @relation(fields: [questionId], references: [id])
+  questionRevision QuestionRevision @relation(fields: [questionRevisionId], references: [id])
+
+  @@unique([sessionId, studentId, position])
+  @@index([studentId, answeredAt])
+  @@index([questionId])
+  @@map("guided_own_slots")
 }

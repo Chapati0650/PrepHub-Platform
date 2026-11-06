@@ -16,6 +16,9 @@ import { formatGoalDate } from "@/lib/community/goal";
 import { LinkButton } from "@/components/ui/link-button";
 import { StaffHeader, StaffPage, StaffSection, StatusChip } from "@/components/staff/staff-ui";
 import { ClassCodePanel, ClassSettings, RemoveStudentButton } from "./class-controls";
+import { ExtraTimeSelect } from "./extra-time";
+import { listClassSessions } from "@/lib/guided/console";
+import { classExtraTime } from "@/lib/guided/queries";
 
 export const metadata = { title: "Class" };
 
@@ -46,6 +49,8 @@ export default async function ClassroomPage({ params }: { params: Promise<{ clas
     throw err;
   }
 
+  const [sessions, extraTime] = await Promise.all([listClassSessions(detail.id), classExtraTime(detail.id)]);
+  const openSession = sessions.find((s) => s.status === "OPEN") ?? null;
   const joinUrl = `${process.env.NEXTAUTH_URL ?? "http://localhost:3000"}/join/${detail.joinCode}`;
   const now = new Date();
   const studentCount = detail.students.length;
@@ -65,15 +70,51 @@ export default async function ClassroomPage({ params }: { params: Promise<{ clas
         }
         actions={
           !detail.archived && (
-            <LinkButton href={`/teacher/classes/${detail.id}/assignments/new`} size="cta">
-              Assign homework
-            </LinkButton>
+            <>
+              <LinkButton
+                href={openSession ? `/teacher/live/${openSession.id}` : `/teacher/classes/${detail.id}/live/new`}
+                size="xl"
+                variant="outline"
+              >
+                {openSession ? "Back to the Guided Session" : "Start a Guided Session"}
+              </LinkButton>
+              <LinkButton href={`/teacher/classes/${detail.id}/assignments/new`} size="cta">
+                Assign homework
+              </LinkButton>
+            </>
           )
         }
       />
 
       {!detail.archived && (
         <ClassCodePanel classroomId={detail.id} code={formatJoinCode(detail.joinCode)} joinUrl={joinUrl} />
+      )}
+
+      {sessions.length > 0 && (
+        <StaffSection
+          title="Guided Sessions"
+          description="Live, whole-class sessions you ran from the front. Open one for what the room did and who to check in with."
+        >
+          <ul className="divide-y divide-border rounded-2xl border border-border">
+            {sessions.map((s) => (
+              <li key={s.id}>
+                <Link
+                  href={s.status === "OPEN" ? `/teacher/live/${s.id}` : `/teacher/classes/${detail.id}/live/${s.id}`}
+                  className="flex flex-wrap items-center gap-x-6 gap-y-1 p-5 transition-colors hover:bg-muted/30"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-lg font-medium">{s.categoryLabel}</span>
+                    <span className="text-base text-muted-foreground">{formatGoalDate(s.createdAt)}</span>
+                  </span>
+                  <span className="text-base tabular-nums">
+                    {s.joined} of {studentCount} took part
+                  </span>
+                  {s.status === "OPEN" ? <StatusChip tone="good">Running now</StatusChip> : <StatusChip tone="muted">Ended</StatusChip>}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </StaffSection>
       )}
 
       <StaffSection
@@ -189,6 +230,38 @@ export default async function ClassroomPage({ params }: { params: Promise<{ clas
           </details>
         )}
       </StaffSection>
+
+      {studentCount > 0 && !detail.archived && (
+        <details className="rounded-2xl border border-border">
+          <summary className="cursor-pointer p-5 text-lg font-medium">
+            Extra time (504 plans and IEPs)
+            {extraTime.size > 0 && (
+              <span className="ml-2 text-base font-normal text-muted-foreground">
+                {extraTime.size} student{extraTime.size === 1 ? "" : "s"}
+              </span>
+            )}
+          </summary>
+          <div className="flex flex-col gap-4 px-5 pb-5">
+            <p className="text-base text-muted-foreground">
+              Set once, privately. In a Guided Session these students see no countdown during the class questions, and
+              their own questions get the longer clock. Students never see who else has it.
+            </p>
+            <ul className="divide-y divide-border rounded-xl border border-border">
+              {detail.students.map((s) => (
+                <li key={s.studentId} className="flex flex-wrap items-center justify-between gap-3 p-3">
+                  <span className="text-base">{studentRosterName(s)}</span>
+                  <ExtraTimeSelect
+                    classroomId={detail.id}
+                    studentId={s.studentId}
+                    name={studentFullName(s)}
+                    value={extraTime.get(s.studentId) ?? "NONE"}
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        </details>
+      )}
 
       <ClassSettings classroomId={detail.id} name={detail.name} archived={detail.archived} />
     </StaffPage>

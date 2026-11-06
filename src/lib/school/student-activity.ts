@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
  * One definition of "this student answered a question" and "this student
  * finished a session", shared by every school-facing surface.
  *
- * Why this module exists: answering is recorded in seven different tables,
+ * Why this module exists: answering is recorded in nine different tables,
  * because each study mode that was added after the adaptive core deliberately
  * kept its own rows rather than writing into `FinalizedAttempt` (see
  * CLAUDE.md on the 800 Club, 1v1 Rush, Focused Practice and the Daily
@@ -15,7 +15,9 @@ import { prisma } from "@/lib/prisma";
  * aggregate knew only two. A student who had answered two hundred Focused
  * Practice questions showed on a campus report as having answered none of
  * them, which for a district paying per student is simply a wrong number.
- * Homework (2026-10-24) was the seventh, added here and nowhere else.
+ * Homework (2026-10-24) was the seventh, added here and nowhere else, and
+ * Guided Sessions (2026-11-05) the eighth and ninth: a class question's
+ * first vote and a student's own questions.
  *
  * Both fragments below are composed into whichever query needs them, so a
  * new study mode is added in exactly one place and every campus figure picks
@@ -102,6 +104,16 @@ function answersIn(scope: StudentScope): Prisma.Sql {
       JOIN "homework_sessions" hs ON hs."id" = hsl."sessionId"
      WHERE ${inScope('hs."studentId"', scope)}
        AND hsl."finalizedAt" IS NOT NULL
+    UNION ALL
+    SELECT gr."studentId", gr."firstAt"
+      FROM "guided_responses" gr
+     WHERE ${inScope('gr."studentId"', scope)}
+       AND gr."firstAt" IS NOT NULL
+    UNION ALL
+    SELECT gos."studentId", gos."answeredAt"
+      FROM "guided_own_slots" gos
+     WHERE ${inScope('gos."studentId"', scope)}
+       AND gos."answeredAt" IS NOT NULL
   `;
 }
 
@@ -150,6 +162,11 @@ function sessionsIn(scope: StudentScope): Prisma.Sql {
     SELECT hs."studentId", hs."createdAt", hs."completedAt"
       FROM "homework_sessions" hs
      WHERE ${inScope('hs."studentId"', scope)} AND hs."completedAt" IS NOT NULL
+    UNION ALL
+    SELECT gp."studentId", gp."joinedAt", gs."endedAt"
+      FROM "guided_participants" gp
+      JOIN "guided_sessions" gs ON gs."id" = gp."sessionId"
+     WHERE ${inScope('gp."studentId"', scope)} AND gs."endedAt" IS NOT NULL AND gp."onPaper" = false
   `;
 }
 

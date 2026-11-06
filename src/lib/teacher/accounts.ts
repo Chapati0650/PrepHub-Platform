@@ -220,6 +220,8 @@ export type TeacherRow = {
   activated: boolean;
   classCount: number;
   studentCount: number;
+  /** Guided Sessions run to the end at this school. A count, like the others. */
+  guidedSessionCount: number;
 };
 
 /**
@@ -241,7 +243,13 @@ export async function listTeachers(schoolId: string): Promise<TeacherRow[]> {
           teacherDisplayName: true,
           email: true,
           passwordHash: true,
-          _count: { select: { accounts: true, classroomsTaught: { where: { schoolId, archivedAt: null } } } },
+          _count: {
+            select: {
+              accounts: true,
+              classroomsTaught: { where: { schoolId, archivedAt: null } },
+              guidedSessionsRun: { where: { status: "ENDED", classroom: { schoolId } } },
+            },
+          },
         },
       },
     },
@@ -273,5 +281,6 @@ export async function listTeachers(schoolId: string): Promise<TeacherRow[]> {
     activated: Boolean(r.user.passwordHash) || r.user._count.accounts > 0,
     classCount: r.user._count.classroomsTaught,
     studentCount: students.get(r.user.id)?.size ?? 0,
+    guidedSessionCount: r.user._count.guidedSessionsRun,
   }));
 }

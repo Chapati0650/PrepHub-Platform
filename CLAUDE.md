@@ -2480,3 +2480,99 @@ the rules that keep each from coming back:
 page's access check reads the subscription row. Optionally subscribe the
 Stripe webhook endpoint to `subscription_schedule.*` events, so a switch
 edited in the Stripe dashboard shows on Billing.
+
+## Guided Sessions (2026-11-05)
+
+A live, teacher-paced session for one class, built from the proposal written
+for Houston ISD's CCMR team (Owner's request after a call with HISD's head of
+CCMR, who runs 30-minute guided sessions with classes). One adult runs it from
+the front; the questions go on a projector and onto every student's screen at
+once. `src/lib/guided/`, student pages `src/app/(app)/live/`, teacher pages
+`src/app/(app)/teacher/live/[sessionId]` (console, `/board`) and
+`teacher/classes/[classId]/live/new` (setup) and `/live/[sessionId]` (report).
+Migration `20261106090000_guided_sessions`.
+
+- **The shape**: lobby with a warm-up → today's plan → a worked example
+  (stepped from the front; students follow a step behind) → class questions →
+  each student's own questions → recap. Lengths are `SESSION_LENGTHS` (25/30/45
+  minutes: 2/3/4 class questions, 3/4/6 own). All timings and thresholds live
+  in `guided/config.ts`.
+- **After every first vote the console suggests one move** (`suggestMove`,
+  Crouch & Mazur 2001): over 70% right → move on; 35–70% → partner talk, then
+  vote again; under 35% → the teacher explains, then "one like it" (a TWIN item
+  chosen and inserted at that moment, answered alone, the honest measure of
+  whether the explanation worked). The teacher can always choose another move.
+- **The vote split stays hidden until the reveal**, on the board and on
+  students' screens (students who see the bar chart before discussing are about
+  30% more likely to switch to the majority; Perez et al. 2010). The shared
+  state simply doesn't contain it before then.
+- **The skill pick counts students, never averages them** (`pick-skill.ts`,
+  pure, tested): students below the TSI line in each skill (the section
+  ability that maps to 480/530, derived from `SCORE_RANGES` by `tsiAbilityLine`
+  — 39 and 43) × the skill's weight in the predicted score, a skill from the
+  class's previous session at half. Shown only with
+  `MIN_STUDENTS_FOR_PICK` (10) Diagnostics; below that the teacher chooses.
+  Computed server-side for all three section filters so no student's level
+  ever reaches the teacher's browser; the teacher sees counts per skill, never
+  which students. **Owner-approved (2026-11-05) widening of the teacher
+  boundary**: a class-level pick from students' skill levels, and live answers
+  by name on the teacher's own screen for that session's questions only.
+- **Difficulty** (`plan.ts`): only E/M/H exist, so the plan uses the engine's
+  `expectedProbability` for the class median: a start tier the median gets
+  ≥70% of the time, a discussion tier nearest 50%, a stretch one tier up.
+  `chooseQuestion` falls back to the nearest tier when one runs out (content is
+  thin in places) and ranks by how few of the class have seen a question.
+- **Three channels, sized for 30 students on serverless with no WebSockets**:
+  - `GET /api/guided/state/[stateKey]`: the room's shared state, polled every
+    1.5s by the board and every student screen. It contains nothing about any
+    one student (that's also why it's safe on a projector), so it carries
+    `Netlify-CDN-Cache-Control: public, max-age=1` and a ~1s per-instance memo
+    (`forgetSharedState` drops it after an action on that instance). The key
+    is unguessable and only rendered into pages for people in the room.
+  - `GET /api/guided/console/[sessionId]`: the teacher's screen, names and
+    answers, `private, no-store`, teacher-owned only.
+  - Students' own state (`myStateAction`) is refetched only when the room's
+    `version`/phase/position changes; answers go through server actions that
+    return problems as data (`GuidedResult`).
+  Route handlers, not Server Actions, for polling and the heartbeat: Next runs
+  a client's Server Actions one at a time, so a poll would queue in front of an
+  answer.
+- **Every teacher command is claimed against `GuidedSession.version`**
+  (`control.ts`), so a double click or two open consoles apply it once. Moving
+  on turns students' unsubmitted choices into answers (`finalizeDrafts`, one
+  graded `UPDATE` per vote): "when time's up, whatever you've chosen is your
+  answer". At partner talk, students with extra time are skipped (they can
+  still send a first answer until the reveal).
+- **Extra time** is `ClassroomEnrollment.extraTime` (NONE / TIME_AND_HALF /
+  DOUBLE), set privately on the class page: no countdown for that student in
+  the class rounds, and their own-question clock multiplied.
+- **Every student, not the average one**: late joiners land where the room is
+  and get the missed questions as a catch-up; the teacher can enter a paper
+  answer for a student without a working laptop (`ENTER_ANSWER`, sent as a
+  letter position, mapped to the choice server-side); "Away" comes from a
+  heartbeat route with `sendBeacon` on tab hide; an answer sent while offline
+  retries until it lands; absent students get a two-week catch-up
+  (`CATCH_UP_DAYS`) on their dashboard; own questions a student missed can be
+  retried from the recap.
+- **Spanish** for every direction and button on a student's session screens
+  (`components/guided/strings.ts`, per-device toggle via
+  `useSyncExternalStore`); the questions stay in English, as on the SAT.
+- **"Reached"** (`reachedItem` in `report.ts`) is the one rule for which
+  questions a session actually covered: the warm-up once revealed, a class
+  question once opened. Recaps, catch-ups, the report and the dashboard row all
+  use it, so a question the teacher skipped never shows as "not answered".
+- **Outside the adaptive engine and the prediction**, like Rush and the 800
+  Club: answers after a discussion aren't a student's own work.
+  `GuidedResponse` and `GuidedOwnSlot` are the eighth and ninth sources in
+  `school/student-activity.ts`, so sessions count toward study time, school
+  totals and community goals. Admins see totals only (Overview: sessions,
+  students, class time; Teachers: sessions run per teacher).
+- Verified in real browsers: one teacher (console + board) and six students
+  through a full session (join, warm-up, plan, example, a talk-and-revote
+  question, a late joiner, a paper answer, explain, one like it, own
+  questions, bonus, recap, end), the report, the absent and late students'
+  catch-up, Spanish, and a phone-width recap; no console errors.
+- **Not built**: Clever sign-in (HISD students sign in through Clever; needs a
+  Clever app registration and the district's approval), text-to-speech, and
+  languages beyond Spanish.
+- **Deploying needs migration `20261106090000_guided_sessions` on Neon first.**

@@ -150,6 +150,9 @@ const FOCUS_MODE_PREFIXES = [
   "/practice/focused/session/",
   "/rush/play/",
   "/rush/live/",
+  // Guided Sessions: a student's session screen, and the teacher's console and board.
+  "/live/",
+  "/teacher/live/",
 ];
 
 function isFocusMode(pathname: string): boolean {
