@@ -12,6 +12,8 @@ import { WalkthroughDock } from "@/components/content/walkthrough/dock";
 import { ChoiceNote, PassageMarks, WithChoiceMarks, choiceMarkClasses, choiceMarkTag } from "@/components/content/walkthrough/on-question";
 import { ScorePrediction } from "@/components/score-prediction";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
+import { predictionCenter, predictionText, type PredictionView } from "@/lib/score/display";
+import { QUESTION_VALUE_EXPLAINER, questionValueSentence } from "@/lib/score/real-test";
 import type { SessionResultsData } from "@/lib/session/session-results-data";
 import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
 import type { LoadedQuestion } from "./session-runner";
@@ -25,20 +27,29 @@ function formatTime(seconds: number): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-function celebrationMessage(previous: { min: number; max: number } | null, current: { min: number; max: number }): string {
+function celebrationMessage(
+  previous: PredictionView | null,
+  current: PredictionView,
+  recalibrated: boolean,
+): string {
+  // A student whose last prediction came from the engine before 2026-11-06:
+  // the difference would be the change of method, not this session.
+  if (!previous && recalibrated) {
+    return "This is your first prediction with PrepHub's recalibrated scoring, so it isn't compared with your earlier ones.";
+  }
   if (!previous) return "You now have your first PrepHub Score Prediction.";
-  const prevMid = (previous.min + previous.max) / 2;
-  const curMid = (current.min + current.max) / 2;
+  const prevMid = predictionCenter(previous);
+  const curMid = predictionCenter(current);
   if (curMid > prevMid) return `+${Math.round(curMid - prevMid)} Estimated SAT Points`;
   if (curMid < prevMid) return "Your predicted score decreased slightly this session. That's completely normal — progress isn't always linear.";
   // Said to a 500 as well as a 1500, so it praises nothing it can't see.
-  return `Your prediction held steady at ${current.min}–${current.max}.`;
+  return `Your prediction held steady at ${predictionText(current)}.`;
 }
 
-function targetProgressMessage(target: number | null, current: { min: number; max: number }): string | null {
+function targetProgressMessage(target: number | null, current: PredictionView): string | null {
   if (target === null) return null;
   if (target <= current.max) return "You're now within reach of your target score.";
-  const remaining = target - current.max;
+  const remaining = target - (current.point ?? current.max);
   return `About ${remaining} points to go to reach your target.`;
 }
 
@@ -62,8 +73,9 @@ export function SessionResults({
   const review = useQuestionReview(loadQuestionDetail);
 
   const targetMessage = targetProgressMessage(data.targetScore, data.currentRange);
-  const previousMid = data.previousRange ? (data.previousRange.min + data.previousRange.max) / 2 : null;
-  const currentMid = (data.currentRange.min + data.currentRange.max) / 2;
+  const previousMid = data.previousRange ? predictionCenter(data.previousRange) : null;
+  const currentMid = predictionCenter(data.currentRange);
+  const showsWorth = data.questions.some((q) => q.worthPoints !== null);
   const improved = previousMid !== null && currentMid > previousMid;
 
   return (
@@ -89,15 +101,16 @@ export function SessionResults({
           <ScorePrediction
             min={data.currentRange.min}
             max={data.currentRange.max}
+            point={data.currentRange.point}
             label={data.sourceType === "DIAGNOSTIC" ? "Your Initial PrepHub Score Prediction" : "Your Updated PrepHub Score Prediction"}
           />
           {improved ? (
             <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-achievement/20 px-4 py-2 text-sm font-semibold text-achievement-foreground dark:text-achievement">
-              &uarr; {celebrationMessage(data.previousRange, data.currentRange)}
+              &uarr; {celebrationMessage(data.previousRange, data.currentRange, data.recalibrated)}
             </span>
           ) : (
             <p className="max-w-xs text-sm text-muted-foreground">
-              {celebrationMessage(data.previousRange, data.currentRange)}
+              {celebrationMessage(data.previousRange, data.currentRange, data.recalibrated)}
             </p>
           )}
         </div>
@@ -108,7 +121,7 @@ export function SessionResults({
               <div>
                 <dt className="text-muted-foreground">Previous</dt>
                 <dd className="mt-0.5 font-semibold tabular-nums">
-                  {data.previousRange.min}&ndash;{data.previousRange.max}
+                  {predictionText(data.previousRange)}
                 </dd>
               </div>
             )}
@@ -162,6 +175,7 @@ export function SessionResults({
       {/* Question Review */}
       <div className="flex flex-col gap-4">
         <h2 className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">Question Review</h2>
+        {showsWorth && <p className="max-w-prose text-sm text-muted-foreground">{QUESTION_VALUE_EXPLAINER}</p>}
         {/* One continuous ruled list rather than 21 separately bordered cards:
             at set length, individual boxes turn the review into a wall of
             outlines and it stops being scannable. */}
@@ -187,6 +201,9 @@ export function SessionResults({
                   </Badge>
                   <span className="shrink-0">Question {q.position + 1}</span>
                   <span className="truncate text-xs text-muted-foreground">{CATEGORY_LABELS[q.category]}</span>
+                  {q.worthPoints !== null && (
+                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">~{q.worthPoints} pts</span>
+                  )}
                 </span>
                 <span className="shrink-0 text-muted-foreground" aria-hidden="true">
                   {review.expandedId === q.id ? "−" : "+"}
@@ -195,6 +212,7 @@ export function SessionResults({
 
               {review.expandedId === q.id && (
                 <div className="pb-4">
+                  {q.worthPoints !== null && <p className="mb-3 text-sm">{questionValueSentence(q.worthPoints)}</p>}
                   <ReviewDetail review={review} id={q.id} isCorrect={q.isCorrect} />
                 </div>
               )}

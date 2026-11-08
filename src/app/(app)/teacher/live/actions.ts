@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import type { ExtraTime, QuestionCategory } from "@/generated/prisma/client";
+import type { ExtraTime, GuidedSessionMode, QuestionCategory } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireOwnedClassroom, requireTeacherAction } from "@/lib/teacher/access";
 import { TeacherError } from "@/lib/teacher/errors";
@@ -16,13 +16,18 @@ export type StartState = { error?: string };
 
 export async function startSessionAction(classroomId: string, _prev: StartState, formData: FormData): Promise<StartState> {
   const context = await requireTeacherAction();
-  const category = String(formData.get("category") ?? "") as QuestionCategory;
+  const mode = String(formData.get("mode") ?? "TEACHER_LED") as GuidedSessionMode;
+  if (mode !== "TEACHER_LED" && mode !== "INDIVIDUAL") return { error: "Choose how to run it." };
+  const rawCategory = String(formData.get("category") ?? "");
+  // Individual practice may leave the skill to each student's own weakest skills.
+  const weakest = mode === "INDIVIDUAL" && rawCategory === "WEAKEST";
+  const category = rawCategory as QuestionCategory;
   const length = String(formData.get("length") ?? "STANDARD") as SessionLength;
-  if (!CATEGORY_ORDER.includes(category)) return { error: "Choose a skill." };
+  if (!weakest && !CATEGORY_ORDER.includes(category)) return { error: "Choose a skill." };
   if (!(length in SESSION_LENGTHS)) return { error: "Choose a length." };
   let id: string;
   try {
-    ({ id } = await createGuidedSession(context, classroomId, { category, length }));
+    ({ id } = await createGuidedSession(context, classroomId, { category: weakest ? null : category, length, mode }));
   } catch (err) {
     if (err instanceof GuidedError || err instanceof TeacherError) return { error: err.message };
     throw err;

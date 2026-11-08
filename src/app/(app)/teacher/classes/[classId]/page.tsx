@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { requireTeacher } from "@/lib/teacher/access";
 import { getClassroomDetail, type ClassroomDetail, type ClassroomStudent } from "@/lib/teacher/classrooms";
 import { TeacherError } from "@/lib/teacher/errors";
-import { formatJoinCode } from "@/lib/teacher/join-code";
+import { formatJoinCode, joinShareText, joinSiteLabel } from "@/lib/teacher/join-code";
 import {
   gradebookCell,
   homeworkOwed,
@@ -37,9 +37,16 @@ function dueStatus(a: Assignment, now: Date): { text: string; tone: "good" | "wa
   return { text: `Due ${formatGoalDate(a.dueAt)} · in ${days} days`, tone: "good" };
 }
 
-export default async function ClassroomPage({ params }: { params: Promise<{ classId: string }> }) {
+export default async function ClassroomPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ classId: string }>;
+  searchParams: Promise<{ new?: string }>;
+}) {
   const context = await requireTeacher();
   const { classId } = await params;
+  const justCreated = (await searchParams).new === "1";
 
   let detail;
   try {
@@ -51,7 +58,8 @@ export default async function ClassroomPage({ params }: { params: Promise<{ clas
 
   const [sessions, extraTime] = await Promise.all([listClassSessions(detail.id), classExtraTime(detail.id)]);
   const openSession = sessions.find((s) => s.status === "OPEN") ?? null;
-  const joinUrl = `${process.env.NEXTAUTH_URL ?? "http://localhost:3000"}/join/${detail.joinCode}`;
+  const origin = (process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+  const joinUrl = `${origin}/join/${detail.joinCode}`;
   const now = new Date();
   const studentCount = detail.students.length;
   const formerCount = detail.formerStudents.length;
@@ -87,7 +95,16 @@ export default async function ClassroomPage({ params }: { params: Promise<{ clas
       />
 
       {!detail.archived && (
-        <ClassCodePanel classroomId={detail.id} code={formatJoinCode(detail.joinCode)} joinUrl={joinUrl} />
+        <ClassCodePanel
+          classroomId={detail.id}
+          className={detail.name}
+          code={formatJoinCode(detail.joinCode)}
+          joinUrl={joinUrl}
+          site={joinSiteLabel(origin)}
+          shareText={joinShareText(detail.name, detail.joinCode, origin)}
+          empty={studentCount === 0}
+          justCreated={justCreated && studentCount === 0}
+        />
       )}
 
       {sessions.length > 0 && (
@@ -197,8 +214,8 @@ export default async function ClassroomPage({ params }: { params: Promise<{ clas
       >
         {studentCount === 0 ? (
           <p className="rounded-2xl bg-surface-tint p-6 text-base text-muted-foreground">
-            No one has joined yet. Share the code above: students join from their own PrepHub account, and they appear
-            here the moment they do.
+            No one has joined yet. Give students the class code in &ldquo;Add your students&rdquo; above: they join from
+            their own PrepHub account, and appear here the moment they do.
           </p>
         ) : (
           <>

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdminWriteContext } from "@/lib/admin/school-context";
+import { requireAdminWriteContext, schoolField } from "@/lib/admin/school-context";
 import { GoalError, parseGoalForm, saveCommunityGoal } from "@/lib/community/goal";
 import type { GoalEditorState } from "@/components/community/goal-editor";
 
@@ -13,7 +13,7 @@ import type { GoalEditorState } from "@/components/community/goal-editor";
  * this page is read-only, as with every admin write.
  */
 export async function saveSchoolGoalAction(_prev: GoalEditorState, formData: FormData): Promise<GoalEditorState> {
-  const context = await requireAdminWriteContext();
+  const context = await requireAdminWriteContext(schoolField(formData));
   if ("error" in context) return { error: context.error };
 
   const parsed = parseGoalForm(formData);

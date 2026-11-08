@@ -59,8 +59,9 @@ test.describe("Teachers, classes and homework", () => {
 
     await teacher.getByLabel("Class name").fill("E2E Period 1");
     await teacher.getByRole("button", { name: "Create class" }).click();
-    await expect(teacher).toHaveURL(/\/teacher\/classes\/[a-z0-9]+$/, { timeout: 30_000 });
-    const classUrl = teacher.url();
+    // A new class lands on its page with ?new=1 (the "now add your students" heading).
+    await expect(teacher).toHaveURL(/\/teacher\/classes\/[a-z0-9]+(\?new=1)?$/, { timeout: 30_000 });
+    const classUrl = teacher.url().replace(/\?.*$/, "");
     const code = (await teacher.getByText(/^[A-Z0-9]{3}-[A-Z0-9]{3}$/).first().textContent())!.trim();
 
     // ---- Student: joins with a last name.
@@ -121,7 +122,7 @@ test.describe("Teachers, classes and homework", () => {
     await teacher.goto("/teacher");
     await teacher.getByLabel("Class name").fill("E2E Period 2");
     await teacher.getByRole("button", { name: "Create class" }).click();
-    await expect(teacher).toHaveURL(/\/teacher\/classes\/[a-z0-9]+$/, { timeout: 30_000 });
+    await expect(teacher).toHaveURL(/\/teacher\/classes\/[a-z0-9]+(\?new=1)?$/, { timeout: 30_000 });
     await teacher.goto(assignmentUrl);
     await teacher.getByRole("checkbox", { name: "E2E Period 2" }).check();
     await teacher.getByRole("button", { name: "Assign to class" }).click();

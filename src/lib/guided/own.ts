@@ -44,7 +44,7 @@ export async function createOwnSlots(session: SessionForOwn, studentIds: string[
   for (const studentId of needing) {
     const used = new Set(sessionQuestions);
     const seenBy = new Map([...(seen.get(studentId) ?? [])].map((id) => [id, 1]));
-    const difficulties = ownDifficulties(abilityOf.get(studentId) ?? null, session.ownQuestionCount, random);
+    const difficulties = ownDifficulties(session.category, abilityOf.get(studentId) ?? null, session.ownQuestionCount, random);
     let position = 0;
     for (const difficulty of difficulties) {
       const pick = chooseQuestion({ candidates, difficulty, used, seenBy, random });

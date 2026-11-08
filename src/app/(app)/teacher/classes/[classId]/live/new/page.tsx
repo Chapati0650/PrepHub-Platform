@@ -29,9 +29,9 @@ export default async function NewGuidedSessionPage({ params }: { params: Promise
         title="Start a Guided Session"
         description={
           <>
-            You run it from the front: the questions go on the projector and onto every student&apos;s screen at once.
-            Students answer alone, talk it over or watch you explain, and finish with questions picked for each of
-            them. About 30 minutes.
+            Run it from the front, with the questions on the projector and on every student&apos;s screen at once, or
+            let each student practice on their own questions while you watch. Either way, you see how each student did
+            afterwards.
           </>
         }
       />

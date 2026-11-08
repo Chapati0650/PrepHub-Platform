@@ -5,9 +5,10 @@ import {
   TSI_READING_WRITING_BENCHMARK,
   classifyBenchmarkMovement,
   shapeOfShortfall,
-  tsiStatusFromAbilities,
+  tsiStatusForEntry,
   type BelowBenchmarkShape,
 } from "@/lib/score/ccmr";
+import type { PredictionSourceType } from "@/generated/prisma/client";
 
 /**
  * The campus impact report (added 2026-10-17): what the platform actually
@@ -167,6 +168,10 @@ type PredictionEnds = {
   firstMath: number | null;
   lastRw: number | null;
   lastMath: number | null;
+  firstSource: PredictionSourceType;
+  lastSource: PredictionSourceType;
+  /** Both ends share it: the query only pairs entries from one engine. */
+  version: string;
 };
 
 type StudyTimeSummary = {
@@ -205,20 +210,23 @@ export async function measureCampusImpact(schoolId: string): Promise<CampusImpac
   for (const student of ends) {
     gains.push(student.lastMidpoint - student.firstMidpoint);
 
-    // A prediction written before section abilities were recorded cannot be
-    // scored against TSI; such a student is simply not counted in the
-    // benchmark breakdown rather than guessed at.
-    if (
-      student.firstRw === null ||
-      student.firstMath === null ||
-      student.lastRw === null ||
-      student.lastMath === null
-    ) {
-      continue;
-    }
-
-    const firstStatus = tsiStatusFromAbilities(student.firstRw, student.firstMath);
-    const latestStatus = tsiStatusFromAbilities(student.lastRw, student.lastMath);
+    // Each end is read by the rules of the engine that wrote it. A prediction
+    // written before section abilities were recorded, or by an engine this
+    // code can't read, can't be scored against TSI; such a student is simply
+    // not counted in the benchmark breakdown rather than guessed at.
+    const firstStatus = tsiStatusForEntry({
+      sourceType: student.firstSource,
+      scoringEngineVersion: student.version,
+      readingWritingAbility: student.firstRw,
+      mathAbility: student.firstMath,
+    });
+    const latestStatus = tsiStatusForEntry({
+      sourceType: student.lastSource,
+      scoringEngineVersion: student.version,
+      readingWritingAbility: student.lastRw,
+      mathAbility: student.lastMath,
+    });
+    if (!firstStatus || !latestStatus) continue;
 
     switch (classifyBenchmarkMovement(firstStatus, latestStatus)) {
       case "CROSSED":
@@ -267,29 +275,52 @@ export async function measureCampusImpact(schoolId: string): Promise<CampusImpac
  * on both orderings so two predictions written in the same transaction still
  * have a stable first and last.
  */
+/**
+ * Each student's first and latest prediction, both from the engine that wrote
+ * their latest one. Predictions from two engines are never paired: the
+ * recalibration of 2026-11-06 moved a typical prediction about 150 points
+ * with no change in the student, and pairing across it would report that as
+ * a loss. A student with only one prediction from their current engine has
+ * no before/after yet.
+ */
 async function predictionEndsForSchool(schoolId: string): Promise<PredictionEnds[]> {
   return prisma.$queryRaw<PredictionEnds[]>`
     WITH scoped AS (
       SELECT p."studentId",
+             p."id",
+             p."createdAt",
              p."representativeMidpoint",
              p."readingWritingAbility",
              p."mathAbility",
-             ROW_NUMBER() OVER (PARTITION BY p."studentId" ORDER BY p."createdAt" ASC, p."id" ASC) AS rn_first,
-             ROW_NUMBER() OVER (PARTITION BY p."studentId" ORDER BY p."createdAt" DESC, p."id" DESC) AS rn_last,
-             COUNT(*) OVER (PARTITION BY p."studentId") AS entry_count
+             p."sourceType",
+             p."scoringEngineVersion",
+             FIRST_VALUE(p."scoringEngineVersion") OVER (
+               PARTITION BY p."studentId" ORDER BY p."createdAt" DESC, p."id" DESC
+             ) AS latest_version
         FROM "prediction_history_entries" p
         JOIN "student_memberships" m ON m."studentId" = p."studentId"
        WHERE m."schoolId" = ${schoolId}
          AND m."status" = 'ACTIVE'
+    ),
+    comparable AS (
+      SELECT s.*,
+             ROW_NUMBER() OVER (PARTITION BY s."studentId" ORDER BY s."createdAt" ASC, s."id" ASC) AS rn_first,
+             ROW_NUMBER() OVER (PARTITION BY s."studentId" ORDER BY s."createdAt" DESC, s."id" DESC) AS rn_last,
+             COUNT(*) OVER (PARTITION BY s."studentId") AS entry_count
+        FROM scoped s
+       WHERE s."scoringEngineVersion" = s.latest_version
     )
     SELECT f."representativeMidpoint"  AS "firstMidpoint",
            f."readingWritingAbility"  AS "firstRw",
            f."mathAbility"            AS "firstMath",
+           f."sourceType"::text       AS "firstSource",
            l."representativeMidpoint" AS "lastMidpoint",
            l."readingWritingAbility"  AS "lastRw",
-           l."mathAbility"            AS "lastMath"
-      FROM scoped f
-      JOIN scoped l ON l."studentId" = f."studentId" AND l.rn_last = 1
+           l."mathAbility"            AS "lastMath",
+           l."sourceType"::text       AS "lastSource",
+           l."scoringEngineVersion"   AS "version"
+      FROM comparable f
+      JOIN comparable l ON l."studentId" = f."studentId" AND l.rn_last = 1
      WHERE f.rn_first = 1
        AND f.entry_count > 1
   `;

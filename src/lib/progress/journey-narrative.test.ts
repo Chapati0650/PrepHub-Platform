@@ -22,6 +22,13 @@ describe("buildJourneyNarrative", () => {
     expect(narrative).toContain("You're now within approximately 20 points of your target score of 1500.");
   });
 
+  it("says where a student started as a score, not a range, from engine 2026.3 on", () => {
+    const narrative = buildJourneyNarrative({ ...base, startingPoint: 1010 });
+
+    expect(narrative).toContain("You started PrepHub with a predicted SAT score of about 1010.");
+    expect(narrative).not.toContain("1260–1320");
+  });
+
   it("uses singular 'session' for exactly one completed session", () => {
     const narrative = buildJourneyNarrative({ ...base, completedSessions: 1 });
     expect(narrative).toContain("completed 1 practice set,");

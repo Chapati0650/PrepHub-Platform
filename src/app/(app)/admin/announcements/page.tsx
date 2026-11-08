@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { DistrictCampusSwitcher, PickCampusPrompt } from "../school-switcher";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { OwnerSchoolSwitcher } from "../school-switcher";
 import { listAnnouncements } from "@/lib/announcements";
@@ -13,8 +14,11 @@ export const metadata = { title: "Announcements" };
 // emailed once), and take it down.
 export default async function AnnouncementsPage({ searchParams }: { searchParams: Promise<{ school?: string }> }) {
   const { school } = await searchParams;
-  const { schoolId, viewingAsOwner, availableSchools } = await requireAdminSchoolContext(school);
+  const { schoolId, viewingAsOwner, availableSchools, district } = await requireAdminSchoolContext(school);
 
+  if (district && !schoolId) {
+    return <PickCampusPrompt basePath="/admin/announcements" districtName={district.name} campuses={district.campuses} what="Announcements" />;
+  }
   if (!schoolId) return <StaffUnavailable title="Announcements aren't available for this account." />;
 
   const [announcements, org, recipients] = await Promise.all([
@@ -26,6 +30,9 @@ export default async function AnnouncementsPage({ searchParams }: { searchParams
 
   return (
     <StaffPage>
+      {district && (
+        <DistrictCampusSwitcher basePath="/admin/announcements" districtName={district.name} campuses={district.campuses} currentSchoolId={schoolId} />
+      )}
       {viewingAsOwner && (
         <OwnerSchoolSwitcher basePath="/admin/announcements" schools={availableSchools} currentSchoolId={schoolId} />
       )}
@@ -40,6 +47,7 @@ export default async function AnnouncementsPage({ searchParams }: { searchParams
         schoolName={org.officialName}
         recipients={recipients}
         readOnly={viewingAsOwner}
+        campusId={district ? (schoolId ?? undefined) : undefined}
         today={localDateInputValue(new Date())}
       />
     </StaffPage>

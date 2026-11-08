@@ -40,7 +40,8 @@ test.describe("School Administrator (PRD-011)", () => {
     await page.locator("#contractStartDate").fill(todayPlusDays(-1));
     await page.locator("#contractEndDate").fill(todayPlusDays(365));
     await dialog.getByRole("button", { name: "Create Organization" }).click();
-    await expect(page).toHaveURL(/\/owner\/schools\/[a-z0-9]+$/);
+    // The first test of a run opens this page cold; the dev server compiles it on that first hit.
+    await expect(page).toHaveURL(/\/owner\/schools\/[a-z0-9]+$/, { timeout: 30_000 });
 
     await page.getByRole("button", { name: "Activate", exact: true }).click();
     await expect(page.getByText("ACTIVE", { exact: true })).toBeVisible();

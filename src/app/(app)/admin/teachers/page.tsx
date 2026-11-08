@@ -1,4 +1,5 @@
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
+import { DistrictCampusSwitcher, PickCampusPrompt } from "../school-switcher";
 import { listTeachers } from "@/lib/teacher/accounts";
 import { TeachersPanel } from "@/components/teacher/teachers-panel";
 import { StaffHeader, StaffPage, StaffSection, StaffSteps, StaffUnavailable } from "@/components/staff/staff-ui";
@@ -13,14 +14,20 @@ export const metadata = { title: "Teachers" };
 // which stay between the student and the teacher who assigned the work.
 export default async function AdminTeachersPage({ searchParams }: { searchParams: Promise<{ school?: string }> }) {
   const { school } = await searchParams;
-  const { schoolId, viewingAsOwner, availableSchools } = await requireAdminSchoolContext(school);
+  const { schoolId, viewingAsOwner, availableSchools, district } = await requireAdminSchoolContext(school);
 
+  if (district && !schoolId) {
+    return <PickCampusPrompt basePath="/admin/teachers" districtName={district.name} campuses={district.campuses} what="The teacher list" />;
+  }
   if (!schoolId) return <StaffUnavailable title="Teachers aren't available for this account." />;
 
   const teachers = await listTeachers(schoolId);
 
   return (
     <StaffPage>
+      {district && (
+        <DistrictCampusSwitcher basePath="/admin/teachers" districtName={district.name} campuses={district.campuses} currentSchoolId={schoolId} />
+      )}
       {viewingAsOwner && (
         <OwnerSchoolSwitcher basePath="/admin/teachers" schools={availableSchools} currentSchoolId={schoolId} />
       )}
@@ -53,6 +60,7 @@ export default async function AdminTeachersPage({ searchParams }: { searchParams
 
       <TeachersPanel
         teachers={teachers}
+        campusId={district ? (schoolId ?? undefined) : undefined}
         invite={inviteTeacherAction}
         resend={resendTeacherInviteAction}
         remove={removeTeacherAction}

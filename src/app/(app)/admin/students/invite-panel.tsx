@@ -28,7 +28,7 @@ function students(n: number): string {
  * enrollment has nobody to invite, and an empty panel with two dead buttons
  * would just raise a question with no answer.
  */
-export function CampusInvitePanel({ summary, readOnly }: { summary: RosterInviteSummary; readOnly: boolean }) {
+export function CampusInvitePanel({ summary, readOnly, campusId }: { summary: RosterInviteSummary; readOnly: boolean; campusId?: string }) {
   const [result, setResult] = useState<(InviteState & { reminder: boolean }) | null>(null);
 
   if (summary.awaitingClaim === 0 && summary.alreadyInvited === 0) return null;
@@ -40,6 +40,7 @@ export function CampusInvitePanel({ summary, readOnly }: { summary: RosterInvite
   async function send(reminder: boolean) {
     const fd = new FormData();
     if (reminder) fd.set("reminder", "1");
+    if (campusId) fd.set("school", campusId);
     const state = await sendCampusInvitesAction({}, fd);
     // An error stays in the confirmation dialog; only a send is reported here.
     if (!state.error) setResult({ ...state, reminder });

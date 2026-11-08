@@ -491,12 +491,11 @@ The PRDs form these dependency layers — build top to bottom:
    implementing the §11-§15 Tier-1/Tier-2 selection-with-fallback pseudocode,
    `finalize-answer.ts`, `complete-practice-set.ts`). Predicted Score Engine
    (016) — `src/lib/score/`: `config.ts` centralizes the 15 SAT ranges +
-   nonlinear Ability→range thresholds + representative midpoints;
-   `generate-diagnostic-prediction.ts` / `generate-adaptive-prediction.ts` are
-   deliberately separate functions using separate tables (same E/M/H
-   diagnostic pattern intentionally produces a different Ability-init value
-   in PRD-014's table vs. a different SAT-score value in PRD-016's table —
-   this is correct, not a bug). Diagnostic (012) —
+   representative midpoints and the ability→score anchor. Since engine 2026.2
+   the Diagnostic and every Practice Set are scored by one estimate and one
+   function; the two separate tables PRD-014/016 specified disagreed by about
+   140 points for an ordinary student and are gone — see "The calibrated
+   engine (2026-11-06)". Diagnostic (012) —
    `src/lib/diagnostic/` + `src/app/(app)/diagnostic/`: product intro (6
    informational screens + effort-message/CTA screen), 21-question runner
    — since 2026-10-24 served as fourteen core questions plus a bonus round,
@@ -1261,9 +1260,10 @@ accident.
   the likeliest wins (Advanced Math Easy, the shortest question in the test,
   first), Reading passages are never adjacent, each Easy precedes its Medium.
   Then a **bonus round**: a category's Hard question is served only if its
-  Medium was answered right; otherwise it is waived (`waivedAt`) and scores
-  as a wrong answer — which every scorer already does, because they all read
-  `!!isCorrect`, so neither scoring table changed. Replaying all 71 real
+  Medium was answered right; otherwise it is waived (`waivedAt`). Until engine
+  2026.2 a waived question scored as a wrong answer; it is now no evidence at
+  all (`diagnosticAnswers` in `adaptive/estimate.ts`), which had marked down
+  exactly the students who had already missed the Medium. Replaying all 71 real
   completed Diagnostics through this rule: students predicted below 1100 see
   about 17 questions and 3 Hard ones instead of 21 and 7; starting scores land
   in the same displayed range two-thirds of the time and average ~29 points
@@ -1272,10 +1272,12 @@ accident.
   district gain reporting would have counted as improvement that never
   happened.
 - **"These can only raise your predicted score"** on the bonus-round screen
-  is a checked claim, not copy: with the Medium right, a right Hard raises the
-  category in both tables (ability 65→90 or 45→80; score value 1300→1600 or
-  800→1000), and a waived Hard is scored as a miss. Re-check it if either
-  table changes.
+  is a checked claim, not copy, and since engine 2026.2 a tested one
+  (`compute-diagnostic-prediction.test.ts`): against the score with every
+  earned bonus question wrong, a right answer always raises the prediction
+  and a wrong one leaves it there, across sixty random Diagnostics. It holds
+  because the estimate is monotone in every answer. Keep that test passing
+  if the engine changes.
 - **`DiagnosticSession.format`** (`FULL_21` / `STAGED`) records which test a
   student took, because the two give slightly different starting scores and
   district gain reporting must never mix them unknowingly. The DB default is
@@ -2512,8 +2514,8 @@ Migration `20261106090000_guided_sessions`.
   state simply doesn't contain it before then.
 - **The skill pick counts students, never averages them** (`pick-skill.ts`,
   pure, tested): students below the TSI line in each skill (the section
-  ability that maps to 480/530, derived from `SCORE_RANGES` by `tsiAbilityLine`
-  — 39 and 43) × the skill's weight in the predicted score, a skill from the
+  ability that maps to 480/530 on `SECTION_SCORE_LINES`, by `tsiAbilityLine`
+  — about 44 and 55 since engine 2026.2) × the skill's weight in the predicted score, a skill from the
   class's previous session at half. Shown only with
   `MIN_STUDENTS_FOR_PICK` (10) Diagnostics; below that the teacher chooses.
   Computed server-side for all three section filters so no student's level
@@ -2580,3 +2582,231 @@ Migration `20261106090000_guided_sessions`.
   Clever app registration and the district's approval), text-to-speech, and
   languages beyond Spanish.
 - **Deploying needs migration `20261106090000_guided_sessions` on Neon first.**
+
+## The calibrated engine (2026-11-06, engine and scoring version 2026.2)
+
+The Owner asked for predictions "as physically accurate as possible" after
+seeing a student's prediction rise a median of 160 points on their first
+Practice Set. Fitted to the 2,157 Diagnostic and Practice answers real
+students had given (anonymized, read-only):
+
+- **The jump was the engine, not learning, and it ran upward at both ends.**
+  PRD-014's pattern→ability table and PRD-016's pattern→score table disagreed
+  by about 140 points for an ordinary answer pattern, and the flat 35/60/85
+  ratings set every question too hard, so students beat the engine's
+  expectation at every difficulty (Easy 69% expected vs 78% actual, Medium
+  52/60, Hard 38/50) and abilities climbed for as long as anyone practised: a
+  student steadily getting 60% of Medium questions would have drifted to
+  about 1300. Its per-answer predictions were worse than always guessing the
+  class average (Brier 0.249 vs 0.227).
+- **One estimate** (`src/lib/adaptive/estimate.ts`, `estimateAbilities`, pure,
+  tested): the posterior mode of a model where a category's ability is its
+  section's ability plus a small deviation (`ABILITY_MODEL`: mean 50, section
+  SD 12, category SD 5, chosen by cross-validation). Diagnostic completion
+  writes it; **every completed Practice Set re-estimates every category from
+  the whole history** inside the completion claim (`complete-practice-set.ts`),
+  and re-derives `initialAbility` from the Diagnostic alone, so "since your
+  Diagnostic" is always one engine against itself. Per-answer updates are
+  only the running estimate between completions, with K derived from the
+  remaining uncertainty (`kValueFor`; about 1.4 shrinking, where the old K was
+  10). Waived bonus questions are no evidence, not misses.
+- **Per-category ratings** (`DIFFICULTY_RATING[category][difficulty]`,
+  `questionRating`), pooled toward each difficulty's average. Difficulty
+  targeting (`distributionForAbility(ability, category)`) is measured from the
+  category's own Medium rating with the PRD's original offsets.
+  "Mastery" is now standing relative to a typical PrepHub student (50).
+- **One prediction function** (`src/lib/score/predict.ts`, `predictScore`):
+  each section scored on its own line (`SECTION_SCORE_LINES`), the two added,
+  the total choosing one of the fifteen displayed ranges. The Diagnostic is
+  exactly this function of the abilities it leaves behind, so a set that
+  changes nothing moves nothing (tested).
+- **The anchor is the one assumption** (`SECTION_SCORE_ANCHORS`): College
+  Board's Skills Insight methodology places each question in the lowest of
+  seven section-score bands whose students answer it right 67% of the time
+  ("RP67"), and its Easy/Medium/Hard are bands 1-3/4-5/6-7 (that mapping is
+  from third-party question-bank sites, not College Board). Each anchor is the
+  section score where a typical question of that difficulty is answered right
+  two times in three; the line is fitted through the abilities where
+  PrepHub's students do the same. It assumes PrepHub's difficulty labels mean
+  what College Board's do. **No official score has been compared yet**: refit
+  the six anchors against real scores, under a new version, as soon as they
+  exist.
+- **Results on the same data**: held-out practice answers predicted at 63.7%
+  vs 65.2% actual (old 56.4%), log-loss 0.588 vs 0.689. The median Diagnostic
+  prediction is 1005 (old 1165); Diagnostic → Set 1 changes are small and go
+  both ways (median +36, from −58 to +81; old median +160, never down).
+- **A perfect Diagnostic predicts the top range** (Owner decision, the same
+  day). The Diagnostic's hardest questions sit near 660 a section, so a
+  perfect section shows a student is above that and can't show how far;
+  against the whole population the estimate fell to ~1300, an extrapolation
+  into a range with no data (nobody had scored perfectly, and none of the
+  near-perfect students had practised). `diagnosticStartingPoint`
+  (`adaptive/diagnostic-initialization.ts`, `DIAGNOSTIC_CEILING`): a section
+  with every Medium right and no misses *starts* at the top of the scale,
+  one miss starts halfway, anything else at the population mean. Perfect →
+  1530-1600, one miss → ~1500, two → ~1385, three → ~1270. It is a starting
+  point carried into every later estimate (`abilitiesFromHistory`), so hard
+  questions answered right keep a student at the top and misses bring them
+  down (tested both ways). On the real Diagnostics it moves 18 of 75, all
+  near-perfect in a section, and leaves the median alone.
+- **Versions are never mixed.** Every comparison of two predictions — the
+  dashboard's "since you started" and recent improvement, Progress's trend
+  and target bar, the results page's previous range and mastery deltas
+  (`PracticeSet.engineVersion`), school "points improved", campus score growth
+  and TSI movement — pairs only entries from one engine. Progress lists older
+  entries marked "earlier method"; the results page says "first prediction
+  with PrepHub's recalibrated scoring" instead of showing a drop.
+  `sectionScoresForEntry` reads each stored entry by its own version's rules.
+- **Fixed while there**: 2026.1 Diagnostic entries stored 400-1600 pattern
+  values in the ability columns, and the TSI reader ran them through the
+  ability table, so every student's first prediction read as ~783 a section:
+  everyone "college-ready" on day one, and the admin Overview could never show
+  anyone crossing. New entries store section abilities; old ones are halved.
+- Demo generators (`scripts/demo-houston.ts`, `scripts/demo-district.ts`)
+  score fictional students through the same lines; refresh a demo after
+  deploying.
+- **Deploying changes what every student sees** at their next completed set:
+  for the 75 who had a Diagnostic, a median 160 points lower. No migration
+  and deliberately no backfill: an existing student's abilities are
+  re-estimated at their next completed set, the moment the results page
+  explains the recalibration, rather than their mastery bars dropping
+  unexplained on deploy day. Stored predictions are never rewritten.
+
+## Owner requests of 2026-11-08 (district admins, class codes, homework layout, Guided Session modes)
+
+Built 2026-11-08, uncommitted until the Owner reviews them. Deploying needs migration
+`20261108191952_guided_session_modes` on Neon first.
+
+### District administrators (Owner: the Houston ISD demo admin must see the whole district and each campus)
+
+- A DISTRICT-scope `AdministratorAssignment` resolves in `requireAdminSchoolContext` to
+  `district: { id, name, campuses }` (campuses = SCHOOL orgs whose `parentDistrictId` is the district).
+  `/admin?school=<campus>` is accepted only for a campus of that district; a foreign id means no
+  campus, never a fallback. SCHOOL-scope admins stay pinned to their own school; the Owner preview is
+  unchanged and read-only.
+- With no campus chosen, `/admin` shows `getDistrictOverview` (`src/lib/admin/district-overview.ts`):
+  district totals plus one row per campus, aggregate-only. A campus figure of 1-4 shows as "Fewer than
+  5"; score gain needs 10 measurable students. **District totals sum only the campuses whose figure is
+  shown** (labelled "excludes N campuses…"), so a withheld figure can't be recovered by subtraction;
+  a district figure that is itself 1-4 is withheld too.
+- The other admin pages show a campus switcher and a "Choose a campus" prompt until one is picked.
+  Write actions take the campus from an explicit hidden `school` field (`schoolField(formData)` →
+  `requireAdminWriteContext`) and re-check it against the admin's district on every request.
+- `scripts/demo-houston.ts` now builds five fictional campuses (about 200 students) under
+  "Houston ISD (Demo)": `hisd.admin@example.com` is a district admin, `hisd.campusadmin@example.com` a
+  campus admin of Northside; the teacher and student logins are on the first campus (Central).
+  Re-creating it in production (`remove` then `create`) is the Owner's call.
+
+### Adding students to a class (Owner: teachers had no visible way to add students)
+
+- The class page's "Add students" panel (`ClassCodePanel` in `class-controls.tsx`) shows the join code
+  in large type, three steps, copy buttons for the code, the join link and a ready-to-post message
+  (`joinShareText` in `src/lib/teacher/join-code.ts`), a full-screen printable "Show code to class"
+  view, and "Get a new code" (ConfirmButton: the old code stops working, enrolled students stay). New
+  classes redirect with `?new=1` for a "ready, now add your students" heading.
+- Every student now sees the Homework nav item; with no class it hosts the join-code form (before, a
+  student without a class had no visible way in except Settings → Classes).
+- Not built: teacher add-by-email and CSV class rosters.
+
+### Assign-homework layout (Owner: scrolling past every question to reach "Assign")
+
+On `lg` the right panel is viewport-tall with a scrolling middle (settings and the selected list) and a
+pinned "Assign to class" button; the question bank scrolls with the page, so the two columns scroll
+independently. Small screens get a sticky "Review and assign" bar that jumps to the panel.
+
+### Guided Sessions: plain-language script, two modes, per-student results
+
+- **Teacher script.** All console copy lives in `src/lib/guided/script.ts` (`scriptFor`,
+  `monitorGuidance`, tested). It must be usable by a teacher who doesn't know the SAT: say exactly what
+  to do and what to say, no test jargon, and hand over the question's own stored text (correct answer,
+  the common wrong choice's distractor explanation, explanation steps, takeaways) to read aloud.
+- **Student screen in the console.** The always-visible "On students' screens" panel
+  (`src/components/guided/student-preview.tsx`) renders `ConsoleState.student`, the same shared state
+  student screens poll, read-only. "Open the board" stays for the projector.
+- **Two modes.** `GuidedSession.mode` is TEACHER_LED (default, unchanged) or INDIVIDUAL (adds
+  `perStudentSkills`). Individual practice opens straight into the own-questions phase; each student's
+  run is dealt on join (`practice.ts`, pure planning in `practice-plan.ts`) from a chosen skill or
+  their three weakest skills, `INDIVIDUAL_PRACTICE.questions` (10), with immediate feedback, through
+  `submitOwnAnswer`, so it stays outside the adaptive engine and the predicted score. The teacher's
+  screen is a monitor (`monitor-view.tsx`, `monitor.ts`): joined, per-student progress, idle (3 min) /
+  needs help (3 wrong in a row) / away, class accuracy, End. Only PAUSE and END are accepted
+  (`modes.ts`). The projector board isn't adapted for this mode yet.
+- **Per-student results (Owner-approved 2026-11-08, widening the earlier rule).** The teacher who ran a
+  session may see each student's individual results for it after it ends, on the class report page:
+  a sortable table (here/absent, answered, first-try %, final %, confidence pattern, own score, time on
+  task) with a per-question drill-down, and a CSV export (`…/live/[sessionId]/export`). Only the
+  session's own teacher, only that session's questions (`requireOwnedSession`). Built by
+  `src/lib/guided/student-report.ts` (pure, tested); catch-up answers are listed but not counted.
+  Admins still see totals only.
+
+### Second round, same day (Owner requests: Homework look, demo curriculum, prize, branding, Rush, engine)
+
+- **Student Homework page** (`src/app/(app)/homework/page.tsx`): an "Up next" tint block for the
+  soonest-due item, a "Coming up" list with progress, then Done with scores; due urgency in words
+  (`describeDue`, `src/lib/teacher/homework-due.ts`); a student with no class gets a "Join your class"
+  block with steps 01-03. Assign-homework builder: separate transitions for search, add-at-random and
+  preview (no stray "Loading…"); the right panel fades and shows "More below" only when it can scroll.
+- **Curriculum for demo accounts:** "Access not provided with demo account." (`isDemoAccount` in
+  `src/lib/demo-account.ts`, the single check: an `example.com` email). Real students keep "The first
+  lessons are being recorded." Tracked as a claim ahead of the product in
+  `Downloads/PrepHub/PROMISED-NOT-BUILT.md` (item 5).
+- **Demo community-goal prize** is free admission to the next home football game (jeans day removed:
+  students can wear jeans anyway).
+- **Guided report fixes:** a student counts as attended with a joined row or any live (non-catch-up)
+  answer, so lobby warm-up answers count as in the class report; the drill-down is split into "Class
+  questions" and "Their own questions", catch-up rows say "listed, not counted". District "At a glance"
+  is two rows of three stats with the campus count in the description.
+- **Co-branding.** `Organization` has `logoMediaId` (existing), `brandName` and `brandColor`
+  (migration `20261108203830_org_branding`). The Owner edits them in the "Branding" card on
+  `/owner/schools/[id]` (PNG/JPG/SVG up to 2 MB; SVG is rasterized to PNG; live preview).
+  `getBrandingForUser` (`src/lib/branding/load.ts`) resolves once per request: students use their
+  campus then district, staff their school or district, the Owner none. `resolveBranding` keeps logo
+  and name together (a campus's own, else the district's) and resolves color per field. Brand color is
+  an accent only: text on it is computed white or black, a near-white color is dropped
+  (`safeBrandAccent`). Shown beside the PrepHub logo ("PrepHub × Name") and as a chip on the student
+  dashboard; it never replaces PrepHub's identity. No logo is bundled: the Owner uploads one they have
+  the rights to (Houston ISD's included).
+- **1v1 Rush practice opponent.** A random live lobby still alone after `RUSH_BOT_AFTER_MS` (15 s) is
+  matched with a simulated student. The Owner asked for it to seem like a real person; it ships
+  **disclosed** because students are minors in school districts: the opponent card says "Practice
+  opponent" and the results say so, behind `RUSH_BOT_LABELED` (`src/lib/rush/config.ts`; false removes
+  the labels, the Owner's call). `RUSH_BOT_ENABLED = false` restores wait-then-recorded-run. `tickLive`
+  claims the room with the same atomic WAITING → COUNTDOWN guard as a human join and stores a seeded
+  profile in `RushChallenge.bot` (migration `20261108204155_rush_practice_opponent`). The bot has no
+  `RushRun`: `src/lib/rush/bot.ts` replays its answers from the profile (accuracy from the student's
+  own ability via `expectedProbability`/`questionRating`, log-normal pace by difficulty and section,
+  same scoring version). Rush has no rating; the bot never appears on the leaderboard; the student's
+  run counts for their weekly best like a solo run; no rematch after a bot match. Rush now reads
+  `CategoryState` (read only).
+
+## Predictions as the real SAT reports them (2026-11-08, scoring version 2026.3)
+
+The Owner asked that the engine work like the real SAT, where one question can cost 10 to 30 points.
+College Board publishes no per-question values or curves, so this is built on the calibrated ability
+model, which is already an item response model.
+
+- **Ability model unchanged** (`ENGINE_VERSION` stays 2026.2); only `SCORING_ENGINE_VERSION` is
+  **2026.3**. A single practice answer still doesn't move the prediction 10-30 points: it pools every
+  answer.
+- **One score and a band** (`src/lib/score/predict.ts`): each section on its own line, rounded to 10;
+  the total is their sum; the likely band is point ± 1.28 SD (about 80%, at least 10) from the
+  estimate's posterior (`sectionScoreSd` in `src/lib/score/real-test.ts`; pass every answer the
+  abilities came from, via `loadAnswerHistory`). Stored in the existing columns:
+  `representativeMidpoint` = the score, `displayedRangeMinimum`/`Maximum` = the band,
+  `displayedRangeIndex` = 0. Read entries with `predictionView` (`src/lib/score/display.ts`), which
+  returns `point: null` for 2026.2/2026.1 entries; those still show their range, and versions are never
+  mixed.
+- **Blueprint:** `CATEGORY_WEIGHT` already equals the digital SAT's domain shares to within 1 point
+  (tested). Mapping: Grammar = Conventions + Expression of Ideas, Vocabulary = words in context, Reading
+  Comprehension = Information and Ideas + the rest of Craft and Structure (Expression of Ideas is an
+  assumption).
+- **Routing is not simulated for the score** (the easier module's ceiling binds only students it almost
+  never routes; `routingProbabilityOfHarderModule`, tested); it does enter the per-question value.
+- **What a question is worth** (`questionPointValue`): section-line slope ÷ the slope of expected
+  correct on a 50/40-question real section (module-1 mix plus a module 2 built for the student), times
+  a guess weight (c = 0.15, scaled to average 1): about 10-20 in the middle, 25-40 near the top, about
+  nothing out of reach. Shown on Practice Set results as "~N pts" per question and in the expanded row,
+  with `QUESTION_VALUE_EXPLAINER` above the list. The guess weight is an approximation, not College
+  Board's. The 80% band and the 0.15 floor are untested against real scores.
+- Demo generators write 2026.3-style columns (fixed ±50 band). Refresh the demos after deploying. The
+  display changes at each student's next completed set; no migration, no backfill.

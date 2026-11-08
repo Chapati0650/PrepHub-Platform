@@ -3,7 +3,30 @@
 // on any change to this file is how historical PredictionHistoryEntry rows
 // stay honest about which rules produced them — configuration changes must
 // never rewrite prediction history retroactively (§11, §14).
-export const SCORING_ENGINE_VERSION = "2026.1";
+//
+// 2026.2 (2026-11-06): the Diagnostic and Practice Sets are scored by one
+// function (predict.ts) from one estimate (adaptive/estimate.ts), and ability
+// becomes a score through SECTION_SCORE_ANCHORS below. Entries written under
+// 2026.1 are read through LEGACY_2026_1 (sectionScoresForEntry), never
+// re-scored.
+//
+// 2026.3 (2026-11-08): a prediction is one score with a likely band, the way
+// the real SAT reports a score (real-test.ts), instead of one of fifteen
+// ranges. The ability model, ratings, lines and weights are unchanged, so
+// 2026.2 entries' abilities mean the same thing; what changed is what is
+// stored in the display columns (see PredictionHistoryEntry usage in
+// generate-*-prediction.ts) and the rounding. Entries written under 2026.2
+// keep their ranges and are never paired with 2026.3 ones.
+import type { QuestionCategory, QuestionDifficulty } from "@/generated/prisma/client";
+import { ABILITY_LOGISTIC_SCALE, ALL_CATEGORIES, CATEGORY_SECTION, questionRating, type ScoreSection } from "@/lib/adaptive/config";
+
+export const SCORING_ENGINE_VERSION = "2026.3";
+/** The version that stored a range of fifteen bands, read by the same ability lines as 2026.3. */
+export const RANGE_SCORING_VERSION = "2026.2";
+export const LEGACY_SCORING_VERSION = "2026.1";
+
+/** Versions whose entries hold a single score (representativeMidpoint) with a band (displayedRangeMinimum/Maximum). */
+export const POINT_SCORING_VERSIONS: readonly string[] = ["2026.3"];
 
 // §4.1 / §5.2 — same 45/45/10 weighting applies to both live Ability Scores
 // and diagnostic-pattern values (the formula shape is identical; only the
@@ -22,25 +45,85 @@ export const MATH_WEIGHTS = {
   geometryTrigonometry: 0.15,
 };
 
-// §5.1 — separate from PRD-014's DIAGNOSTIC_ABILITY_INITIALIZATION table.
-// Keyed identically ("E{0|1}M{0|1}H{0|1}") via diagnosticPatternKey, shared
-// with the adaptive engine so both tables read the same result pattern.
-export const DIAGNOSTIC_PATTERN_VALUES: Record<string, number> = {
-  E0M0H0: 400,
-  E1M0H0: 1000,
-  E0M1H0: 800,
-  E1M1H0: 1300,
-  E0M0H1: 600,
-  E1M0H1: 1200,
-  E0M1H1: 1000,
-  E1M1H1: 1600,
+export const CATEGORY_WEIGHT: Record<QuestionCategory, number> = {
+  READING_COMPREHENSION: READING_WRITING_WEIGHTS.readingComprehension,
+  GRAMMAR: READING_WRITING_WEIGHTS.grammar,
+  VOCABULARY: READING_WRITING_WEIGHTS.vocabulary,
+  ALGEBRA: MATH_WEIGHTS.algebra,
+  ADVANCED_MATH: MATH_WEIGHTS.advancedMath,
+  PROBLEM_SOLVING_DATA_ANALYSIS: MATH_WEIGHTS.problemSolving,
+  GEOMETRY_TRIGONOMETRY: MATH_WEIGHTS.geometryTrigonometry,
 };
 
-// §2 (displayed ranges), §6 (post-diagnostic Ability→range mapping), §7
-// (representative midpoints) — one table carries all three since they're
-// index-aligned 1:1. abilityMin/abilityMax bound the *nonlinear* Ability
-// band that maps to this same score range (§6); scoreMin/scoreMax are also
-// used directly as the diagnostic-estimate band (§5.4 range mapping table).
+// What turns ability into an SAT score, and the one assumption in the
+// engine that PrepHub's own data can't check: there is no official score
+// to compare against yet. College Board assigns every question to the
+// lowest of seven section-score bands whose students answer it correctly at
+// least 67% of the time ("RP67", Skills Insight for the SAT Suite, technical
+// appendix), and its Easy, Medium and Hard are bands 1-3, 4-5 and 6-7. So
+// each value below is the section score at which a typical question of that
+// difficulty is answered right two times in three. The engine finds the
+// ability at which PrepHub's students do the same (from DIFFICULTY_RATING)
+// and draws one straight line through the three pairs, per section.
+//
+// It assumes PrepHub's difficulty labels mean what College Board's do. When
+// official scores exist, refit these six numbers against them, under a new
+// SCORING_ENGINE_VERSION.
+export const SECTION_SCORE_ANCHORS: Record<ScoreSection, Record<QuestionDifficulty, number>> = {
+  // Bands 2-3 (370-480), 4-5 (490-600), 6-7 (610-800, mostly 6).
+  READING_WRITING: { EASY: 425, MEDIUM: 545, HARD: 660 },
+  // Math's band 3 is 420-460 and band 4 is 470-540.
+  MATH: { EASY: 415, MEDIUM: 535, HARD: 660 },
+};
+
+/** Probability at which College Board places a question in a band. */
+export const ANCHOR_RESPONSE_PROBABILITY = 0.67;
+
+export type SectionScoreLine = { intercept: number; slope: number };
+
+const DIFFICULTIES: QuestionDifficulty[] = ["EASY", "MEDIUM", "HARD"];
+
+/**
+ * Least-squares line through (ability where a typical question of each
+ * difficulty is answered right 67% of the time, that difficulty's anchor
+ * score). A section's "typical question" weights the categories as the
+ * section score does.
+ */
+export function sectionScoreLine(section: ScoreSection): SectionScoreLine {
+  const categories = ALL_CATEGORIES.filter((c) => CATEGORY_SECTION[c] === section);
+  const offset = Math.log(ANCHOR_RESPONSE_PROBABILITY / (1 - ANCHOR_RESPONSE_PROBABILITY)) / ABILITY_LOGISTIC_SCALE;
+  const points = DIFFICULTIES.map((d) => ({
+    x: categories.reduce((sum, c) => sum + CATEGORY_WEIGHT[c] * questionRating(c, d), 0) + offset,
+    y: SECTION_SCORE_ANCHORS[section][d],
+  }));
+  const meanX = points.reduce((a, p) => a + p.x, 0) / points.length;
+  const meanY = points.reduce((a, p) => a + p.y, 0) / points.length;
+  const slope =
+    points.reduce((a, p) => a + (p.x - meanX) * (p.y - meanY), 0) / points.reduce((a, p) => a + (p.x - meanX) ** 2, 0);
+  return { intercept: meanY - slope * meanX, slope };
+}
+
+export const SECTION_SCORE_LINES: Record<ScoreSection, SectionScoreLine> = {
+  READING_WRITING: sectionScoreLine("READING_WRITING"),
+  MATH: sectionScoreLine("MATH"),
+};
+
+/** A section ability as an SAT section score, unrounded, within 200-800. */
+export function sectionScoreFromAbility(section: ScoreSection, ability: number): number {
+  const line = SECTION_SCORE_LINES[section];
+  return clamp(line.intercept + line.slope * ability, 200, 800);
+}
+
+/** The section ability whose score is `score`: the inverse of sectionScoreFromAbility. */
+export function abilityForSectionScore(section: ScoreSection, score: number): number {
+  const line = SECTION_SCORE_LINES[section];
+  return (score - line.intercept) / line.slope;
+}
+
+// §2 (displayed ranges), §7 (representative midpoints) — the fifteen bands a
+// prediction is shown as. abilityMin/abilityMax are engine 2026.1's
+// nonlinear Ability→range mapping (§6), kept only to read entries written
+// under it (rangeForAbility); no current prediction uses them.
 export type ScoreRange = {
   index: number;
   scoreMin: number;
@@ -79,8 +162,8 @@ export function rangeForScore(score: number): ScoreRange {
   return SCORE_RANGES[0];
 }
 
-// §6 / §13.2 rangeForOverallAbility — same top-down band search, over the
-// nonlinear Ability thresholds instead of raw SAT score thresholds.
+// §6 / §13.2 rangeForOverallAbility, engine 2026.1 only — same top-down band
+// search over that engine's nonlinear Ability thresholds.
 export function rangeForAbility(ability: number): ScoreRange {
   for (let i = SCORE_RANGES.length - 1; i >= 0; i--) {
     if (ability >= SCORE_RANGES[i].abilityMin) return SCORE_RANGES[i];
@@ -124,10 +207,12 @@ export function validateScoreConfig(): void {
     if (cur.index !== prev.index + 1) throw new Error("Score ranges must be ascending and contiguous by index");
   }
 
-  const patternKeys = Object.keys(DIAGNOSTIC_PATTERN_VALUES);
-  if (patternKeys.length !== 8) throw new Error(`Expected exactly 8 diagnostic patterns, got ${patternKeys.length}`);
-  for (const value of Object.values(DIAGNOSTIC_PATTERN_VALUES)) {
-    if (value < 400 || value > 1600) throw new Error(`Diagnostic pattern value ${value} out of 400-1600 range`);
+  for (const section of ["READING_WRITING", "MATH"] as const) {
+    const anchors = SECTION_SCORE_ANCHORS[section];
+    if (!(anchors.EASY < anchors.MEDIUM && anchors.MEDIUM < anchors.HARD)) {
+      throw new Error(`${section} anchors must rise from Easy to Hard`);
+    }
+    if (!(SECTION_SCORE_LINES[section].slope > 0)) throw new Error(`${section} score line must rise with ability`);
   }
 }
 

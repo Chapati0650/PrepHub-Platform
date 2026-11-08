@@ -1,9 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { chanceFor, discussTier, harderTier, planClassQuestions, startTier, suggestMove, tierFallback } from "./plan";
+import { DIFFICULTY_RATING } from "@/lib/adaptive/config";
+
+// Reading Comprehension's ratings (engine 2026.2): a class pitched at them.
+const RC = DIFFICULTY_RATING.READING_COMPREHENSION;
 
 describe("planClassQuestions", () => {
   it("pitches a typical class: an easy start, a medium to discuss, a hard stretch", () => {
-    const plan = planClassQuestions(60, 3);
+    // A class whose middle student is even money on a Medium question.
+    const plan = planClassQuestions("READING_COMPREHENSION", RC.MEDIUM, 3);
     expect(plan.map((p) => [p.role, p.difficulty])).toEqual([
       ["START", "EASY"],
       ["DISCUSS", "MEDIUM"],
@@ -14,26 +19,26 @@ describe("planClassQuestions", () => {
   });
 
   it("moves everything down for a class still building", () => {
-    // At 36, even Easy is about a coin flip, so Easy is the one to discuss.
-    const plan = planClassQuestions(36, 3);
+    // At the Easy rating, Easy itself is a coin flip, so Easy is the one to discuss.
+    const plan = planClassQuestions("READING_COMPREHENSION", RC.EASY, 3);
     expect(plan.map((p) => p.difficulty)).toEqual(["EASY", "EASY", "MEDIUM"]);
   });
 
   it("moves everything up for a strong class", () => {
-    const plan = planClassQuestions(90, 3);
+    const plan = planClassQuestions("READING_COMPREHENSION", RC.HARD + 10, 3);
     expect(plan.map((p) => p.difficulty)).toEqual(["MEDIUM", "HARD", "HARD"]);
   });
 
   it("falls back to easy, medium, hard with no data, and gives no chance", () => {
-    const plan = planClassQuestions(null, 3);
+    const plan = planClassQuestions("READING_COMPREHENSION", null, 3);
     expect(plan.map((p) => p.difficulty)).toEqual(["EASY", "MEDIUM", "HARD"]);
     expect(plan.every((p) => p.chance === null)).toBe(true);
   });
 
   it("shapes shorter and longer sessions", () => {
-    expect(planClassQuestions(60, 2).map((p) => p.role)).toEqual(["START", "DISCUSS"]);
-    expect(planClassQuestions(60, 4).map((p) => p.role)).toEqual(["START", "DISCUSS", "DISCUSS", "STRETCH"]);
-    expect(planClassQuestions(60, 1).map((p) => p.role)).toEqual(["DISCUSS"]);
+    expect(planClassQuestions("ALGEBRA", 50, 2).map((p) => p.role)).toEqual(["START", "DISCUSS"]);
+    expect(planClassQuestions("ALGEBRA", 50, 4).map((p) => p.role)).toEqual(["START", "DISCUSS", "DISCUSS", "STRETCH"]);
+    expect(planClassQuestions("ALGEBRA", 50, 1).map((p) => p.role)).toEqual(["DISCUSS"]);
   });
 });
 
@@ -51,11 +56,17 @@ describe("tiers", () => {
   });
 
   it("chooses a start and a discussion tier from the chance model", () => {
-    expect(startTier(null)).toBe("EASY");
-    expect(startTier(10)).toBe("EASY");
-    expect(discussTier(null)).toBe("MEDIUM");
-    expect(discussTier(85)).toBe("HARD");
-    expect(chanceFor("MEDIUM", 60)).toBeCloseTo(0.5);
+    expect(startTier("READING_COMPREHENSION", null)).toBe("EASY");
+    expect(startTier("READING_COMPREHENSION", 10)).toBe("EASY");
+    expect(discussTier("READING_COMPREHENSION", null)).toBe("MEDIUM");
+    expect(discussTier("READING_COMPREHENSION", 85)).toBe("HARD");
+    expect(chanceFor("READING_COMPREHENSION", "MEDIUM", RC.MEDIUM)).toBeCloseTo(0.5);
+  });
+
+  it("reads each skill's own ratings", () => {
+    // One level, two skills: Vocabulary's Medium questions are far easier
+    // for PrepHub's students than Geometry's.
+    expect(chanceFor("VOCABULARY", "MEDIUM", 45)).toBeGreaterThan(chanceFor("GEOMETRY_TRIGONOMETRY", "MEDIUM", 45));
   });
 });
 

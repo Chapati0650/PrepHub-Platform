@@ -2,7 +2,8 @@ import { Prisma, type ClubSection, type RushMode } from "@/generated/prisma/clie
 import { prisma } from "@/lib/prisma";
 import { isAnswerCorrect } from "@/lib/adaptive/grading";
 import { getStudentQuestionContent, type StudentQuestionContent } from "@/lib/session/question-content";
-import { LIVE_PRESENCE_MS, RUSH_DIFFICULTY, RUSH_SECTIONS, RUSH_TIME_LIMIT_MS } from "./config";
+import { LIVE_PRESENCE_MS, RUSH_BOT_LABEL, RUSH_BOT_LABELED, RUSH_DIFFICULTY, RUSH_SECTIONS, RUSH_TIME_LIMIT_MS } from "./config";
+import { botAvatar, botRounds, parseBotProfile, type BotAvatar } from "./bot";
 import {
   compareRuns,
   isOverLimit,
@@ -461,6 +462,11 @@ export type RushResults = {
   maxScore: number;
   /** Set on a rematch: the student it was sent to. */
   rematchFor: string | null;
+  /**
+   * Set when `others` holds the practice opponent rather than a student.
+   * `label` is null when RUSH_BOT_LABELED is off, so the page says nothing.
+   */
+  practiceOpponent: { label: string | null; avatar: BotAvatar } | null;
 };
 
 export async function getRushResults(studentId: string, challengeId: string): Promise<RushResults | null> {
@@ -496,6 +502,25 @@ export async function getRushResults(studentId: string, challengeId: string): Pr
   });
 
   const others = c.runs.filter((r) => r.studentId !== studentId).map(toParticipant);
+  // A practice opponent has no run row: its answers are a pure function of
+  // the stored profile, replayed here once the match is over.
+  const botProfile = c.liveStatus === "FINISHED" ? parseBotProfile(c.bot) : null;
+  if (botProfile) {
+    const limitMs = RUSH_TIME_LIMIT_MS[c.set.section];
+    const rounds = botRounds(botProfile, limitMs, c.scoringVersion);
+    others.push({
+      runId: "practice-opponent",
+      name: botProfile.name,
+      isMe: false,
+      status: "COMPLETED",
+      score: rounds.reduce((n, r) => n + r.points, 0),
+      correctCount: rounds.filter((r) => r.isCorrect).length,
+      totalMs: rounds.reduce((n, r) => n + Math.min(r.elapsedMs, limitMs), 0),
+      bestStreak: longestStreak(rounds),
+      fastestCorrectMs: fastestCorrect(rounds),
+      answers: rounds.map((r) => ({ position: r.position, isCorrect: r.isCorrect, points: r.points, elapsedMs: r.elapsedMs, answered: true })),
+    });
+  }
   const finishedOthers = others.filter((o) => o.status === "COMPLETED");
   const best = finishedOthers[0] ?? null;
 
@@ -516,6 +541,7 @@ export async function getRushResults(studentId: string, challengeId: string): Pr
     scoringVersion: c.scoringVersion,
     maxScore: maxRushScore(c.scoringVersion, c.set.slots.length),
     rematchFor: c.invitedStudent?.firstName ?? null,
+    practiceOpponent: botProfile ? { label: RUSH_BOT_LABELED ? RUSH_BOT_LABEL : null, avatar: botAvatar(botProfile) } : null,
   };
 }
 

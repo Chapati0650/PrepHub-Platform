@@ -1,19 +1,30 @@
 import type { QuestionCategory } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ALL_CATEGORIES } from "@/lib/adaptive/config";
+import { ALL_CATEGORIES, ENGINE_VERSION } from "@/lib/adaptive/config";
 import { generateDiagnosticPrediction } from "@/lib/score/generate-diagnostic-prediction";
 import { generateAdaptivePrediction } from "@/lib/score/generate-adaptive-prediction";
 import { SESSION_HOUR_CAP } from "@/lib/school/student-activity";
+import { predictionView, type PredictionView } from "@/lib/score/display";
+import { questionPointValue } from "@/lib/score/real-test";
 
 export type SessionResultsData = {
   sourceType: "DIAGNOSTIC" | "ADAPTIVE_SET";
-  previousRange: { min: number; max: number } | null;
-  currentRange: { min: number; max: number };
+  previousRange: PredictionView | null;
+  /** There was an earlier prediction, from an earlier engine, so none is compared. */
+  recalibrated: boolean;
+  currentRange: PredictionView;
   approximateImprovement: number;
   targetScore: number | null;
   stats: { correct: number; total: number; accuracy: number; avgTimeSeconds: number; totalTimeSeconds: number };
   mastery: { category: QuestionCategory; currentMastery: number; changeSinceStart: number | null }[];
-  questions: { id: string; position: number; isCorrect: boolean; category: QuestionCategory }[];
+  questions: {
+    id: string;
+    position: number;
+    isCorrect: boolean;
+    category: QuestionCategory;
+    /** Section points one more right answer to a question like this is worth on a real SAT at the student's level (Practice Sets only). */
+    worthPoints: number | null;
+  }[];
   continueHref: string;
 };
 
@@ -59,7 +70,8 @@ export async function getDiagnosticResultsData(studentId: string): Promise<Sessi
   return {
     sourceType: "DIAGNOSTIC",
     previousRange: null,
-    currentRange: { min: prediction.displayedRangeMinimum, max: prediction.displayedRangeMaximum },
+    recalibrated: false,
+    currentRange: predictionView(prediction),
     approximateImprovement: 0,
     targetScore: user.targetScore,
     stats: {
@@ -73,7 +85,7 @@ export async function getDiagnosticResultsData(studentId: string): Promise<Sessi
       currentMastery: Math.round(abilityByCategory.get(category) ?? 0),
       changeSinceStart: null,
     })),
-    questions: shown.map((a, index) => ({ id: a.id, position: index, isCorrect: !!a.isCorrect, category: a.category })),
+    questions: shown.map((a, index) => ({ id: a.id, position: index, isCorrect: !!a.isCorrect, category: a.category, worthPoints: null })),
     continueHref: "/practice",
   };
 }
@@ -104,15 +116,24 @@ export async function getPracticeSetResultsData(studentId: string, practiceSetId
   });
 
   const abilityByCategory = new Map(categoryStates.map((s) => [s.category, s.ability]));
+  // Before/after only within one engine: a set generated before the
+  // recalibration of 2026-11-06 snapshotted abilities on the old scale, and the
+  // prediction before it came from the old calculation. Across that line a
+  // difference is the change of method, not this set's work.
+  const sameEngineSnapshot = set.engineVersion === ENGINE_VERSION;
   const snapshotByCategory = new Map(set.categorySnapshots.map((s) => [s.category, s.abilityAtGeneration]));
   const correct = set.slots.filter((s) => s.finalizedAttempt?.isCorrect).length;
+  const abilitiesComplete = ALL_CATEGORIES.every((c) => abilityByCategory.has(c));
+  const abilities = Object.fromEntries(ALL_CATEGORIES.map((c) => [c, abilityByCategory.get(c) ?? 0])) as Record<QuestionCategory, number>;
 
   return {
     sourceType: "ADAPTIVE_SET",
-    previousRange: previousPrediction
-      ? { min: previousPrediction.displayedRangeMinimum, max: previousPrediction.displayedRangeMaximum }
-      : null,
-    currentRange: { min: prediction.displayedRangeMinimum, max: prediction.displayedRangeMaximum },
+    previousRange:
+      previousPrediction && previousPrediction.scoringEngineVersion === prediction.scoringEngineVersion
+        ? predictionView(previousPrediction)
+        : null,
+    recalibrated: !!previousPrediction && previousPrediction.scoringEngineVersion !== prediction.scoringEngineVersion,
+    currentRange: predictionView(prediction),
     approximateImprovement: prediction.approximateImprovement,
     targetScore: user.targetScore,
     stats: {
@@ -127,7 +148,7 @@ export async function getPracticeSetResultsData(studentId: string, practiceSetId
       return {
         category,
         currentMastery: Math.round(after),
-        changeSinceStart: before !== undefined ? Math.round(after) - Math.round(before) : null,
+        changeSinceStart: sameEngineSnapshot && before !== undefined ? Math.round(after) - Math.round(before) : null,
       };
     }),
     questions: set.slots.map((s) => ({
@@ -135,6 +156,10 @@ export async function getPracticeSetResultsData(studentId: string, practiceSetId
       position: s.position,
       isCorrect: !!s.finalizedAttempt?.isCorrect,
       category: s.resolvedCategory,
+      // At the student's level after this set (the abilities the prediction was just made from).
+      worthPoints: abilitiesComplete
+        ? questionPointValue(abilities, s.resolvedCategory, s.resolvedDifficulty).points
+        : null,
     })),
     continueHref: "/practice",
   };

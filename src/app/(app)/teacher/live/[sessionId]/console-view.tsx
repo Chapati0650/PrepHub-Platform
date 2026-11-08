@@ -6,11 +6,14 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/confirm-button";
 import { LogoMark } from "@/components/logo";
+import { LatexText } from "@/components/content/latex-text";
+import { StudentScreenPreview } from "@/components/guided/student-preview";
 import { StatusChip } from "@/components/staff/staff-ui";
 import { formatClock, useCountdown } from "@/components/guided/use-shared-state";
 import { CONSOLE_POLL_MS, EXTRA_TIME_LABELS } from "@/lib/guided/config";
 import type { ConsoleState, ConsoleStudent } from "@/lib/guided/console";
 import type { GuidedCommand } from "@/lib/guided/control";
+import { scriptFor } from "@/lib/guided/script";
 import type { AnswerBreakdown } from "@/lib/teacher/answer-stats";
 import { commandAction } from "../actions";
 
@@ -209,7 +212,19 @@ export function ConsoleView({ initial }: { initial: ConsoleState }) {
           )}
         </div>
 
-        <div className="flex flex-col gap-3 p-4 sm:p-6">
+        <div className="flex flex-col gap-6 p-4 sm:p-6">
+          <section aria-labelledby="student-screens" className="rounded-2xl border border-border">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+              <h2 id="student-screens" className="text-lg">
+                On students&apos; screens
+              </h2>
+              <p className="text-sm text-muted-foreground">Exactly what students see right now. Read-only; updates by itself.</p>
+            </div>
+            <div className="max-h-[30rem] overflow-y-auto p-4" tabIndex={0} aria-label="Preview of the students' screen">
+              <StudentScreenPreview shared={state.student} />
+            </div>
+          </section>
+          <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="text-lg">The room</h2>
             <p className="text-sm text-muted-foreground">Only on your screen. Names never go to the board.</p>
@@ -256,6 +271,7 @@ export function ConsoleView({ initial }: { initial: ConsoleState }) {
               </Button>
             </div>
           )}
+          </div>
         </div>
       </div>
     </div>
@@ -264,133 +280,77 @@ export function ConsoleView({ initial }: { initial: ConsoleState }) {
 
 function NextMove({ state, busy, send }: { state: ConsoleState; busy: boolean; send: (c: GuidedCommand) => Promise<void> }) {
   const item = state.item;
-  const low = item?.firstRight !== null && item?.firstRight !== undefined && item.firstRight < 0.35;
-  const afterLast = state.hasNextQuestion ? "Next question" : "Start their own questions";
-  const isWarmup = item?.kind === "WARMUP";
-
-  let title = "";
-  let detail = "";
-  let primary: { label: string; command: GuidedCommand } | null = null;
-  const secondary: { label: string; command: GuidedCommand }[] = [];
-
-  switch (state.phase) {
-    case "LOBBY":
-      title = "Start when the room is in";
-      detail = "Students who have joined are answering the warm-up. Starting shows its answer on the board.";
-      primary = { label: "Start", command: { type: "NEXT" } };
-      break;
-    case "PLAN":
-      title = "Today's plan is on the board";
-      detail = "Say in a sentence why this skill: it's where the most of the class has points to gain.";
-      primary = { label: "Show the worked example", command: { type: "NEXT" } };
-      break;
-    case "EXAMPLE":
-      title = "Step through the example";
-      detail = "Arrow keys or a clicker move a step. Students' screens follow a step behind.";
-      primary = { label: "Start question 1", command: { type: "NEXT" } };
-      secondary.push({ label: "Next step", command: { type: "STEP", delta: 1 } }, { label: "Back a step", command: { type: "STEP", delta: -1 } });
-      break;
-    case "THINK": {
-      const s = item?.suggestion;
-      title =
-        s === "TALK"
-          ? "The room is split: partner talk"
-          : s === "MOVE_ON"
-            ? "Most of the room has it: show the answer"
-            : s === "EXPLAIN"
-              ? "Most of the room is missing it: show the answer, then explain"
-              : "Students are thinking";
-      detail =
-        s === "TALK"
-          ? "Between 35% and 70% are right so far, where talking it over helps most. The board won't show how they voted."
-          : s === "MOVE_ON"
-            ? "Over 70% are right so far. A sentence of explanation is enough."
-            : s === "EXPLAIN"
-              ? "Under 35% are right so far: too few for partners to help each other."
-              : "Wait for most answers. When the clock runs out, whatever a student has chosen counts.";
-      if (s === "TALK") {
-        primary = { label: "Start partner talk", command: { type: "TALK" } };
-        secondary.push({ label: "Show the answer", command: { type: "REVEAL" } });
-      } else {
-        primary = { label: "Show the answer", command: { type: "REVEAL" } };
-        secondary.push({ label: "Partner talk", command: { type: "TALK" } });
-      }
-      secondary.push({ label: "+30 seconds", command: { type: "ADD_TIME" } }, { label: "Skip this question", command: { type: "SKIP" } });
-      break;
-    }
-    case "TALK":
-      title = "Partners are talking";
-      detail = "Walk the room. When talk ends, everyone votes again.";
-      primary = { label: "Vote again", command: { type: "REVOTE" } };
-      secondary.push({ label: "+30 seconds", command: { type: "ADD_TIME" } });
-      break;
-    case "REVOTE":
-      title = "Second vote";
-      detail = "When most have voted, show the answer. The board then shows the first and second vote side by side.";
-      primary = { label: "Show the answer", command: { type: "REVEAL" } };
-      secondary.push({ label: "+30 seconds", command: { type: "ADD_TIME" } });
-      break;
-    case "REVEAL":
-      title = isWarmup ? "Warm-up answer is up" : low ? "Most of the room missed it" : "The answer is up";
-      detail = isWarmup
-        ? "Name the most common wrong answer in a sentence, then move on."
-        : low
-          ? "Work it through on the board, then give them one like it to try alone."
-          : "Name the common wrong answer and why it tempts people.";
-      if (isWarmup) primary = { label: "Show today's plan", command: { type: "NEXT" } };
-      else if (low) {
-        primary = { label: "Explain it", command: { type: "EXPLAIN" } };
-        secondary.push({ label: "One like it", command: { type: "TWIN" } }, { label: afterLast, command: { type: "NEXT" } });
-      } else {
-        primary = { label: afterLast, command: { type: "NEXT" } };
-        secondary.push({ label: "Explain it", command: { type: "EXPLAIN" } }, { label: "One like it", command: { type: "TWIN" } });
-      }
-      break;
-    case "EXPLAIN":
-      title = "Explaining";
-      detail = "Arrow keys or a clicker move a step. Students who chose the common wrong answer see why it's wrong.";
-      if (low) {
-        primary = { label: "Try one like it", command: { type: "TWIN" } };
-        secondary.push({ label: afterLast, command: { type: "NEXT" } });
-      } else {
-        primary = { label: afterLast, command: { type: "NEXT" } };
-        secondary.push({ label: "One like it", command: { type: "TWIN" } });
-      }
-      secondary.unshift({ label: "Next step", command: { type: "STEP", delta: 1 } }, { label: "Back a step", command: { type: "STEP", delta: -1 } });
-      break;
-    case "OWN":
-      title = "Students are on their own questions";
-      detail = "Each has questions in this skill at their own level. Students with extra time keep going after the recap starts.";
-      primary = { label: "Show the recap", command: { type: "RECAP" } };
-      secondary.push({ label: "+30 seconds", command: { type: "ADD_TIME" } });
-      break;
-    case "RECAP":
-      title = "Recap";
-      detail = "Read the room's recap off the board and say when the next session is.";
-      primary = { label: "End the session", command: { type: "END" } };
-      break;
-  }
+  const script = scriptFor({
+    phase: state.phase,
+    kind: item?.kind ?? null,
+    skill: state.categoryLabel,
+    suggestion: item?.suggestion ?? null,
+    firstRight: item?.firstRight ?? null,
+    hasNextQuestion: state.hasNextQuestion,
+    step: state.step,
+    steps: item?.steps ?? [],
+    takeaway: item?.takeaway ?? null,
+    correctLabel: item?.correctLabel ?? null,
+    correctText: item?.correctText ?? null,
+    commonWrong: item?.commonWrong ?? null,
+    takeaways: state.student?.recap?.takeaways ?? [],
+  });
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl bg-surface-tint p-5">
+    <div className="flex flex-col gap-4 rounded-2xl bg-surface-tint p-5">
       <p className="font-mono text-xs tracking-wider text-muted-foreground uppercase">Next move</p>
-      <p className="text-xl font-semibold">{title}</p>
-      <p className="text-base text-foreground/80">{detail}</p>
+      <p className="text-xl font-semibold">{script.title}</p>
+
+      {script.doThis.length > 0 && (
+        <div>
+          <p className="text-base font-semibold">What to do</p>
+          <ol className="mt-1 list-decimal space-y-1.5 pl-6 text-base text-foreground/90">
+            {script.doThis.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {script.say.length > 0 && (
+        <div>
+          <p className="text-base font-semibold">What to say</p>
+          {script.say.map((line) => (
+            <p key={line} className="mt-1 border-l-4 border-primary/50 pl-3 text-base">
+              &ldquo;{line}&rdquo;
+            </p>
+          ))}
+        </div>
+      )}
+
+      {script.readAloud.map((block) => (
+        <div key={block.heading} className="rounded-xl border border-border bg-background p-4">
+          <p className="text-base font-semibold">{block.heading}</p>
+          <div className="mt-2 flex flex-col gap-2">
+            {block.lines.map((line, i) => (
+              <p key={i} className="text-base leading-relaxed">
+                <LatexText text={line} />
+              </p>
+            ))}
+          </div>
+        </div>
+      ))}
+
       <div className="flex flex-wrap gap-2">
-        {primary && (
-          <Button size="xl" disabled={busy} onClick={() => void send(primary.command)}>
-            {primary.label}
+        {script.primary && (
+          <Button size="xl" disabled={busy} onClick={() => void send(script.primary!.command)}>
+            {script.primary.label}
           </Button>
         )}
-        {secondary.map((s) => (
-          <Button key={s.label} size="xl" variant="outline" disabled={busy} onClick={() => void send(s.command)}>
-            {s.label}
+        {script.secondary.map((a) => (
+          <Button key={a.label} size="xl" variant="outline" disabled={busy} onClick={() => void send(a.command)}>
+            {a.label}
           </Button>
         ))}
       </div>
       {state.phase !== "LOBBY" && state.phase !== "OWN" && state.phase !== "RECAP" && (
         <button type="button" className="w-fit text-sm text-muted-foreground underline underline-offset-2" onClick={() => void send({ type: "OWN" })}>
-          Skip to their own questions
+          Skip ahead to the students&apos; own questions
         </button>
       )}
     </div>

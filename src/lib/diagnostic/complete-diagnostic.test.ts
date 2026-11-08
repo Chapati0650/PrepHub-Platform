@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { completeDiagnostic, finalizeDiagnosticCompletion } from "@/lib/diagnostic/complete-diagnostic";
 import { ALL_CATEGORIES } from "@/lib/adaptive/config";
+import { abilitiesFromHistory } from "@/lib/adaptive/diagnostic-initialization";
 import { prisma } from "@/lib/prisma";
 import { generatePracticeSet } from "@/lib/adaptive/generate-practice-set";
 import { generateDiagnosticPrediction } from "@/lib/score/generate-diagnostic-prediction";
@@ -78,7 +79,7 @@ describe("completeDiagnostic", () => {
     expect(mocked.categoryState.createMany).not.toHaveBeenCalled();
   });
 
-  it("creates seven Category States from the diagnostic pattern and marks the session completed", async () => {
+  it("creates seven Category States from the diagnostic answers and marks the session completed", async () => {
     mocked.diagnosticSession.findUnique.mockResolvedValue({
       id: "session1",
       status: "IN_PROGRESS",
@@ -87,14 +88,25 @@ describe("completeDiagnostic", () => {
 
     const result = (await completeDiagnostic("student1")) as { status: string };
 
-    expect(mocked.categoryState.createMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.arrayContaining([expect.objectContaining({ ability: 90, initialAbility: 90 })]),
-        skipDuplicates: true,
-      }),
+    // The estimate every Practice Set uses, from all twenty-one right answers
+    // and starting at the top for a perfect section: the initial ability is the ability.
+    const expected = abilitiesFromHistory(
+      ALL_CATEGORIES.flatMap((category) =>
+        (["EASY", "MEDIUM", "HARD"] as const).map((difficulty) => ({ category, difficulty, isCorrect: true })),
+      ),
     );
-    const createdStates = mocked.categoryState.createMany.mock.calls[0][0].data;
+    expect(mocked.categoryState.createMany).toHaveBeenCalledWith(expect.objectContaining({ skipDuplicates: true }));
+    const createdStates = mocked.categoryState.createMany.mock.calls[0][0].data as {
+      category: (typeof ALL_CATEGORIES)[number];
+      ability: number;
+      initialAbility: number;
+    }[];
     expect(createdStates).toHaveLength(7);
+    for (const state of createdStates) {
+      expect(state.ability).toBe(expected[state.category]);
+      expect(state.initialAbility).toBe(state.ability);
+      expect(state.ability).toBeGreaterThan(50);
+    }
     expect(mocked.diagnosticSession.updateMany).toHaveBeenCalledWith({
       where: { id: "session1", status: "IN_PROGRESS" },
       data: expect.objectContaining({ status: "COMPLETED", completedAt: expect.any(Date) }),
@@ -151,7 +163,7 @@ describe("finalizeDiagnosticCompletion", () => {
 });
 
 describe("completeDiagnostic — staged format", () => {
-  it("completes without the Hard questions a student didn't earn, scoring them as wrong", async () => {
+  it("completes without the Hard questions a student didn't earn, and doesn't count them at all", async () => {
     // Every Medium missed: no bonus round was earned, so the seven Hard
     // questions were never served and must not hold up completion.
     mocked.diagnosticSession.findUnique.mockResolvedValue({
@@ -163,9 +175,19 @@ describe("completeDiagnostic — staged format", () => {
 
     await completeDiagnostic("student1");
 
-    const rows = mocked.categoryState.createMany.mock.calls[0][0].data as { ability: number }[];
-    // E1 M0 H0 in every category — the Hard questions count as misses.
-    expect(rows.every((r) => r.ability === 40)).toBe(true);
+    const rows = mocked.categoryState.createMany.mock.calls[0][0].data as {
+      category: (typeof ALL_CATEGORIES)[number];
+      ability: number;
+    }[];
+    // Easy right, Medium wrong, in every category; the unserved Hard
+    // questions are no evidence either way (they were once scored as misses).
+    const expected = abilitiesFromHistory(
+      ALL_CATEGORIES.flatMap((category) => [
+        { category, difficulty: "EASY" as const, isCorrect: true },
+        { category, difficulty: "MEDIUM" as const, isCorrect: false },
+      ]),
+    );
+    for (const row of rows) expect(row.ability).toBe(expected[row.category]);
   });
 
   it("refuses to complete while an earned bonus question is still unanswered", async () => {

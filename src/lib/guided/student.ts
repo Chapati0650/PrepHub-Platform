@@ -2,11 +2,12 @@ import type { ExtraTime, GuidedConfidence, GuidedItemKind, GuidedPace } from "@/
 import { prisma } from "@/lib/prisma";
 import type { StudentQuestionContent } from "@/lib/session/question-content";
 import { answerLabel } from "@/lib/teacher/answer-stats";
-import { CATEGORY_LABELS } from "@/lib/content/labels";
 import { CATCH_UP_DAYS, EXTRA_TIME_FACTOR } from "./config";
+import { sessionSkillLabel } from "./modes";
 import { answerKeyOf, cleanAnswer, correctChoiceId, grade, loadRevision, loadRevisions, type RevisionInfo } from "./content";
 import { GuidedError } from "./errors";
 import { createBonusSlot, createOwnSlots } from "./own";
+import { createPracticeSlots } from "./practice";
 import { itemLabels, reachedItem } from "./report";
 import { forgetSharedState, itemForPhase } from "./state";
 
@@ -111,9 +112,11 @@ export async function joinGuidedSession(studentId: string, sessionId: string): P
     create: { sessionId, studentId, extraTime: enrolled.extraTime },
     update: { onPaper: false, lastSeenAt: new Date(), hidden: false, extraTime: enrolled.extraTime },
   });
-  // Arriving after the own questions were dealt: deal theirs now.
+  // Arriving after the own questions were dealt (always, in individual
+  // practice): deal theirs now.
   if (session.phase === "OWN" || session.phase === "RECAP") {
-    const create = await createOwnSlots(session, [studentId]);
+    const create =
+      session.mode === "INDIVIDUAL" ? await createPracticeSlots(session, [studentId]) : await createOwnSlots(session, [studentId]);
     await prisma.$transaction(async (tx) => create(tx));
   }
   forgetSharedState(session.stateKey);
@@ -311,7 +314,7 @@ export async function submitOwnAnswer(studentId: string, slotId: string, rawAnsw
 
 export async function requestGuidedBonus(studentId: string, sessionId: string): Promise<boolean> {
   const { session } = await requireStudentSession(studentId, sessionId);
-  if (session.status !== "OPEN") return false;
+  if (session.status !== "OPEN" || session.mode === "INDIVIDUAL") return false;
   await requireParticipant(sessionId, studentId);
   return createBonusSlot(session, studentId);
 }
@@ -399,7 +402,7 @@ export async function getStudentRecap(studentId: string, sessionId: string, now:
 
   return {
     className: classroom.name,
-    categoryLabel: CATEGORY_LABELS[session.category],
+    categoryLabel: sessionSkillLabel(session),
     endedAt: session.endedAt,
     joined: !!participant,
     questions,

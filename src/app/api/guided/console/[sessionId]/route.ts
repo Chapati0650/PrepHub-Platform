@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { getConsoleState } from "@/lib/guided/console";
+import { getTeacherView } from "@/lib/guided/console";
 import { GuidedError } from "@/lib/guided/errors";
 import { getTeacherContext } from "@/lib/teacher/access";
 import { logUnauthorizedAccess } from "@/lib/logger";
@@ -24,7 +24,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ sessionId: str
   if (!context) return NextResponse.json({ ok: false }, { status: 403, headers: NO_STORE });
   const { sessionId } = await ctx.params;
   try {
-    return NextResponse.json(await getConsoleState(context, sessionId), { headers: NO_STORE });
+    return NextResponse.json(await getTeacherView(context, sessionId), { headers: NO_STORE });
   } catch (err) {
     if (err instanceof GuidedError && err.code === "NOT_FOUND") {
       return NextResponse.json({ ok: false }, { status: 404, headers: NO_STORE });

@@ -49,6 +49,7 @@ export async function finalizeAnswer(params: { studentId: string; blueprintSlotI
 
       const update = computeAbilityUpdate({
         abilityBefore: categoryState.ability,
+        category: slot.resolvedCategory,
         difficulty: slot.resolvedDifficulty,
         isCorrect,
         previousAdaptiveAnswersInCategory: categoryState.adaptiveQuestionsAnswered,

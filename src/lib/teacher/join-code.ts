@@ -35,3 +35,23 @@ export function normalizeJoinCode(input: string): string | null {
 export function formatJoinCode(code: string): string {
   return code.length === JOIN_CODE_LENGTH ? `${code.slice(0, 3)}-${code.slice(3)}` : code;
 }
+
+/** "https://prephub.example/join/ACDEFG" -> "prephub.example": what a student types into a browser. */
+export function joinSiteLabel(origin: string): string {
+  return origin.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+}
+
+/**
+ * A message a teacher can paste into an LMS post or an email. Plain text, so
+ * it survives any editor. The code is shown with its dash, the link carries
+ * the bare code.
+ */
+export function joinShareText(className: string, code: string, origin: string): string {
+  const site = joinSiteLabel(origin);
+  return [
+    `Join ${className} on PrepHub:`,
+    `1. Go to ${site} and sign in (or make a free account).`,
+    `2. Open Homework and enter the class code ${formatJoinCode(code)}.`,
+    `Or open this link: ${origin.replace(/\/+$/, "")}/join/${code.replace(/-/g, "")}`,
+  ].join("\n");
+}

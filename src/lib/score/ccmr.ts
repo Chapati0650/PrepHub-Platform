@@ -1,4 +1,4 @@
-import { rangeForAbility } from "./config";
+import { sectionScoresForEntry, type StoredPrediction } from "./section-scores";
 
 /**
  * Texas Success Initiative (TSI) benchmarks, as met via SAT section scores.
@@ -18,23 +18,6 @@ import { rangeForAbility } from "./config";
 export const TSI_READING_WRITING_BENCHMARK = 480;
 export const TSI_MATH_BENCHMARK = 530;
 
-/**
- * Converts a per-section Ability (the `readingWritingAbility` /
- * `mathAbility` stored on a PredictionHistoryEntry) into an estimated SAT
- * section score on the 200-800 scale.
- *
- * The scoring config maps Ability to a *total* 400-1600 band. Since those
- * bands are symmetric across the two sections, running a single section's
- * Ability through the same table and halving the representative midpoint
- * gives that section's equivalent. This is an estimate layered on an
- * estimate and is only ever used for aggregate school reporting — never
- * shown to a student as their section score, and never written back into a
- * PredictionHistoryEntry.
- */
-export function sectionScoreFromAbility(ability: number): number {
-  return Math.round(rangeForAbility(ability).midpoint / 2);
-}
-
 export type TsiStatus = {
   readingWritingScore: number;
   mathScore: number;
@@ -44,12 +27,19 @@ export type TsiStatus = {
   meetsTsi: boolean;
 };
 
-export function tsiStatusFromAbilities(
-  readingWritingAbility: number,
-  mathAbility: number,
-): TsiStatus {
-  const readingWritingScore = sectionScoreFromAbility(readingWritingAbility);
-  const mathScore = sectionScoreFromAbility(mathAbility);
+/**
+ * One stored prediction against the TSI benchmarks, its section scores read
+ * by the rules of the engine that wrote it (sectionScoresForEntry). Only ever
+ * used for aggregate school reporting: never shown to a student as their
+ * section score, and never written back. Null when the entry can't be scored
+ * against TSI.
+ */
+export function tsiStatusForEntry(entry: StoredPrediction): TsiStatus | null {
+  const scores = sectionScoresForEntry(entry);
+  return scores ? tsiStatusFromScores(scores.readingWriting, scores.math) : null;
+}
+
+export function tsiStatusFromScores(readingWritingScore: number, mathScore: number): TsiStatus {
   const meetsReadingWriting = readingWritingScore >= TSI_READING_WRITING_BENCHMARK;
   const meetsMath = mathScore >= TSI_MATH_BENCHMARK;
   return {

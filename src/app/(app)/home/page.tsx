@@ -23,6 +23,8 @@ import { EmptyState } from "@/components/empty-state";
 import { ScorePrediction } from "@/components/score-prediction";
 import { Marker } from "@/components/ui/marker";
 import { Greeting } from "./greeting";
+import { BrandChip } from "@/components/co-brand";
+import { getBrandingForUser } from "@/lib/branding/load";
 
 export const metadata = { title: "Home" };
 
@@ -141,6 +143,8 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   // pick a campus — is the app shell's district bar, on every page rather
   // than only here.
   const schoolMembership = membership;
+
+  const branding = await getBrandingForUser(session.user.id, session.user.role ?? "STUDENT");
 
   const paidAccess = decidePaidAccess(session.user.role ?? null, subscription, schoolMembership);
   const onboarding = isStudent ? profile : null;
@@ -281,6 +285,11 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
           control on the page. */}
       <section>
         <div>
+          {branding && (
+            <div className="mb-3">
+              <BrandChip branding={branding} />
+            </div>
+          )}
           <h1 className="text-page-title sm:text-page-title-lg">
             <Greeting name={data.firstName} />
           </h1>
@@ -420,7 +429,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
           <Panel title="Your Score">
             <div className="flex flex-col gap-6">
               {data.currentRange ? (
-                <ScorePrediction min={data.currentRange.min} max={data.currentRange.max} label="PrepHub Score Prediction" fit />
+                <ScorePrediction min={data.currentRange.min} max={data.currentRange.max} point={data.currentRange.point} label="PrepHub Score Prediction" fit />
               ) : (
                 <div>
                   <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">

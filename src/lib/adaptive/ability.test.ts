@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeAbilityUpdate, expectedProbability } from "@/lib/adaptive/ability";
+import { ABILITY_LOGISTIC_SCALE, DIFFICULTY_RATING, ONLINE_STARTING_SD, kValueFor } from "@/lib/adaptive/config";
 
 describe("expectedProbability", () => {
   it("returns 0.5 when question rating equals ability", () => {
@@ -15,109 +16,82 @@ describe("expectedProbability", () => {
   });
 });
 
+describe("DIFFICULTY_RATING", () => {
+  it("rises from Easy to Hard in every category", () => {
+    for (const ratings of Object.values(DIFFICULTY_RATING)) {
+      expect(ratings.EASY).toBeLessThan(ratings.MEDIUM);
+      expect(ratings.MEDIUM).toBeLessThan(ratings.HARD);
+    }
+  });
+});
+
 describe("computeAbilityUpdate", () => {
-  it("increases ability on a correct answer", () => {
-    const result = computeAbilityUpdate({
+  const update = (overrides: Partial<Parameters<typeof computeAbilityUpdate>[0]>) =>
+    computeAbilityUpdate({
       abilityBefore: 50,
+      category: "ALGEBRA",
       difficulty: "MEDIUM",
       isCorrect: true,
       previousAdaptiveAnswersInCategory: 0,
+      ...overrides,
     });
-    expect(result.abilityAfter).toBeGreaterThan(50);
+
+  it("increases ability on a correct answer", () => {
+    expect(update({ isCorrect: true }).abilityAfter).toBeGreaterThan(50);
   });
 
   it("decreases ability on an incorrect answer", () => {
-    const result = computeAbilityUpdate({
-      abilityBefore: 50,
-      difficulty: "MEDIUM",
-      isCorrect: false,
-      previousAdaptiveAnswersInCategory: 0,
-    });
-    expect(result.abilityAfter).toBeLessThan(50);
+    expect(update({ isCorrect: false }).abilityAfter).toBeLessThan(50);
   });
 
   it("produces a larger change for an unexpected result than an expected one", () => {
     // Correct on a Hard question while ability is low (unexpected win) vs.
     // correct on an Easy question while ability is already high (expected win).
-    const unexpected = computeAbilityUpdate({
-      abilityBefore: 20,
-      difficulty: "HARD",
-      isCorrect: true,
-      previousAdaptiveAnswersInCategory: 0,
-    });
-    const expectedWin = computeAbilityUpdate({
-      abilityBefore: 95,
-      difficulty: "EASY",
-      isCorrect: true,
-      previousAdaptiveAnswersInCategory: 0,
-    });
+    const unexpected = update({ abilityBefore: 20, difficulty: "HARD" });
+    const expectedWin = update({ abilityBefore: 95, difficulty: "EASY" });
     expect(Math.abs(unexpected.appliedAbilityChange)).toBeGreaterThan(Math.abs(expectedWin.appliedAbilityChange));
   });
 
-  it("never changes ability by more than 5 points, even at K=10 with a maximally unexpected result", () => {
-    const result = computeAbilityUpdate({
-      abilityBefore: 0,
-      difficulty: "HARD",
-      isCorrect: true,
-      previousAdaptiveAnswersInCategory: 0,
-    });
-    expect(Math.abs(result.appliedAbilityChange)).toBeLessThanOrEqual(5);
-    expect(result.rawAbilityChange).toBeGreaterThan(5); // raw exceeds the cap before clamping
+  it("reads the question's rating for its own category", () => {
+    // The same Medium question is far easier in Vocabulary than in Geometry.
+    const vocabulary = update({ category: "VOCABULARY" });
+    const geometry = update({ category: "GEOMETRY_TRIGONOMETRY" });
+    expect(vocabulary.expectedProbability).toBeCloseTo(expectedProbability(DIFFICULTY_RATING.VOCABULARY.MEDIUM, 50), 9);
+    expect(vocabulary.expectedProbability).toBeGreaterThan(geometry.expectedProbability);
+  });
+
+  it("never changes ability by more than the evidence of one answer supports", () => {
+    // The largest possible surprise: a right answer to a Hard question at 0.
+    const result = update({ abilityBefore: 0, difficulty: "HARD", isCorrect: true });
+    expect(result.appliedAbilityChange).toBeLessThanOrEqual(kValueFor(0));
+    expect(result.appliedAbilityChange).toBeLessThan(2);
   });
 
   it("clamps ability at the 0 floor", () => {
-    // Already at the floor, and a wrong answer pushes further negative —
-    // the clamp must hold it at exactly 0 rather than going negative.
-    const result = computeAbilityUpdate({
-      abilityBefore: 0,
-      difficulty: "HARD",
-      isCorrect: false,
-      previousAdaptiveAnswersInCategory: 0,
-    });
+    const result = update({ abilityBefore: 0, difficulty: "HARD", isCorrect: false });
     expect(result.rawAbilityChange).toBeLessThan(0);
     expect(result.abilityAfter).toBe(0);
   });
 
   it("clamps ability at the 100 ceiling", () => {
-    // Already at the ceiling, and a correct answer pushes further positive —
-    // the clamp must hold it at exactly 100 rather than exceeding it.
-    const result = computeAbilityUpdate({
-      abilityBefore: 100,
-      difficulty: "EASY",
-      isCorrect: true,
-      previousAdaptiveAnswersInCategory: 0,
-    });
+    const result = update({ abilityBefore: 100, difficulty: "EASY", isCorrect: true });
     expect(result.rawAbilityChange).toBeGreaterThan(0);
     expect(result.abilityAfter).toBe(100);
   });
+});
 
-  it("selects K=10 for the 10th adaptive answer (0-9 previous answers)", () => {
-    const result = computeAbilityUpdate({
-      abilityBefore: 50,
-      difficulty: "MEDIUM",
-      isCorrect: true,
-      previousAdaptiveAnswersInCategory: 9,
-    });
-    expect(result.kValue).toBe(10.0);
+describe("kValueFor", () => {
+  it("is the logistic scale times the starting variance before any answers", () => {
+    expect(kValueFor(0)).toBeCloseTo(ABILITY_LOGISTIC_SCALE * ONLINE_STARTING_SD ** 2, 9);
   });
 
-  it("selects K=8 for the 11th adaptive answer (10-29 previous answers)", () => {
-    const result = computeAbilityUpdate({
-      abilityBefore: 50,
-      difficulty: "MEDIUM",
-      isCorrect: true,
-      previousAdaptiveAnswersInCategory: 10,
-    });
-    expect(result.kValue).toBe(8.0);
-  });
-
-  it("selects K=6 once 30 or more previous answers exist", () => {
-    const result = computeAbilityUpdate({
-      abilityBefore: 50,
-      difficulty: "MEDIUM",
-      isCorrect: true,
-      previousAdaptiveAnswersInCategory: 30,
-    });
-    expect(result.kValue).toBe(6.0);
+  it("shrinks with every answer already given, and never reaches zero", () => {
+    let previous = kValueFor(0);
+    for (const n of [1, 5, 10, 30, 100, 1000]) {
+      const k = kValueFor(n);
+      expect(k).toBeLessThan(previous);
+      expect(k).toBeGreaterThan(0);
+      previous = k;
+    }
   });
 });

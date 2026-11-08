@@ -1,7 +1,7 @@
 import type { QuestionCategory } from "@/generated/prisma/client";
 import { CATEGORY_ORDER } from "@/lib/content/constants";
-import { SCORE_RANGES } from "@/lib/score/config";
-import { sectionScoreFromAbility, TSI_MATH_BENCHMARK, TSI_READING_WRITING_BENCHMARK } from "@/lib/score/ccmr";
+import { abilityForSectionScore } from "@/lib/score/config";
+import { TSI_MATH_BENCHMARK, TSI_READING_WRITING_BENCHMARK } from "@/lib/score/ccmr";
 import { MIN_STUDENTS_FOR_PICK, RECENT_SKILL_FACTOR, SKILL_WEIGHTS, sectionOf, type Section } from "./config";
 
 /**
@@ -54,17 +54,18 @@ export type SkillPick = {
   alternatives: QuestionCategory[];
 };
 
-/** The lowest skill level whose section-score equivalent meets `benchmark`. */
-export function tsiAbilityLine(benchmark: number): number {
-  for (const range of SCORE_RANGES) {
-    if (sectionScoreFromAbility(range.abilityMin) >= benchmark) return range.abilityMin;
-  }
-  return 100;
+/**
+ * The skill level whose section-score equivalent is `benchmark`, on the same
+ * line every prediction is scored on (SECTION_SCORE_LINES): about 44 in
+ * Reading & Writing and 55 in Math under engine 2026.2.
+ */
+export function tsiAbilityLine(section: Section, benchmark: number): number {
+  return Math.round(abilityForSectionScore(section, benchmark) * 10) / 10;
 }
 
 export const SKILL_LINES: Record<Section, number> = {
-  READING_WRITING: tsiAbilityLine(TSI_READING_WRITING_BENCHMARK),
-  MATH: tsiAbilityLine(TSI_MATH_BENCHMARK),
+  READING_WRITING: tsiAbilityLine("READING_WRITING", TSI_READING_WRITING_BENCHMARK),
+  MATH: tsiAbilityLine("MATH", TSI_MATH_BENCHMARK),
 };
 
 export function median(values: number[]): number | null {

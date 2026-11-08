@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, useTransition } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, X } from "lucide-react";
 import type { QuestionCategory, QuestionDifficulty, QuestionType } from "@/generated/prisma/client";
@@ -137,7 +137,13 @@ export function AssignmentBuilder({
   const [filters, setFilters] = useState<BankFilters>({});
   const [searchText, setSearchText] = useState("");
   const [results, setResults] = useState<Results>(initialResults);
-  const [loading, startLoading] = useTransition();
+  // Three separate transitions: a shared one made the "Loading…" label next to
+  // "Add 5 at random" show for a question preview (or an add-at-random) while
+  // the list below was already populated. Only a search is "Loading…".
+  const [searching, startSearching] = useTransition();
+  const [adding, startAdding] = useTransition();
+  const [, startPreviewing] = useTransition();
+  const loading = searching || adding;
   const [previews, setPreviews] = useState<Map<string, Preview>>(new Map());
   const [openPreview, setOpenPreview] = useState<string | null>(null);
   // With the call to retry, so "Try again" repeats what failed.
@@ -150,6 +156,71 @@ export function AssignmentBuilder({
   const [dueOn, setDueOn] = useState("");
   const [mode, setMode] = useState<Mode>("PRACTICE");
   const [alsoClasses, setAlsoClasses] = useState<Set<string>>(new Set());
+
+  // On large screens the panel is as tall as the room below its top edge, so the
+  // Assign button is on screen even before the page is scrolled (the panel sits
+  // under the page header there; a fixed viewport-tall cap pushed its bottom off
+  // screen until the page had scrolled). Once the panel sticks at 1.5rem it is
+  // the full height minus 3rem.
+  const panelRef = useRef<HTMLElement>(null);
+  // "More above / below" cue for the panel's inner scroll area; shown only
+  // while there is something to scroll to.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState({ up: false, down: false });
+  // Fades the edges that have more content; on small screens the panel doesn't
+  // scroll on its own, so the mask only applies at lg and up (see the class).
+  const fadeMask =
+    more.up || more.down
+      ? {
+          WebkitMaskImage: `linear-gradient(to bottom, ${more.up ? "transparent, black 2rem" : "black, black"}, ${more.down ? "black calc(100% - 3rem), transparent" : "black, black"})`,
+          maskImage: `linear-gradient(to bottom, ${more.up ? "transparent, black 2rem" : "black, black"}, ${more.down ? "black calc(100% - 3rem), transparent" : "black, black"})`,
+        }
+      : undefined;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => {
+      const up = el.scrollTop > 4;
+      const down = el.scrollHeight - el.scrollTop - el.clientHeight > 4;
+      setMore((m) => (m.up === up && m.down === down ? m : { up, down }));
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+  }, []);
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const wide = window.matchMedia("(min-width: 1024px)");
+    let frame = 0;
+    const fit = () => {
+      frame = 0;
+      if (!wide.matches) {
+        el.style.maxHeight = "";
+        return;
+      }
+      const margin = 24;
+      const top = Math.max(el.getBoundingClientRect().top, margin);
+      el.style.maxHeight = `${Math.max(320, window.innerHeight - top - margin)}px`;
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(fit);
+    };
+    fit();
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+    };
+  }, []);
 
   // The saved draft exists only in the browser, so the server's render and
   // hydration are the empty builder, and the draft is read in on the first
@@ -210,7 +281,7 @@ export function AssignmentBuilder({
     setFilters(next);
     setRandomNotice(null);
     setBankFailure(null);
-    startLoading(async () => {
+    startSearching(async () => {
       try {
         setResults(await searchQuestionBankAction(classroomId, next, page));
       } catch (err) {
@@ -224,7 +295,7 @@ export function AssignmentBuilder({
 
   function loadPreview(id: string) {
     setPreviewFailure(null);
-    startLoading(async () => {
+    startPreviewing(async () => {
       try {
         const loaded = await previewBankQuestionAction(id);
         setPreviews((prev) => new Map(prev).set(id, loaded));
@@ -280,7 +351,7 @@ export function AssignmentBuilder({
     const wanted = Math.min(count, maxQuestions - selected.length);
     setRandomNotice(null);
     setBankFailure(null);
-    startLoading(async () => {
+    startAdding(async () => {
       let picked: Awaited<ReturnType<typeof pickRandomQuestionsAction>>;
       try {
         picked = await pickRandomQuestionsAction(classroomId, filters, wanted, [...selectedIds]);
@@ -414,7 +485,7 @@ export function AssignmentBuilder({
 
         <div className="flex flex-wrap items-center justify-between gap-2 text-base">
           <p className="text-muted-foreground" aria-live="polite">
-            {loading ? "Loading…" : `${results.total.toLocaleString()} question${results.total === 1 ? "" : "s"}`}
+            {searching ? "Loading…" : adding ? "Adding…" : `${results.total.toLocaleString()} question${results.total === 1 ? "" : "s"}`}
             {filterLabel && ` · ${filterLabel}`}
           </p>
           <div className="flex gap-2">
@@ -535,7 +606,20 @@ export function AssignmentBuilder({
       </section>
 
       {/* ---- The homework ---- */}
-      <aside className="flex flex-col gap-4 rounded-2xl border border-border p-5 lg:sticky lg:top-6" aria-label="This homework">
+      <aside
+        ref={panelRef}
+        id="this-homework"
+        className="flex flex-col rounded-2xl border border-border lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-hidden"
+        aria-label="This homework"
+      >
+        {/* On large screens the panel is one viewport tall: this middle part
+            scrolls on its own (the question bank scrolls with the page) and
+            the Assign button below it never leaves the screen. */}
+        <div
+          ref={scrollRef}
+          style={fadeMask}
+          className="flex flex-col gap-4 p-5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto"
+        >
         {restored && (
           <div role="status" className="flex flex-col items-start gap-2 rounded-xl bg-surface-tint p-3 text-base">
             <p>
@@ -603,7 +687,7 @@ export function AssignmentBuilder({
           {selected.length === 0 ? (
             <p className="text-base text-muted-foreground">Add questions from the list on the left with their Add buttons.</p>
           ) : (
-            <ol className="flex max-h-[40vh] flex-col divide-y divide-border overflow-y-auto border-y border-border">
+            <ol className="flex flex-col divide-y divide-border overflow-y-auto border-y border-border">
               {selected.map((q, i) => (
                 <li key={q.id} className="flex items-start gap-2 py-2.5 text-base">
                   <span className="w-6 shrink-0 font-heading font-semibold tabular-nums">{String(i + 1).padStart(2, "0")}</span>
@@ -652,6 +736,13 @@ export function AssignmentBuilder({
           </fieldset>
         )}
 
+        </div>
+        <div className="relative flex flex-col gap-3 border-t border-border bg-background p-5 lg:shrink-0">
+        {more.down && (
+          <span aria-hidden className="pointer-events-none absolute -top-3.5 left-1/2 hidden -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-background px-2.5 py-0.5 text-sm text-muted-foreground lg:flex">
+            <ArrowDown className="size-3.5" aria-hidden /> More below
+          </span>
+        )}
         {error && (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
@@ -664,7 +755,23 @@ export function AssignmentBuilder({
         <p className="text-sm text-muted-foreground">
           Students see it on their Homework page as soon as you assign it, and get an email saying it&apos;s there.
         </p>
+        </div>
       </aside>
+
+      {/* Small screens: the panel sits below the bank, so a bar that stays in
+          view says how many are picked and jumps to it. Hidden on large
+          screens, where the panel itself is always on screen. */}
+      <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-between gap-3 border-t border-border bg-background px-4 py-3 sm:-mx-8 sm:px-8 lg:hidden">
+        <span className="text-base tabular-nums">
+          {selected.length} question{selected.length === 1 ? "" : "s"} picked
+        </span>
+        <a
+          href="#this-homework"
+          className="inline-flex h-11 items-center rounded-md bg-primary px-5 text-base font-semibold text-primary-foreground"
+        >
+          Review and assign
+        </a>
+      </div>
     </div>
   );
 }

@@ -26,7 +26,8 @@ import { AdministratorsPanel } from "./administrators-panel";
 import { AddSchoolForm } from "./add-school-form";
 import { MembershipsPanel } from "./memberships-panel";
 import { RosterPanel } from "./roster-panel";
-import { LogoForm } from "./logo-form";
+import { BrandingPanel } from "./branding-panel";
+import { prisma } from "@/lib/prisma";
 import { RushLeaderboardForm } from "./leaderboard-form";
 import { requireOwnerPage } from "@/lib/owner/guard";
 
@@ -51,6 +52,13 @@ export default async function OrganizationDetailPage({
   const roster = await listRoster(id, { search: rosterSearch });
   const invites = await getRosterInviteSummary({ organizationId: id });
   const teachers = org.organizationType === "SCHOOL" ? await listTeachers(id) : [];
+  // A campus inherits its district's branding unless it sets its own.
+  const parentDistrict = org.parentDistrictId
+    ? await prisma.organization.findUnique({
+        where: { id: org.parentDistrictId },
+        select: { officialName: true, brandName: true, logoMediaId: true, brandColor: true },
+      })
+    : null;
 
   const eligibleSchools =
     org.organizationType === "DISTRICT"
@@ -233,14 +241,29 @@ export default async function OrganizationDetailPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>District branding</CardTitle>
+          <CardTitle>Branding</CardTitle>
           <CardDescription>
-            Shown to this organization&apos;s students inside the product, so PrepHub reads as something their school
-            provides.
+            Shown beside PrepHub (never instead of it) to this organization&apos;s students and staff, so PrepHub
+            reads as something their school provides. A district&apos;s branding covers all its campuses.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <LogoForm id={org.id} logoMediaId={org.logoMediaId} />
+          <BrandingPanel
+            key={`${org.id}-${org.updatedAt.getTime()}`}
+            id={org.id}
+            officialName={org.officialName}
+            logoMediaId={org.logoMediaId}
+            brandName={org.brandName}
+            brandColor={org.brandColor}
+            inheritedFrom={
+              parentDistrict
+                ? {
+                    name: parentDistrict.brandName ?? parentDistrict.officialName,
+                    hasBranding: Boolean(parentDistrict.logoMediaId || parentDistrict.brandName || parentDistrict.brandColor),
+                  }
+                : null
+            }
+          />
         </CardContent>
       </Card>
 

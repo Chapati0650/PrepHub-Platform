@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
-import { Prisma, type QuestionCategory, type QuestionDifficulty } from "@/generated/prisma/client";
+import { Prisma, type GuidedSessionMode, type QuestionCategory, type QuestionDifficulty } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createRandom, generateSeed } from "@/lib/adaptive/random";
 import { generateJoinCode } from "@/lib/teacher/join-code";
 import { requireOwnedClassroom, type TeacherContext } from "@/lib/teacher/access";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
-import { SESSION_LENGTHS, WARMUP_MAX_DAYS, WARMUP_MIN_DAYS, sectionOf, type Section, type SessionLength } from "./config";
+import { CATEGORY_ORDER } from "@/lib/content/constants";
+import { INDIVIDUAL_PRACTICE, SESSION_LENGTHS, WARMUP_MAX_DAYS, WARMUP_MIN_DAYS, sectionOf, type Section, type SessionLength } from "./config";
 import { GuidedError } from "./errors";
 import { median, pickSkill, type SkillPick, type SkillRank, type StudentSkillLevels } from "./pick-skill";
 import { discussTier, planClassQuestions, startTier } from "./plan";
@@ -210,30 +211,86 @@ type PlannedItem = {
 };
 
 /**
- * Opens a session for a class: picks the warm-up, the worked example and the
- * class questions, and puts the room in the lobby. A class has at most one
- * open session; asking again returns it.
+ * Individual practice: no warm-up, example or class questions. The session
+ * opens already in its own-questions phase and each student is dealt their
+ * run when they join (`createPracticeSlots`). With `category: null` every
+ * student's questions come from their own weakest skills; `category` is then
+ * only a placeholder (the column is required) and is never shown.
+ */
+async function createIndividualSession(
+  context: TeacherContext,
+  classroomId: string,
+  input: { category: QuestionCategory | null },
+  now: Date,
+): Promise<{ id: string }> {
+  const perStudentSkills = input.category === null;
+  const category = input.category ?? CATEGORY_ORDER[0];
+  const available = await prisma.question.count({
+    where: { status: "PUBLISHED", currentPublishedRevisionId: { not: null }, ...(perStudentSkills ? {} : { category }) },
+  });
+  if (available === 0) {
+    throw new GuidedError(
+      "NO_CONTENT",
+      `There aren't enough published ${CATEGORY_LABELS[category]} questions for a session yet. Choose another skill.`,
+    );
+  }
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      return await prisma.guidedSession.create({
+        data: {
+          classroomId,
+          teacherId: context.userId,
+          category,
+          mode: "INDIVIDUAL",
+          perStudentSkills,
+          pickSnapshot: { mode: "INDIVIDUAL", chosen: perStudentSkills ? null : category },
+          joinCode: generateJoinCode(),
+          stateKey: stateKey(),
+          phase: "OWN",
+          startedAt: now,
+          phaseStartedAt: now,
+          ownQuestionCount: INDIVIDUAL_PRACTICE.questions,
+          ownSeconds: 0,
+        },
+        select: { id: true },
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") continue;
+      throw err;
+    }
+  }
+  throw new Error("Couldn't open a session. Please try again.");
+}
+
+/**
+ * Opens a session for a class. Teacher-led (the default): picks the warm-up,
+ * the worked example and the class questions, and puts the room in the lobby.
+ * Individual practice: opens straight into each student's own run. A class
+ * has at most one open session; asking again returns it.
  */
 export async function createGuidedSession(
   context: TeacherContext,
   classroomId: string,
-  input: { category: QuestionCategory; length: SessionLength },
+  input: { category: QuestionCategory | null; length: SessionLength; mode?: GuidedSessionMode },
   now: Date = new Date(),
 ): Promise<{ id: string }> {
   const classroom = await requireOwnedClassroom(context, classroomId);
   if (classroom.archivedAt) throw new GuidedError("CLASS_CLOSED", "This class is archived.");
   const open = await prisma.guidedSession.findFirst({ where: { classroomId, status: "OPEN" }, select: { id: true } });
   if (open) return open;
+  if (input.mode === "INDIVIDUAL") return createIndividualSession(context, classroomId, { category: input.category }, now);
+  if (input.category === null) throw new GuidedError("INVALID_INPUT", "Choose a skill.");
+  const category: QuestionCategory = input.category;
 
   const length = SESSION_LENGTHS[input.length];
   const studentIds = await classStudentIds(classroomId);
   const levels = await skillLevels(studentIds);
   const levelsIn = (category: QuestionCategory) =>
     [...levels.values()].map((l) => l[category]).filter((v): v is number => typeof v === "number");
-  const todayMedian = median(levelsIn(input.category));
+  const todayMedian = median(levelsIn(category));
 
   const random = createRandom(generateSeed());
-  const [candidates, seen] = await Promise.all([publishedCandidates(input.category), seenCounts(studentIds, input.category)]);
+  const [candidates, seen] = await Promise.all([publishedCandidates(category), seenCounts(studentIds, category)]);
   const used = new Set<string>();
   const planned: PlannedItem[] = [];
   const take = (kind: PlannedItem["kind"], pool: Candidate[], seenBy: Map<string, number>, difficulty: QuestionDifficulty, chance: number | null, needsSteps = false) => {
@@ -245,25 +302,25 @@ export async function createGuidedSession(
   };
 
   // Warm-up first, from a skill worked on a week or more ago where there is one.
-  const warmCat = await warmupCategory(classroomId, input.category, now);
-  if (warmCat === input.category) {
-    take("WARMUP", candidates, seen, startTier(todayMedian), null);
+  const warmCat = await warmupCategory(classroomId, category, now);
+  if (warmCat === category) {
+    take("WARMUP", candidates, seen, startTier(category, todayMedian), null);
   } else {
     const [warmPool, warmSeen] = await Promise.all([publishedCandidates(warmCat), seenCounts(studentIds, warmCat)]);
-    if (!take("WARMUP", warmPool, warmSeen, startTier(median(levelsIn(warmCat))), null)) {
-      take("WARMUP", candidates, seen, startTier(todayMedian), null);
+    if (!take("WARMUP", warmPool, warmSeen, startTier(warmCat, median(levelsIn(warmCat))), null)) {
+      take("WARMUP", candidates, seen, startTier(category, todayMedian), null);
     }
   }
 
-  const plan = planClassQuestions(todayMedian, length.classQuestions);
-  take("EXAMPLE", candidates, seen, discussTier(todayMedian), null, true);
+  const plan = planClassQuestions(category, todayMedian, length.classQuestions);
+  take("EXAMPLE", candidates, seen, discussTier(category, todayMedian), null, true);
   for (const slot of plan) take("CLASS", candidates, seen, slot.difficulty, slot.chance);
 
   const classCount = planned.filter((p) => p.kind === "CLASS").length;
   if (classCount === 0) {
     throw new GuidedError(
       "NO_CONTENT",
-      `There aren't enough published ${CATEGORY_LABELS[input.category]} questions for a session yet. Choose another skill.`,
+      `There aren't enough published ${CATEGORY_LABELS[category]} questions for a session yet. Choose another skill.`,
     );
   }
 
@@ -271,7 +328,7 @@ export async function createGuidedSession(
   const snapshot = {
     measured: pick.measured,
     ranked: pick.ranked.map((r) => ({ category: r.category, below: r.below, measured: r.measured, priority: r.priority })),
-    chosen: input.category,
+    chosen: category,
     suggested: pick.pick,
     length: input.length,
   };
@@ -282,7 +339,7 @@ export async function createGuidedSession(
         data: {
           classroomId,
           teacherId: context.userId,
-          category: input.category,
+          category,
           pickSnapshot: snapshot,
           joinCode: generateJoinCode(),
           stateKey: stateKey(),

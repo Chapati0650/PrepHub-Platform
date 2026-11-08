@@ -1,4 +1,4 @@
-import type { QuestionDifficulty } from "@/generated/prisma/client";
+import type { QuestionCategory, QuestionDifficulty } from "@/generated/prisma/client";
 import { shuffle } from "@/lib/adaptive/random";
 import { sampleDifficulty } from "@/lib/adaptive/difficulty";
 import { harderTier, tierFallback } from "./plan";
@@ -60,8 +60,13 @@ export function chooseQuestion(params: {
  * Practice Sets (harder questions as the student's level rises), and Medium
  * for a student with no Diagnostic yet.
  */
-export function ownDifficulties(ability: number | null, count: number, random: () => number): QuestionDifficulty[] {
-  return Array.from({ length: count }, () => (ability === null ? "MEDIUM" : sampleDifficulty(ability, random)));
+export function ownDifficulties(
+  category: QuestionCategory,
+  ability: number | null,
+  count: number,
+  random: () => number,
+): QuestionDifficulty[] {
+  return Array.from({ length: count }, () => (ability === null ? "MEDIUM" : sampleDifficulty(ability, category, random)));
 }
 
 /** The bonus question is a step up from the hardest of the student's own. */

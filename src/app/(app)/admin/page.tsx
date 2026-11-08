@@ -22,7 +22,9 @@ import {
   StatStrip,
   StatusChip,
 } from "@/components/staff/staff-ui";
-import { OwnerSchoolSwitcher } from "./school-switcher";
+import { DistrictCampusSwitcher, OwnerSchoolSwitcher } from "./school-switcher";
+import { DistrictOverviewView } from "./district-overview";
+import { getDistrictOverview } from "@/lib/admin/district-overview";
 
 export const metadata = { title: "School overview" };
 
@@ -75,7 +77,14 @@ function plural(n: number, one: string, many = `${one}s`): string {
 // is never in them (§7), and nothing here can name a student.
 export default async function AdminOverviewPage({ searchParams }: { searchParams: Promise<{ school?: string }> }) {
   const { school } = await searchParams;
-  const { schoolId, viewingAsOwner, availableSchools } = await requireAdminSchoolContext(school);
+  const { schoolId, viewingAsOwner, availableSchools, district, carryCampusParam } = await requireAdminSchoolContext(school);
+
+  // A district administrator with no campus chosen sees the whole district
+  // and a row per campus; choosing a campus shows that campus's own overview.
+  if (district && !schoolId) {
+    const overview = await getDistrictOverview(district.name, district.campuses);
+    return <DistrictOverviewView overview={overview} campuses={district.campuses} />;
+  }
 
   if (!schoolId) return <StaffUnavailable title="The Overview isn't available for this account." />;
 
@@ -95,11 +104,14 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
   // The Owner's preview picks its school from the URL, so every link on the
   // page carries it — without it, one click landed back on the first school.
   // An Administrator's school comes from their assignment, so theirs stay bare.
-  const href = (path: string) => (viewingAsOwner ? `${path}?school=${schoolId}` : path);
+  const href = (path: string) => (carryCampusParam ? `${path}?school=${schoolId}` : path);
 
   return (
     <StaffPage>
       {viewingAsOwner && <OwnerSchoolSwitcher basePath="/admin" schools={availableSchools} currentSchoolId={schoolId} />}
+      {district && (
+        <DistrictCampusSwitcher basePath="/admin" districtName={district.name} campuses={district.campuses} currentSchoolId={schoolId} allowAll />
+      )}
 
       <StaffHeader
         eyebrow="Your school"

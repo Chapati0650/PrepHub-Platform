@@ -8,6 +8,7 @@ import {
 } from "@/lib/admin/impact";
 import { flattenSql } from "@/lib/school/test-fixtures";
 import { prisma } from "@/lib/prisma";
+import { LEGACY_SCORING_VERSION, SCORING_ENGINE_VERSION } from "@/lib/score/config";
 
 vi.mock("@/lib/prisma", () => ({
   prisma: { $queryRaw: vi.fn() },
@@ -15,11 +16,11 @@ vi.mock("@/lib/prisma", () => ({
 
 const mocked = prisma as unknown as { $queryRaw: ReturnType<typeof vi.fn> };
 
-// Abilities chosen against the section thresholds in lib/score/ccmr:
-// ability 10 -> 262 per section (below both), ability 50 -> 582 (above both),
-// ability 20 -> 302, ability 95 -> 782.
+// Section abilities against the TSI lines on the current scoring lines
+// (lib/score/config SECTION_SCORE_LINES): 10 is far below both benchmarks in
+// both sections, 70 well above both.
 const LOW = 10;
-const HIGH = 50;
+const HIGH = 70;
 
 function prediction(
   studentId: string,
@@ -27,6 +28,7 @@ function prediction(
   rw: number | null,
   math: number | null,
   createdAt = new Date("2026-01-01"),
+  written: { sourceType?: "DIAGNOSTIC" | "ADAPTIVE_SET"; version?: string } = {},
 ) {
   return {
     studentId,
@@ -34,6 +36,8 @@ function prediction(
     readingWritingAbility: rw,
     mathAbility: math,
     createdAt,
+    sourceType: written.sourceType ?? ("ADAPTIVE_SET" as const),
+    scoringEngineVersion: written.version ?? SCORING_ENGINE_VERSION,
   };
 }
 
@@ -78,21 +82,30 @@ function groupByStudent<T extends { studentId: string }>(rows: T[]): Map<string,
   return byStudent;
 }
 
-/** What the ROW_NUMBER()/COUNT(*) OVER query returns for `predictions`. */
+/**
+ * What the ROW_NUMBER()/COUNT(*) OVER query returns for `predictions`: each
+ * student's entries from the engine that wrote their latest one, first and
+ * last of those.
+ */
 function predictionEndRows() {
-  const rows: Record<string, number | null>[] = [];
+  const rows: Record<string, number | string | null>[] = [];
   for (const entries of groupByStudent(predictions).values()) {
-    if (entries.length < 2) continue; // `entry_count > 1` in SQL
     const ordered = [...entries].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-    const first = ordered[0];
-    const last = ordered[ordered.length - 1];
+    const latestVersion = ordered[ordered.length - 1].scoringEngineVersion;
+    const comparable = ordered.filter((e) => e.scoringEngineVersion === latestVersion);
+    if (comparable.length < 2) continue; // `entry_count > 1` in SQL
+    const first = comparable[0];
+    const last = comparable[comparable.length - 1];
     rows.push({
       firstMidpoint: first.representativeMidpoint,
       firstRw: first.readingWritingAbility,
       firstMath: first.mathAbility,
+      firstSource: first.sourceType,
       lastMidpoint: last.representativeMidpoint,
       lastRw: last.readingWritingAbility,
       lastMath: last.mathAbility,
+      lastSource: last.sourceType,
+      version: latestVersion,
     });
   }
   return rows;
@@ -235,6 +248,38 @@ describe("measureCampusImpact", () => {
     expect(impact.benchmark.held).toBe(1);
     expect(impact.benchmark.slipped).toBe(1);
     expect(impact.benchmark.below).toBe(1);
+  });
+
+  it("never pairs predictions from two engines", async () => {
+    const day = (n: number) => new Date(Date.UTC(2026, 9, n));
+    const old = { version: LEGACY_SCORING_VERSION };
+    givenPredictions([
+      // Practised across the recalibration: measured from its first new entry.
+      prediction("s1", 1165, 1150, 1180, day(1), { ...old, sourceType: "DIAGNOSTIC" }),
+      prediction("s1", 1325, 60, 62, day(2), old),
+      prediction("s1", 1045, 50, 48, day(10)),
+      prediction("s1", 1085, 53, 50, day(12)),
+      // Only one prediction from the current engine: no before/after yet.
+      prediction("s2", 1005, 1000, 1010, day(1), { ...old, sourceType: "DIAGNOSTIC" }),
+      prediction("s2", 925, 40, 42, day(11)),
+    ]);
+    const impact = await measureCampusImpact("school-1");
+    expect(impact.measurableStudents).toBe(1);
+    expect(impact.averageScoreGain).toBe(40);
+  });
+
+  it("reads a 2026.1 Diagnostic's stored pattern values as section scores, not as abilities", async () => {
+    // 900 a section is 450: below both benchmarks. The old reader put 900
+    // through the ability table (top band, ~783) and called every such
+    // student college-ready on day one, so nobody could ever cross.
+    const old = { version: LEGACY_SCORING_VERSION };
+    givenPredictions([
+      prediction("s1", 925, 900, 900, new Date("2026-10-01"), { ...old, sourceType: "DIAGNOSTIC" }),
+      prediction("s1", 1405, 75, 75, new Date("2026-10-08"), old),
+    ]);
+    const impact = await measureCampusImpact("school-1");
+    expect(impact.benchmark.crossed).toBe(1);
+    expect(impact.benchmark.held).toBe(0);
   });
 
   it("skips benchmark classification when section abilities were never recorded", async () => {

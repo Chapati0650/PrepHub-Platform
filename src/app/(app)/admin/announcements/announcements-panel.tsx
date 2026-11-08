@@ -33,6 +33,7 @@ export function AnnouncementsPanel({
   recipients,
   readOnly,
   today,
+  campusId,
 }: {
   announcements: AnnouncementEntry[];
   schoolName: string;
@@ -40,6 +41,8 @@ export function AnnouncementsPanel({
   readOnly: boolean;
   /** Today's date at the school (`YYYY-MM-DD`, Central), the earliest end date allowed. */
   today: string;
+  /** The campus a district administrator is writing for; checked again on the server. */
+  campusId?: string;
 }) {
   const active = announcements.filter((a) => a.isActive);
   const previous = announcements.filter((a) => !a.isActive);
@@ -51,7 +54,7 @@ export function AnnouncementsPanel({
           This is a read-only preview, so announcements can&apos;t be sent from here.
         </p>
       ) : (
-        <CreateAnnouncementForm schoolName={schoolName} recipients={recipients} today={today} />
+        <CreateAnnouncementForm schoolName={schoolName} recipients={recipients} today={today} campusId={campusId} />
       )}
 
       <section aria-labelledby="active-announcements-heading" className="flex flex-col gap-4">
@@ -65,7 +68,7 @@ export function AnnouncementsPanel({
         ) : (
           <ul className="flex flex-col gap-4">
             {active.map((a) => (
-              <AnnouncementCard key={a.id} announcement={a} removable={!readOnly} />
+              <AnnouncementCard key={a.id} announcement={a} removable={!readOnly} campusId={campusId} />
             ))}
           </ul>
         )}
@@ -87,7 +90,7 @@ export function AnnouncementsPanel({
   );
 }
 
-function AnnouncementCard({ announcement, removable }: { announcement: AnnouncementEntry; removable: boolean }) {
+function AnnouncementCard({ announcement, removable, campusId }: { announcement: AnnouncementEntry; removable: boolean; campusId?: string }) {
   return (
     <li className="rounded-2xl border border-border p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -114,6 +117,7 @@ function AnnouncementCard({ announcement, removable }: { announcement: Announcem
           onConfirm={async () => {
             const fd = new FormData();
             fd.set("announcementId", announcement.id);
+            if (campusId) fd.set("school", campusId);
             return removeAnnouncementAction({}, fd);
           }}
         >
@@ -124,7 +128,7 @@ function AnnouncementCard({ announcement, removable }: { announcement: Announcem
   );
 }
 
-function CreateAnnouncementForm({ schoolName, recipients, today }: { schoolName: string; recipients: number; today: string }) {
+function CreateAnnouncementForm({ schoolName, recipients, today, campusId }: { schoolName: string; recipients: number; today: string; campusId?: string }) {
   const [state, formAction, pending] = useActionState(publishAnnouncementAction, initialState);
   const [previewing, setPreviewing] = useState(false);
   const [sent, setSent] = useState(false);
@@ -186,6 +190,7 @@ function CreateAnnouncementForm({ schoolName, recipients, today }: { schoolName:
         </p>
 
         <form action={formAction} className="flex flex-wrap items-center gap-3">
+          {campusId && <input type="hidden" name="school" value={campusId} />}
           <input type="hidden" name="title" value={title} />
           <input type="hidden" name="message" value={message} />
           <input type="hidden" name="expiresAt" value={expiresAt} />

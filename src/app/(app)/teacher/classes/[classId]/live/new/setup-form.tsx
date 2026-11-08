@@ -4,7 +4,9 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { StaffSection, StatusChip } from "@/components/staff/staff-ui";
 import type { SessionSetup } from "@/lib/guided/create";
-import { SESSION_LENGTHS, type SessionLength } from "@/lib/guided/config";
+import { INDIVIDUAL_PRACTICE, SESSION_LENGTHS, type SessionLength } from "@/lib/guided/config";
+import { EACH_STUDENTS_WEAKEST, MODE_LABELS } from "@/lib/guided/modes";
+import type { GuidedSessionMode } from "@/generated/prisma/client";
 import type { QuestionCategory } from "@/generated/prisma/client";
 import { startSessionAction } from "../../../../live/actions";
 
@@ -42,11 +44,18 @@ export function SetupForm({
 }) {
   const [filter, setFilter] = useState<Filter>("ALL");
   const pick = picks[filter];
-  const [chosen, setChosen] = useState<QuestionCategory | null>(picks.ALL.pick);
+  const [mode, setMode] = useState<GuidedSessionMode>("TEACHER_LED");
+  const [chosen, setChosen] = useState<QuestionCategory | "WEAKEST" | null>(picks.ALL.pick);
   const [length, setLength] = useState<SessionLength>("STANDARD");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
-  const selected = chosen && pick.ranked.some((r) => r.category === chosen) ? chosen : pick.pick ?? null;
+  const individual = mode === "INDIVIDUAL";
+  const selected =
+    chosen === "WEAKEST" && individual
+      ? "WEAKEST"
+      : chosen && chosen !== "WEAKEST" && pick.ranked.some((r) => r.category === chosen)
+        ? chosen
+        : (pick.pick ?? null);
 
   function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -57,6 +66,7 @@ export function SetupForm({
     const fd = new FormData();
     fd.set("category", selected);
     fd.set("length", length);
+    fd.set("mode", mode);
     start(async () => {
       const result = await startSessionAction(classroomId, {}, fd);
       if (result?.error) setError(result.error);
@@ -66,7 +76,47 @@ export function SetupForm({
   return (
     <form onSubmit={submit} className="flex flex-col gap-10">
       <StaffSection
-        title="1. What should the class work on?"
+        title="1. How should it run?"
+        description="Both keep results for you and never change a student's predicted score."
+      >
+        <fieldset className="grid gap-3 sm:grid-cols-2">
+          <legend className="sr-only">Mode</legend>
+          {(
+            [
+              {
+                key: "TEACHER_LED",
+                detail:
+                  "You run it from the front. The whole class does the same warm-up, example and questions together, then each student gets questions of their own. About 30 minutes. The screen tells you what to do and say.",
+              },
+              {
+                key: "INDIVIDUAL",
+                detail: `Every student works alone, at their own speed, on questions picked for them (${INDIVIDUAL_PRACTICE.questions} each). You walk around and watch who is stuck. No teaching needed: each answer is explained on the student's screen.`,
+              },
+            ] as const
+          ).map((m) => (
+            <label
+              key={m.key}
+              className="flex cursor-pointer gap-3 rounded-2xl border border-border p-4 has-[:checked]:border-primary has-[:checked]:bg-primary/5"
+            >
+              <input
+                type="radio"
+                name="mode"
+                value={m.key}
+                checked={mode === m.key}
+                onChange={() => setMode(m.key)}
+                className="mt-1 size-5 accent-[var(--primary)]"
+              />
+              <span>
+                <span className="block text-lg font-medium">{MODE_LABELS[m.key]}</span>
+                <span className="text-base text-muted-foreground">{m.detail}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      </StaffSection>
+
+      <StaffSection
+        title="2. What should the class work on?"
         description={
           pick.ready ? (
             <>
@@ -101,6 +151,31 @@ export function SetupForm({
         </div>
         <fieldset className="divide-y divide-border rounded-2xl border border-border">
           <legend className="sr-only">Skill</legend>
+          {individual && (
+            <label className="flex cursor-pointer flex-col gap-2 p-5 transition-colors hover:bg-muted/30 has-[:checked]:bg-primary/5 md:flex-row md:items-center md:gap-6">
+              <span className="flex items-center gap-4 md:w-80">
+                <input
+                  type="radio"
+                  name="category"
+                  value="WEAKEST"
+                  checked={selected === "WEAKEST"}
+                  onChange={() => setChosen("WEAKEST")}
+                  className="size-5 accent-[var(--primary)]"
+                />
+                <span>
+                  <span className="block text-lg font-medium">{EACH_STUDENTS_WEAKEST}</span>
+                  <span className="text-base text-muted-foreground">Personalized for each student</span>
+                </span>
+              </span>
+              <span className="flex-1 text-base text-muted-foreground">
+                Each student&apos;s questions come from the {INDIVIDUAL_PRACTICE.skillsPerStudent} skills they are weakest in. A student
+                who hasn&apos;t taken the Diagnostic gets a mix.
+              </span>
+              <span className="flex flex-wrap gap-2">
+                <StatusChip tone="good">Personalized</StatusChip>
+              </span>
+            </label>
+          )}
           {pick.ranked.map((r, i) => {
             const isPick = pick.ready && r.category === pick.pick;
             const thin = r.questions < 6;
@@ -146,7 +221,8 @@ export function SetupForm({
         </fieldset>
       </StaffSection>
 
-      <StaffSection title="2. How long?" description="The parts stay the same; only the number of questions changes.">
+      {!individual && (
+      <StaffSection title="3. How long?" description="The parts stay the same; only the number of questions changes.">
         <fieldset className="grid gap-3 sm:grid-cols-3">
           <legend className="sr-only">Length</legend>
           {LENGTHS.map((l) => (
@@ -174,11 +250,13 @@ export function SetupForm({
           given extra time.
         </p>
       </StaffSection>
+      )}
 
       <div className="flex flex-col gap-3 rounded-3xl bg-surface-tint p-6">
         <p className="text-lg">
-          Opening the session puts a join screen on the board. Students in this class see a Join button on their PrepHub
-          home page; anyone else types the code at prephubtp.com/live. Nothing starts until you press Start.
+          {individual
+            ? "Opening the session starts it at once. Students in this class see a Join button on their PrepHub home page; anyone else types the code at prephubtp.com/live. Each student's questions are picked when they join."
+            : "Opening the session puts a join screen on the board. Students in this class see a Join button on their PrepHub home page; anyone else types the code at prephubtp.com/live. Nothing starts until you press Start."}
         </p>
         {error && (
           <p role="alert" className="text-base text-destructive">

@@ -5,6 +5,8 @@ import { CATEGORY_LABELS } from "@/lib/content/labels";
 // the data-fetching so the copy logic can be unit tested without a database.
 export function buildJourneyNarrative(input: {
   startingRange: { min: number; max: number };
+  /** The score the student started at, from engine 2026.3 on; the range is used without it. */
+  startingPoint?: number | null;
   completedSessions: number;
   totalQuestionsAnswered: number;
   totalImprovement: number;
@@ -14,7 +16,11 @@ export function buildJourneyNarrative(input: {
 }): string {
   const sentences: string[] = [];
 
-  sentences.push(`You started PrepHub with a predicted SAT score of ${input.startingRange.min}–${input.startingRange.max}.`);
+  sentences.push(
+    input.startingPoint != null
+      ? `You started PrepHub with a predicted SAT score of about ${input.startingPoint}.`
+      : `You started PrepHub with a predicted SAT score of ${input.startingRange.min}–${input.startingRange.max}.`,
+  );
 
   if (input.completedSessions > 0) {
     const improvementClause =

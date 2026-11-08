@@ -8,6 +8,7 @@ import { weakestCategories } from "@/lib/session/verdict";
 import { decidePaidAccess } from "@/lib/entitlements";
 import { studentsActiveSince } from "@/lib/school/student-activity";
 import { unsubscribeToken } from "./unsubscribe";
+import { predictionText, predictionView } from "@/lib/score/display";
 
 // Lifecycle emails (2026-09-21). Three, deliberately: the ones the funnel
 // numbers asked for. 19 students abandoned the Diagnostic in the fortnight
@@ -49,10 +50,10 @@ export async function sendDiagnosticResultsEmail(studentId: string): Promise<voi
   const weak = weakestCategories(states.map((s) => ({ category: s.category, currentMastery: s.ability }))).map((c) => CATEGORY_LABELS[c]);
   const message: OutgoingEmail = {
     to: user.email,
-    subject: `Your predicted SAT score: ${prediction.displayedRangeMinimum}–${prediction.displayedRangeMaximum}`,
+    subject: `Your predicted SAT score: ${predictionText(predictionView(prediction))}`,
     text: `Hi ${user.firstName},
 
-You finished the Diagnostic. Your first PrepHub Score Prediction is ${prediction.displayedRangeMinimum}–${prediction.displayedRangeMaximum}.
+You finished the Diagnostic. Your first PrepHub Score Prediction is ${predictionText(predictionView(prediction))}.
 
 The categories costing you the most right now: ${weak.join(" and ")}.
 

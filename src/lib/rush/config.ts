@@ -84,6 +84,20 @@ export const LIVE_LOBBY_POLL_MS = 3_000;
 // district scale. Still well inside LIVE_PRESENCE_MS, so nobody reads as away.
 export const LIVE_IDLE_POLL_MS = 2_000;
 
+// Practice opponent (Owner request, 2026-11-08): a random live lobby nobody
+// has joined after RUSH_BOT_AFTER_MS is matched with a simulated student so
+// the wait never drags. Decision (main session): it ships DISCLOSED. The
+// opponent card carries RUSH_BOT_LABEL and the results say the student played
+// a practice opponent, because students are minors in school districts and
+// passing a bot off as a person is a trust risk. Setting RUSH_BOT_LABELED to
+// false removes the label and the results sentence (the Owner's call; the
+// server then simply never sends them). RUSH_BOT_ENABLED = false restores the
+// old behaviour (wait, then offer a recorded run).
+export const RUSH_BOT_ENABLED = true;
+export const RUSH_BOT_AFTER_MS = 15_000;
+export const RUSH_BOT_LABELED = true;
+export const RUSH_BOT_LABEL = "Practice opponent";
+
 // What the hub offers. `live` and `mode` together pick the code path:
 // RANDOM live = the lobby queue, FRIEND live = a room with a link, FRIEND
 // async = play now and send it, SOLO = alone.
@@ -91,7 +105,10 @@ export type RushPlayOption = "RANDOM_LIVE" | "FRIEND_LIVE" | "FRIEND_ASYNC" | "S
 export const RUSH_PLAY_OPTIONS: Record<RushPlayOption, { label: string; blurb: string; mode: RushMode; live: boolean }> = {
   RANDOM_LIVE: {
     label: "Random opponent",
-    blurb: "Matched live with another student who's online right now — same questions, same clock.",
+    blurb:
+      RUSH_BOT_ENABLED && RUSH_BOT_LABELED
+        ? `Matched live with another student who's online right now — same questions, same clock. If nobody turns up within ${RUSH_BOT_AFTER_MS / 1000} seconds you play a practice opponent.`
+        : "Matched live with another student who's online right now — same questions, same clock.",
     mode: "RANDOM",
     live: true,
   },

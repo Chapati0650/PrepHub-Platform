@@ -11,6 +11,7 @@ import { FUNNEL_EVENTS, track } from "@/lib/analytics/track";
 import { generatePracticeSet } from "@/lib/adaptive/generate-practice-set";
 import { LinkButton } from "@/components/ui/link-button";
 import { Marker } from "@/components/ui/marker";
+import { predictionCenter, predictionText, predictionView } from "@/lib/score/display";
 
 export const metadata = { title: "Personalized Practice" };
 
@@ -125,9 +126,14 @@ export default async function PracticePage() {
       where: { studentId },
       orderBy: { createdAt: "desc" },
       take: 2,
-      select: { displayedRangeMinimum: true, displayedRangeMaximum: true },
+      select: { displayedRangeMinimum: true, displayedRangeMaximum: true, representativeMidpoint: true, scoringEngineVersion: true },
     });
-    const moved = latest && previous ? (latest.displayedRangeMinimum + latest.displayedRangeMaximum - previous.displayedRangeMinimum - previous.displayedRangeMaximum) / 2 : 0;
+    // Only two predictions from one engine are compared (CLAUDE.md: versions are never mixed).
+    const moved =
+      latest && previous && latest.scoringEngineVersion === previous.scoringEngineVersion
+        ? predictionCenter(predictionView(latest)) - predictionCenter(predictionView(previous))
+        : 0;
+    const latestText = latest ? predictionText(predictionView(latest)) : "";
     return (
       <PracticeShell paid={paid}>
         <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
@@ -155,8 +161,8 @@ export default async function PracticePage() {
             <p className="mt-4 max-w-prose text-lg text-muted-foreground">
               {latest && previous
                 ? moved > 0
-                  ? `One set moved your prediction up ${Math.round(moved)} points, to ${latest.displayedRangeMinimum}–${latest.displayedRangeMaximum}. `
-                  : `Your prediction is now ${latest.displayedRangeMinimum}–${latest.displayedRangeMaximum}. `
+                  ? `One set moved your prediction up ${Math.round(moved)} points, to ${latestText}. `
+                  : `Your prediction is now ${latestText}. `
                 : ""}
               Set {set.setNumber} is built from everything you just answered &mdash; the categories that cost you the most get the
               most questions. Premium opens it, and every set after it.

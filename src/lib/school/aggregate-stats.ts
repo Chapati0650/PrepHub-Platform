@@ -150,6 +150,12 @@ async function computeSchoolAggregateStats(schoolId: string): Promise<SchoolAggr
  * figure is the same floor applied to each consecutive step that landed inside
  * the window, so a student who improved twice this week contributes both.
  *
+ * Only predictions from one engine are compared (the windows partition by
+ * `scoringEngineVersion`), and a student's all-time figure is measured within
+ * the engine that wrote their latest prediction: the recalibration of
+ * 2026-11-06 moved a typical prediction about 150 points with no change in the
+ * student, and a step across it is not something anyone improved.
+ *
  * Raw SQL with window functions because `PredictionHistoryEntry` is the
  * fastest-growing table per student (one row per completed set) and this needs
  * two integers from it. `FIRST_VALUE`/`LAST_VALUE` give the ends and `LAG`
@@ -164,22 +170,26 @@ async function scoreImprovement(
   const rows = await prisma.$queryRaw<{ total: number; weekly: number }[]>`
     WITH seq AS (
       SELECT p."studentId",
+             p."scoringEngineVersion" AS version,
              p."representativeMidpoint" AS mid,
              p."createdAt",
              LAG(p."representativeMidpoint") OVER w AS prev_mid,
              FIRST_VALUE(p."representativeMidpoint") OVER w AS first_mid,
              LAST_VALUE(p."representativeMidpoint") OVER (
-               PARTITION BY p."studentId"
+               PARTITION BY p."studentId", p."scoringEngineVersion"
                ORDER BY p."createdAt", p."id"
                ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
-             ) AS last_mid
+             ) AS last_mid,
+             FIRST_VALUE(p."scoringEngineVersion") OVER (
+               PARTITION BY p."studentId" ORDER BY p."createdAt" DESC, p."id" DESC
+             ) AS latest_version
         FROM "prediction_history_entries" p
        WHERE p."studentId" IN (${Prisma.join(studentIds)})
-      WINDOW w AS (PARTITION BY p."studentId" ORDER BY p."createdAt", p."id")
+      WINDOW w AS (PARTITION BY p."studentId", p."scoringEngineVersion" ORDER BY p."createdAt", p."id")
     )
     SELECT (
              SELECT COALESCE(SUM(GREATEST(last_mid - first_mid, 0)), 0)::int
-               FROM (SELECT DISTINCT "studentId", first_mid, last_mid FROM seq) ends
+               FROM (SELECT DISTINCT "studentId", first_mid, last_mid FROM seq WHERE version = latest_version) ends
            ) AS total,
            (
              SELECT COALESCE(SUM(GREATEST(mid - prev_mid, 0)), 0)::int

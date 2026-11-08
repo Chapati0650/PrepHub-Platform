@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { QuestionCategory } from "@/generated/prisma/client";
 import { CATEGORY_ORDER } from "@/lib/content/constants";
 import { median, pickSkill, SKILL_LINES, tsiAbilityLine, type StudentSkillLevels } from "./pick-skill";
+import { sectionScoreFromAbility } from "@/lib/score/config";
 
 /** A student at `base` in every skill, with some skills overridden. */
 function student(overrides: Partial<Record<QuestionCategory, number>> = {}, base = 70): StudentSkillLevels {
@@ -12,21 +13,23 @@ function student(overrides: Partial<Record<QuestionCategory, number>> = {}, base
 
 /**
  * Twelve students. Geometry has the lowest average (four far behind) but only
- * four below the line; Advanced Math has ten just under it.
+ * four below the line (about 55 in Math); Advanced Math has ten just under it.
  */
 function splitClass(): StudentSkillLevels[] {
   return [
-    ...Array.from({ length: 4 }, () => student({ GEOMETRY_TRIGONOMETRY: 2, ADVANCED_MATH: 40 })),
-    ...Array.from({ length: 6 }, () => student({ GEOMETRY_TRIGONOMETRY: 50, ADVANCED_MATH: 40 })),
-    ...Array.from({ length: 2 }, () => student({ GEOMETRY_TRIGONOMETRY: 50, ADVANCED_MATH: 80 })),
+    ...Array.from({ length: 4 }, () => student({ GEOMETRY_TRIGONOMETRY: 2, ADVANCED_MATH: 50 })),
+    ...Array.from({ length: 6 }, () => student({ GEOMETRY_TRIGONOMETRY: 62, ADVANCED_MATH: 50 })),
+    ...Array.from({ length: 2 }, () => student({ GEOMETRY_TRIGONOMETRY: 62, ADVANCED_MATH: 80 })),
   ];
 }
 
 describe("tsiAbilityLine", () => {
-  it("finds the skill level that predicts 480 in Reading & Writing and 530 in Math", () => {
-    expect(tsiAbilityLine(480)).toBe(39);
-    expect(tsiAbilityLine(530)).toBe(43);
-    expect(SKILL_LINES).toEqual({ READING_WRITING: 39, MATH: 43 });
+  it("finds the skill level that predicts 480 in Reading & Writing and 530 in Math, on the scoring lines", () => {
+    expect(sectionScoreFromAbility("READING_WRITING", SKILL_LINES.READING_WRITING)).toBeCloseTo(480, 0);
+    expect(sectionScoreFromAbility("MATH", SKILL_LINES.MATH)).toBeCloseTo(530, 0);
+    expect(SKILL_LINES).toEqual({ READING_WRITING: tsiAbilityLine("READING_WRITING", 480), MATH: tsiAbilityLine("MATH", 530) });
+    // Math's college-ready line sits higher, as the SAT's own benchmarks do.
+    expect(SKILL_LINES.MATH).toBeGreaterThan(SKILL_LINES.READING_WRITING);
   });
 });
 
@@ -100,6 +103,6 @@ describe("pickSkill", () => {
 
   it("reports the middle student's level for pitching the questions", () => {
     const result = pickSkill({ students: splitClass() });
-    expect(result.ranked.find((r) => r.category === "ADVANCED_MATH")!.median).toBe(40);
+    expect(result.ranked.find((r) => r.category === "ADVANCED_MATH")!.median).toBe(50);
   });
 });

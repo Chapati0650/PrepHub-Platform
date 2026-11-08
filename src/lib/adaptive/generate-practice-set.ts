@@ -61,7 +61,7 @@ export async function generatePracticeSet(studentId: string) {
   for (const allocation of allocations) {
     const ability = abilityByCategory.get(allocation.category)!;
     for (let i = 0; i < allocation.total; i++) {
-      const plannedDifficulty = sampleDifficulty(ability, random);
+      const plannedDifficulty = sampleDifficulty(ability, allocation.category, random);
       grouped.push({ plannedCategory: allocation.category, plannedDifficulty });
     }
   }
@@ -102,7 +102,7 @@ export async function generatePracticeSet(studentId: string) {
 
       for (const fallbackCategory of candidateCategories) {
         const fallbackAbility = abilityByCategory.get(fallbackCategory)!;
-        const fallbackDifficulty = sampleDifficulty(fallbackAbility, random);
+        const fallbackDifficulty = sampleDifficulty(fallbackAbility, fallbackCategory, random);
         selected = await selectQuestionForSlot({
           studentId,
           plannedCategory: fallbackCategory,

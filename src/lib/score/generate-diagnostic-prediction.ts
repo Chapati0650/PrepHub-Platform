@@ -1,8 +1,8 @@
-import type { QuestionCategory } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ALL_CATEGORIES } from "@/lib/adaptive/config";
-import { computeDiagnosticPrediction, type DiagnosticCategoryResult } from "./compute-diagnostic-prediction";
-import { SCORING_ENGINE_VERSION } from "./config";
+import { initialAbilitiesFromDiagnostic } from "@/lib/adaptive/diagnostic-initialization";
+import { computeDiagnosticPrediction } from "./compute-diagnostic-prediction";
+import { diagnosticAnswers } from "@/lib/adaptive/estimate";
+import { SCORING_ENGINE_VERSION, progressWithinRange } from "./config";
 import { ScoreError } from "./errors";
 
 // PRD-016 §3.1 / §13.1 — generates the student's one immutable initial
@@ -41,46 +41,32 @@ export async function generateDiagnosticPrediction(studentId: string) {
       throw new ScoreError("DIAGNOSTIC_INCOMPLETE", "Diagnostic must be completed before a prediction can be generated.");
     }
 
-    const byCategory = new Map<QuestionCategory, typeof session.attempts>();
-    for (const attempt of session.attempts) {
-      const list = byCategory.get(attempt.category) ?? [];
-      list.push(attempt);
-      byCategory.set(attempt.category, list);
-    }
-
-    // A (category, difficulty) slot can be entirely absent when the diagnostic
-    // was generated with incomplete question coverage (see start-diagnostic.ts)
-    // — treated the same as complete-diagnostic.ts's initial-Ability-Score
-    // derivation: a missing result is scored as incorrect rather than blocking
-    // prediction generation outright. This keeps the prediction well-defined
-    // (if conservative) instead of a hard DIAGNOSTIC_INCOMPLETE failure for a
-    // content bank that's still being built out.
-    const results: Record<QuestionCategory, DiagnosticCategoryResult> = {} as Record<QuestionCategory, DiagnosticCategoryResult>;
-    for (const category of ALL_CATEGORIES) {
-      const attempts = byCategory.get(category) ?? [];
-      const easy = attempts.find((a) => a.difficulty === "EASY");
-      const medium = attempts.find((a) => a.difficulty === "MEDIUM");
-      const hard = attempts.find((a) => a.difficulty === "HARD");
-      results[category] = { easyCorrect: !!easy?.isCorrect, mediumCorrect: !!medium?.isCorrect, hardCorrect: !!hard?.isCorrect };
-    }
-
-    const computed = computeDiagnosticPrediction(results);
+    // The same abilities complete-diagnostic.ts wrote to the Category States,
+    // from the same answers. A question that was never served — a waived
+    // bonus question, or a slot missing because the bank had no question for
+    // it (start-diagnostic.ts) — is simply not evidence either way.
+    const computed = computeDiagnosticPrediction(initialAbilitiesFromDiagnostic(session.attempts), diagnosticAnswers(session.attempts));
 
     return tx.predictionHistoryEntry.create({
       data: {
         studentId,
         sourceType: "DIAGNOSTIC",
         sourceSetId: null,
-        readingWritingAbility: computed.readingWritingValue,
-        mathAbility: computed.mathValue,
-        overallAbility: computed.diagnosticEstimate,
-        internalDiagnosticEstimate: computed.diagnosticEstimate,
-        displayedRangeIndex: computed.range.index,
-        displayedRangeMinimum: computed.range.scoreMin,
-        displayedRangeMaximum: computed.range.scoreMax,
-        representativeMidpoint: computed.range.midpoint,
+        // Section abilities, as on every Practice Set entry. Under 2026.1 a
+        // Diagnostic entry kept 400-1600 pattern values in these two columns,
+        // which is why sectionScoresForEntry reads the two versions apart.
+        readingWritingAbility: computed.readingWritingAbility,
+        mathAbility: computed.mathAbility,
+        overallAbility: computed.overallAbility,
+        internalDiagnosticEstimate: computed.totalScore,
+        // From 2026.3 the display columns hold a score and its likely band
+        // (see generate-adaptive-prediction.ts).
+        displayedRangeIndex: 0,
+        displayedRangeMinimum: computed.low,
+        displayedRangeMaximum: computed.high,
+        representativeMidpoint: computed.point,
         approximateImprovement: 0,
-        withinRangeProgress: computed.withinRangeProgress,
+        withinRangeProgress: progressWithinRange(computed.point, computed.low, computed.high),
         scoringEngineVersion: SCORING_ENGINE_VERSION,
       },
     });

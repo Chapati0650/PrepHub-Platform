@@ -4,7 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
-import { LIVE_IDLE_POLL_MS, LIVE_LOBBY_POLL_MS, LIVE_POLL_MS, LIVE_RANDOM_FALLBACK_MS } from "@/lib/rush/config";
+import {
+  LIVE_IDLE_POLL_MS,
+  LIVE_LOBBY_POLL_MS,
+  LIVE_POLL_MS,
+  LIVE_RANDOM_FALLBACK_MS,
+  RUSH_BOT_AFTER_MS,
+  RUSH_BOT_ENABLED,
+  RUSH_BOT_LABELED,
+} from "@/lib/rush/config";
 import type { LiveAnswerResult, LiveRoundAnswer, LiveServedQuestion, LiveState } from "@/lib/rush/live";
 import { isRushProblem, type RushProblem } from "@/lib/rush/errors";
 import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build";
@@ -12,6 +20,7 @@ import { ShareChallenge } from "../../share-challenge";
 import { RushQuestion, TimeBar, formatSeconds } from "../../rush-question";
 import { PointsPop, SoundControls, StreakFlame, useRushMusic, useRushSound } from "../../game-fx";
 import { fallbackToRecordedAction, leaveLiveRoomAction } from "../../actions";
+import { PracticeAvatar } from "../../practice-avatar";
 import { withRetry } from "../../retry";
 
 // The last few seconds of a question tick audibly, once a second.
@@ -316,7 +325,7 @@ export function LiveRush({
             ? `${rematchFor} can accept from their results page or their 1v1 Rush page. Keep this page open — the five-second countdown starts the moment they do, on a fresh set of questions.`
             : friend
               ? "Send this to a friend. The five-second countdown starts the moment they join, and you'll play the same ten questions on the same clock."
-              : `You'll be matched with the next student who starts a live ${state.sectionLabel} rush. Keep this page open — the countdown starts the moment they arrive.`}
+              : `You'll be matched with the next student who starts a live ${state.sectionLabel} rush. Keep this page open — the countdown starts the moment they arrive.${RUSH_BOT_ENABLED && RUSH_BOT_LABELED ? ` If nobody does within ${RUSH_BOT_AFTER_MS / 1000} seconds, you'll play a practice opponent instead.` : ""}`}
         </p>
         {friend && !rematchFor && (
           <div className="mt-6 rounded-2xl border border-border bg-background p-5">
@@ -361,6 +370,7 @@ export function LiveRush({
       <Shell eyebrow={eyebrow}>
         <p className="mt-3 text-sm text-muted-foreground">
           <span className="font-medium text-foreground">{state.me.name}</span> vs <span className="font-medium text-foreground">{opp?.name ?? "…"}</span>
+          {opp?.practice?.label && <span className="ml-1.5 text-xs">({opp.practice.label})</span>}
         </p>
         <h1 className="mt-3 text-display-sm sm:text-display">Starting in</h1>
         <p className="mt-2 font-heading text-hero font-semibold tracking-tight tabular-nums" aria-live="polite">
@@ -399,7 +409,7 @@ export function LiveRush({
       {/* Scoreboard — the whole reason this mode exists is the other number. */}
       <div className="grid grid-cols-2 divide-x divide-border rounded-2xl border border-border">
         <Score name="You" score={result?.score ?? state.me.score} mark={mine} />
-        <Score name={opp.name} score={opp.score} mark={opp.answered} present={opp.present} right />
+        <Score name={opp.name} score={opp.score} mark={opp.answered} present={opp.present} practice={opp.practice} right />
       </div>
 
       {inGap || !questionLive || !question ? (
@@ -489,13 +499,31 @@ function Shell({ eyebrow, children }: { eyebrow: string; children: React.ReactNo
   );
 }
 
-function Score({ name, score, mark, present = true, right = false }: { name: string; score: number; mark: LiveRoundAnswer | null; present?: boolean; right?: boolean }) {
+function Score({
+  name,
+  score,
+  mark,
+  present = true,
+  practice = null,
+  right = false,
+}: {
+  name: string;
+  score: number;
+  mark: LiveRoundAnswer | null;
+  present?: boolean;
+  practice?: NonNullable<LiveState["opponent"]>["practice"];
+  right?: boolean;
+}) {
   return (
     <div className={`flex items-center justify-between gap-3 p-4 ${right ? "flex-row-reverse text-right" : ""}`}>
       <div>
-        <p className="text-sm text-muted-foreground">
-          {name}
-          {!present && <span className="ml-1.5 text-xs">(away)</span>}
+        <p className={`flex items-center gap-2 text-sm text-muted-foreground ${right ? "flex-row-reverse" : ""}`}>
+          {practice && <PracticeAvatar avatar={practice.avatar} size={22} />}
+          <span>
+            {name}
+            {!present && <span className="ml-1.5 text-xs">(away)</span>}
+            {practice?.label && <span className="block text-xs">{practice.label}</span>}
+          </span>
         </p>
         <p key={score} className="font-heading text-3xl font-semibold tracking-tight tabular-nums motion-safe:animate-rush-bump">
           {score}

@@ -13,6 +13,7 @@ import {
 import { cleanAnswer, grade, loadRevision, type RevisionInfo } from "./content";
 import { classStudentIds, publishedCandidates, seenCounts } from "./create";
 import { GuidedError } from "./errors";
+import { commandAllowed } from "./modes";
 import { createOwnSlots } from "./own";
 import { chooseQuestion } from "./select";
 import { forgetSharedState } from "./state";
@@ -115,6 +116,9 @@ async function finalizeDrafts(
 export async function runCommand(context: TeacherContext, sessionId: string, command: GuidedCommand, now: Date = new Date()) {
   const session = await requireOwnedSession(context, sessionId);
   if (session.status === "ENDED") throw new GuidedError("ENDED", "This session has ended.");
+  if (!commandAllowed(session.mode, command.type)) {
+    throw new GuidedError("NOT_NOW", "That isn't available in an individual practice session. Students are working at their own pace.");
+  }
 
   const items = session.items;
   const current = items.find((i) => i.position === session.position) ?? null;

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { completePracticeSet } from "@/lib/adaptive/complete-practice-set";
 import { ALL_CATEGORIES } from "@/lib/adaptive/config";
+import { abilitiesFromHistory } from "@/lib/adaptive/diagnostic-initialization";
 import { prisma } from "@/lib/prisma";
 
 vi.mock("@/lib/prisma", () => {
@@ -8,7 +9,8 @@ vi.mock("@/lib/prisma", () => {
     practiceSet: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     categoryState: { findUnique: vi.fn(), update: vi.fn() },
     blueprintSlot: { findUnique: vi.fn(), update: vi.fn() },
-    finalizedAttempt: { create: vi.fn(), findUnique: vi.fn() },
+    finalizedAttempt: { create: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
+    diagnosticAttempt: { findMany: vi.fn() },
     $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   };
@@ -24,13 +26,29 @@ const mocked = prisma as unknown as {
   categoryState: Record<string, ReturnType<typeof vi.fn>>;
   blueprintSlot: Record<string, ReturnType<typeof vi.fn>>;
   finalizedAttempt: Record<string, ReturnType<typeof vi.fn>>;
+  diagnosticAttempt: Record<string, ReturnType<typeof vi.fn>>;
 };
+
+const at = new Date("2026-11-06T12:00:00Z");
+// The student's history, as the completion's re-estimate reads it.
+const DIAGNOSTIC = [
+  { category: "ALGEBRA", difficulty: "EASY", isCorrect: true, submittedAt: at, waivedAt: null },
+  { category: "ALGEBRA", difficulty: "MEDIUM", isCorrect: false, submittedAt: at, waivedAt: null },
+  { category: "ALGEBRA", difficulty: "HARD", isCorrect: null, submittedAt: null, waivedAt: at },
+  { category: "GRAMMAR", difficulty: "EASY", isCorrect: true, submittedAt: at, waivedAt: null },
+];
+const PRACTICE = [
+  { category: "ALGEBRA", difficulty: "MEDIUM", isCorrect: true },
+  { category: "GEOMETRY_TRIGONOMETRY", difficulty: "EASY", isCorrect: false },
+];
 
 beforeEach(() => {
   vi.clearAllMocks();
   // This request wins the claim unless a test says otherwise.
   mocked.practiceSet.updateMany.mockResolvedValue({ count: 1 });
   mocked.practiceSet.findUniqueOrThrow.mockResolvedValue({ id: "set1", status: "COMPLETED", completedAt: new Date() });
+  mocked.diagnosticAttempt.findMany.mockResolvedValue(DIAGNOSTIC);
+  mocked.finalizedAttempt.findMany.mockResolvedValue(PRACTICE);
 });
 
 // One slot per category, all already finalized — the simplest "everyone
@@ -99,8 +117,34 @@ describe("completePracticeSet", () => {
 
     expect(mocked.categoryState.update).toHaveBeenCalledWith({
       where: { studentId_category: { studentId: "student1", category: ALL_CATEGORIES[0] } },
-      data: { consecutiveSetsWithoutExtraAllocation: { increment: 1 } },
+      data: expect.objectContaining({ consecutiveSetsWithoutExtraAllocation: { increment: 1 } }),
     });
+  });
+
+  it("re-estimates every category from the whole history, and the initial abilities from the Diagnostic alone", async () => {
+    mocked.practiceSet.findUnique.mockResolvedValue(fullyAnsweredSet());
+
+    await completePracticeSet("student1", "set1", { confirmBlanks: false });
+
+    // The waived Hard question is no answer at all.
+    const served = DIAGNOSTIC.filter((a) => a.waivedAt === null).map((a) => ({
+      category: a.category,
+      difficulty: a.difficulty,
+      isCorrect: !!a.isCorrect,
+    })) as Parameters<typeof abilitiesFromHistory>[0];
+    const initial = abilitiesFromHistory(served);
+    const current = abilitiesFromHistory(served, PRACTICE as Parameters<typeof abilitiesFromHistory>[0]);
+    expect(mocked.categoryState.update).toHaveBeenCalledTimes(ALL_CATEGORIES.length);
+    for (const category of ALL_CATEGORIES) {
+      expect(mocked.categoryState.update).toHaveBeenCalledWith({
+        where: { studentId_category: { studentId: "student1", category } },
+        data: expect.objectContaining({ ability: current[category], initialAbility: initial[category] }),
+      });
+    }
+    expect(mocked.diagnosticAttempt.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { diagnosticSession: { studentId: "student1" } } }),
+    );
+    expect(mocked.finalizedAttempt.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { studentId: "student1" } }));
   });
 
   it("resets consecutiveSetsWithoutExtraAllocation to 0 for a category with two or more questions", async () => {
@@ -112,7 +156,7 @@ describe("completePracticeSet", () => {
 
     expect(mocked.categoryState.update).toHaveBeenCalledWith({
       where: { studentId_category: { studentId: "student1", category: ALL_CATEGORIES[0] } },
-      data: { consecutiveSetsWithoutExtraAllocation: 0 },
+      data: expect.objectContaining({ consecutiveSetsWithoutExtraAllocation: 0 }),
     });
   });
 
@@ -137,6 +181,7 @@ describe("completePracticeSet", () => {
     const result = await completePracticeSet("student1", "set1", { confirmBlanks: false });
 
     expect(mocked.categoryState.update).not.toHaveBeenCalled();
+    expect(mocked.finalizedAttempt.findMany).not.toHaveBeenCalled();
     expect(result).toMatchObject({ status: "COMPLETED" });
   });
 });

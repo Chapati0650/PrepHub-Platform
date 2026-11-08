@@ -305,6 +305,14 @@ model Organization {
   logoMediaId String?
   logo        MediaAsset? @relation("OrganizationLogo", fields: [logoMediaId], references: [id])
 
+  /// Co-branding (2026-11-08): the name students see beside PrepHub's ("Houston
+  /// ISD"), when it should differ from the legal officialName. Null falls back
+  /// to officialName. A campus without its own branding inherits its district's.
+  brandName  String?
+  /// Primary brand color as #RRGGBB, validated in src/lib/branding. Used only
+  /// as an accent; text on it is computed for contrast.
+  brandColor String?
+
   // PRD-002 §15.1: whether this org appears in the student-facing school/district
   // search directory at all — independent of `status` (a directory entry can exist
   // for "known but not partnered" schools without an active contract).
@@ -1481,6 +1489,13 @@ model RushChallenge {
   /// truthfully; new code writes the current version explicitly.
   scoringVersion Int @default(1)
 
+  /// The practice opponent (2026-11-08), set when a random live lobby went
+  /// unjoined for RUSH_BOT_AFTER_MS: the seeded BotProfile in src/lib/rush/bot.ts
+  /// (name, avatar, per-question accuracy and pace). It has no run row; its
+  /// answers are replayed from this profile. Null for every match between
+  /// students.
+  bot Json?
+
   live                  Boolean         @default(false)
   liveStatus            RushLiveStatus?
   liveStartsAt          DateTime?
@@ -2074,6 +2089,15 @@ enum GuidedPhase {
   RECAP
 }
 
+/// How a Guided Session runs. TEACHER_LED is the original: one adult paces the
+/// room through warm-up, example, class questions and own questions.
+/// INDIVIDUAL is practice at each student's own pace on questions picked for
+/// them; the teacher monitors.
+enum GuidedSessionMode {
+  TEACHER_LED
+  INDIVIDUAL
+}
+
 enum GuidedItemKind {
   WARMUP
   EXAMPLE
@@ -2133,6 +2157,10 @@ model GuidedSession {
   version          Int                 @default(0)
   ownQuestionCount Int                 @default(4)
   ownSeconds       Int                 @default(420)
+  mode             GuidedSessionMode   @default(TEACHER_LED)
+  /// INDIVIDUAL only: each student's questions come from their own weakest
+  /// skills instead of the one skill in `category`.
+  perStudentSkills Boolean             @default(false)
   /// When the teacher left the lobby.
   startedAt        DateTime?
   endedAt          DateTime?

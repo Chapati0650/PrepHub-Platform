@@ -1,16 +1,19 @@
-import type { ExtraTime, GuidedConfidence, GuidedItemKind, GuidedPhase, GuidedSessionStatus, QuestionDifficulty } from "@/generated/prisma/client";
+import type { ExtraTime, GuidedConfidence, GuidedItemKind, GuidedPhase, GuidedSessionMode, GuidedSessionStatus, QuestionDifficulty } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
 import type { TeacherContext } from "@/lib/teacher/access";
 import { answerBreakdown, answerLabel, type AnswerBreakdown } from "@/lib/teacher/answer-stats";
 import { formatJoinCode } from "@/lib/teacher/join-code";
 import { compareRosterNames, studentRosterName } from "@/lib/teacher/names";
-import { AWAY_AFTER_MS, VERY_FAST_MS } from "./config";
+import { AWAY_AFTER_MS, INDIVIDUAL_PRACTICE, VERY_FAST_MS } from "./config";
 import { answerKeyOf, loadRevisions } from "./content";
 import { requireOwnedSession } from "./control";
 import { suggestMove, type SuggestedMove } from "./plan";
 import { buildReport, itemLabels, reachedItem, type SessionReport } from "./report";
-import { itemForPhase } from "./state";
+import { buildMonitor, type MonitorRow, type MonitorTotals } from "./monitor";
+import { sessionSkillLabel } from "./modes";
+import { getSharedState, itemForPhase, type SharedState } from "./state";
+import { buildStudentRows, summarizeStudents, type StudentRow, type StudentsSummary } from "./student-report";
 
 /**
  * The teacher's own screen. Unlike the board, this one names students: the
@@ -43,7 +46,14 @@ export type ConsoleItem = {
   difficulty: QuestionDifficulty;
   plannedChance: number | null;
   correctLabel: string;
+  /** The text of the right choice (multiple choice only), for the teacher to read aloud. */
+  correctText: string | null;
   stepTotal: number;
+  /** The stored explanation steps, in order, for the teacher to read aloud. */
+  steps: string[];
+  takeaway: string | null;
+  /** The wrong answer most students chose and the stored reason it tempts people. */
+  commonWrong: { label: string; note: string | null } | null;
   first: AnswerBreakdown;
   second: AnswerBreakdown | null;
   firstRight: number | null;
@@ -55,6 +65,7 @@ export type ConsoleItem = {
 };
 
 export type ConsoleState = {
+  mode: "TEACHER_LED";
   sessionId: string;
   classroomId: string;
   className: string;
@@ -75,6 +86,8 @@ export type ConsoleState = {
   roster: ConsoleStudent[];
   joined: number;
   ownFinished: number;
+  /** Exactly what the room sees right now (the shared state every student screen polls). */
+  student: SharedState | null;
 };
 
 const ANSWERABLE: GuidedItemKind[] = ["CLASS", "TWIN"];
@@ -83,7 +96,7 @@ export async function getConsoleState(context: TeacherContext, sessionId: string
   const session = await requireOwnedSession(context, sessionId);
   const current = itemForPhase(session.phase, session.position, session.items);
   const labels = itemLabels(session.items);
-  const [enrollments, participants, responses, ownSlots] = await Promise.all([
+  const [enrollments, participants, responses, ownSlots, student] = await Promise.all([
     prisma.classroomEnrollment.findMany({
       where: { classroomId: session.classroomId, removedAt: null },
       select: { studentId: true, lastName: true, extraTime: true, student: { select: { firstName: true } } },
@@ -93,6 +106,7 @@ export async function getConsoleState(context: TeacherContext, sessionId: string
     session.phase === "OWN" || session.phase === "RECAP"
       ? prisma.guidedOwnSlot.findMany({ where: { sessionId, bonus: false }, select: { studentId: true, answer: true, isCorrect: true } })
       : Promise.resolve([]),
+    getSharedState(session.stateKey, now.getTime()),
   ]);
 
   const info = current ? (await loadRevisions([current.questionRevisionId])).get(current.questionRevisionId)! : null;
@@ -146,6 +160,15 @@ export async function getConsoleState(context: TeacherContext, sessionId: string
     const firstRight = firsts.length > 0 ? firsts.filter((r) => r.firstCorrect).length / firsts.length : null;
     const confidence: Record<GuidedConfidence, number> = { SURE: 0, THINK_SO: 0, GUESSING: 0 };
     for (const r of firsts) if (r.confidence) confidence[r.confidence]++;
+    const firstBreakdown = answerBreakdown(key, firsts.map((r) => ({ answer: r.firstAnswer, isCorrect: r.firstCorrect })));
+    const correctChoice = info.choices.find((c) => c.isCorrect);
+    let commonWrong: ConsoleItem["commonWrong"] = null;
+    if (firstBreakdown.kind === "choices" && firstBreakdown.commonWrong) {
+      const index = firstBreakdown.choices.findIndex((c) => c.label === firstBreakdown.commonWrong);
+      commonWrong = { label: firstBreakdown.commonWrong, note: info.choices[index]?.distractor ?? null };
+    } else if (firstBreakdown.kind === "entries" && firstBreakdown.wrong[0] && firstBreakdown.wrong[0].count >= 2) {
+      commonWrong = { label: firstBreakdown.wrong[0].value, note: null };
+    }
     item = {
       id: current.id,
       kind: current.kind,
@@ -153,8 +176,12 @@ export async function getConsoleState(context: TeacherContext, sessionId: string
       difficulty: current.difficulty,
       plannedChance: current.plannedChance,
       correctLabel: answerLabel(key, info.choices.find((c) => c.isCorrect)?.id ?? info.acceptedAnswers[0] ?? null),
+      correctText: correctChoice ? (info.content.answerChoices.find((c) => c.id === correctChoice.id)?.text ?? null) : null,
       stepTotal: info.steps.length,
-      first: answerBreakdown(key, firsts.map((r) => ({ answer: r.firstAnswer, isCorrect: r.firstCorrect }))),
+      steps: info.steps.map((s) => s.text),
+      takeaway: info.takeaway,
+      commonWrong,
+      first: firstBreakdown,
       second: current.talked ? answerBreakdown(key, seconds.map((r) => ({ answer: r.secondAnswer, isCorrect: r.secondCorrect }))) : null,
       firstRight,
       suggestion: ANSWERABLE.includes(current.kind) ? suggestMove(firstRight) : null,
@@ -166,6 +193,7 @@ export async function getConsoleState(context: TeacherContext, sessionId: string
 
   const classItems = session.items.filter((i) => i.kind === "CLASS");
   return {
+    mode: "TEACHER_LED",
     sessionId,
     classroomId: session.classroomId,
     className: session.classroom.name,
@@ -186,7 +214,78 @@ export async function getConsoleState(context: TeacherContext, sessionId: string
     roster,
     joined: participants.length,
     ownFinished: participants.filter((p) => p.ownFinishedAt).length,
+    student,
   };
+}
+
+/** The teacher's screen for an individual practice session: who is where, and who needs a word. */
+export type MonitorView = {
+  mode: "INDIVIDUAL";
+  sessionId: string;
+  classroomId: string;
+  className: string;
+  skillLabel: string;
+  joinCode: string;
+  status: GuidedSessionStatus;
+  paused: boolean;
+  version: number;
+  serverNow: number;
+  rosterSize: number;
+  questionsPerStudent: number;
+  rows: MonitorRow[];
+  totals: MonitorTotals;
+};
+
+export async function getMonitorState(context: TeacherContext, sessionId: string, now: Date = new Date()): Promise<MonitorView> {
+  const session = await requireOwnedSession(context, sessionId);
+  const [enrollments, participants, slots] = await Promise.all([
+    prisma.classroomEnrollment.findMany({
+      where: { classroomId: session.classroomId, removedAt: null },
+      select: { studentId: true, lastName: true, student: { select: { firstName: true } } },
+    }),
+    prisma.guidedParticipant.findMany({
+      where: { sessionId, onPaper: false },
+      select: { studentId: true, joinedAt: true, lastSeenAt: true, hidden: true },
+    }),
+    prisma.guidedOwnSlot.findMany({
+      where: { sessionId, bonus: false },
+      select: { studentId: true, position: true, bonus: true, answeredAt: true, isCorrect: true, question: { select: { category: true } } },
+    }),
+  ]);
+  const roster = enrollments
+    .map((e) => ({ ...e, firstName: e.student.firstName }))
+    .sort(compareRosterNames)
+    .map((e) => ({ studentId: e.studentId, name: studentRosterName(e) }));
+  const { rows, totals } = buildMonitor({
+    roster,
+    participants,
+    slots: slots.map((s) => ({ ...s, skill: CATEGORY_LABELS[s.question.category] })),
+    now: now.getTime(),
+  });
+  return {
+    mode: "INDIVIDUAL",
+    sessionId,
+    classroomId: session.classroomId,
+    className: session.classroom.name,
+    skillLabel: sessionSkillLabel(session),
+    joinCode: formatJoinCode(session.joinCode),
+    status: session.status,
+    paused: session.paused,
+    version: session.version,
+    serverNow: now.getTime(),
+    rosterSize: roster.length,
+    questionsPerStudent: session.ownQuestionCount || INDIVIDUAL_PRACTICE.questions,
+    rows,
+    totals,
+  };
+}
+
+export type TeacherView = ConsoleState | MonitorView;
+
+/** Whichever screen this session's mode calls for. Authorization is in the function it hands off to. */
+export async function getTeacherView(context: TeacherContext, sessionId: string, now: Date = new Date()): Promise<TeacherView> {
+  const row = await prisma.guidedSession.findUnique({ where: { id: sessionId }, select: { mode: true } });
+  return row?.mode === "INDIVIDUAL" ? getMonitorState(context, sessionId, now) : getConsoleState(context, sessionId, now);
 }
 
 export type ReportPage = {
@@ -200,6 +299,10 @@ export type ReportPage = {
   endedAt: Date | null;
   rosterSize: number;
   report: SessionReport;
+  mode: GuidedSessionMode;
+  /** One row per student in the class, with the drill-down behind each. */
+  students: StudentRow[];
+  summary: StudentsSummary;
   /** The skill PrepHub suggested, if the teacher chose a different one. */
   suggested: string | null;
 };
@@ -211,11 +314,11 @@ export async function getSessionReport(context: TeacherContext, sessionId: strin
       where: { classroomId: session.classroomId, removedAt: null },
       select: { studentId: true, lastName: true, student: { select: { firstName: true } } },
     }),
-    prisma.guidedParticipant.findMany({ where: { sessionId }, select: { studentId: true, pace: true } }),
+    prisma.guidedParticipant.findMany({ where: { sessionId }, select: { studentId: true, pace: true, joinedAt: true } }),
     prisma.guidedResponse.findMany({ where: { sessionId } }),
-    prisma.guidedOwnSlot.findMany({ where: { sessionId }, select: { studentId: true, isCorrect: true, bonus: true } }),
+    prisma.guidedOwnSlot.findMany({ where: { sessionId }, include: { question: { select: { category: true } } } }),
   ]);
-  const infos = await loadRevisions(session.items.map((i) => i.questionRevisionId));
+  const infos = await loadRevisions([...session.items.map((i) => i.questionRevisionId), ...ownSlots.map((s) => s.questionRevisionId)]);
   const roster = enrollments
     .map((e) => ({ ...e, firstName: e.student.firstName }))
     .sort(compareRosterNames)
@@ -233,19 +336,49 @@ export async function getSessionReport(context: TeacherContext, sessionId: strin
     participants,
     roster,
   });
+  const labels = itemLabels(session.items);
+  const students = buildStudentRows({
+    items: session.items.filter(reachedItem).map((i) => ({
+      id: i.id,
+      position: i.position,
+      kind: i.kind,
+      label: labels.get(i.id) ?? "",
+      key: answerKeyOf(infos.get(i.questionRevisionId)!),
+      talked: i.talked,
+    })),
+    responses,
+    ownSlots: ownSlots.map((s) => ({
+      studentId: s.studentId,
+      position: s.position,
+      bonus: s.bonus,
+      key: answerKeyOf(infos.get(s.questionRevisionId)!),
+      skill: CATEGORY_LABELS[s.question.category],
+      difficulty: s.difficulty,
+      answer: s.answer,
+      isCorrect: s.isCorrect,
+      answeredAt: s.answeredAt,
+      retryAnswer: s.retryAnswer,
+      retryCorrect: s.retryCorrect,
+    })),
+    participants,
+    roster,
+  });
   const snapshot = session.pickSnapshot as { suggested?: string | null } | null;
   const suggested = snapshot?.suggested && snapshot.suggested !== session.category ? CATEGORY_LABELS[snapshot.suggested as keyof typeof CATEGORY_LABELS] : null;
   return {
     sessionId,
     classroomId: session.classroomId,
     className: session.classroom.name,
-    categoryLabel: CATEGORY_LABELS[session.category],
+    categoryLabel: sessionSkillLabel(session),
     status: session.status,
     createdAt: session.createdAt,
     startedAt: session.startedAt,
     endedAt: session.endedAt,
     rosterSize: enrollments.length,
     report,
+    mode: session.mode,
+    students,
+    summary: summarizeStudents(students),
     suggested,
   };
 }
@@ -260,6 +393,8 @@ export async function listClassSessions(classroomId: string) {
       id: true,
       status: true,
       category: true,
+      mode: true,
+      perStudentSkills: true,
       createdAt: true,
       endedAt: true,
       _count: { select: { participants: true } },
@@ -268,7 +403,8 @@ export async function listClassSessions(classroomId: string) {
   return sessions.map((s) => ({
     id: s.id,
     status: s.status,
-    categoryLabel: CATEGORY_LABELS[s.category],
+    categoryLabel: sessionSkillLabel(s),
+    mode: s.mode,
     createdAt: s.createdAt,
     endedAt: s.endedAt,
     joined: s._count.participants,

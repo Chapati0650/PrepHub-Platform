@@ -13,6 +13,8 @@ const en = {
   languageNote: "Questions stay in English, as on the SAT.",
   joinTitle: "Join the session",
   joinBody: "Your teacher has started a Guided Session for this class. Join when you're in your seat.",
+  joinBodyPractice:
+    "Your teacher has opened individual practice. You get your own questions and work at your own speed. After each answer you see the right answer and why.",
   join: "Join",
   joining: "Joining…",
   youreIn: "You're in.",
@@ -111,6 +113,8 @@ const es: Strings = {
   languageNote: "Las preguntas siguen en inglés, como en el SAT.",
   joinTitle: "Únete a la sesión",
   joinBody: "Tu maestro empezó una sesión guiada para esta clase. Únete cuando estés en tu lugar.",
+  joinBodyPractice:
+    "Tu maestro abrió una práctica individual. Tendrás tus propias preguntas y trabajarás a tu ritmo. Después de cada respuesta verás la respuesta correcta y por qué.",
   join: "Unirme",
   joining: "Uniéndote…",
   youreIn: "Ya estás dentro.",

@@ -1,6 +1,6 @@
-import type { QuestionDifficulty } from "@/generated/prisma/client";
+import type { QuestionCategory, QuestionDifficulty } from "@/generated/prisma/client";
 import { expectedProbability } from "@/lib/adaptive/ability";
-import { DIFFICULTY_RATING } from "@/lib/adaptive/config";
+import { questionRating } from "@/lib/adaptive/config";
 import { MOVE_ON_ABOVE, TALK_FROM } from "./config";
 
 /**
@@ -25,8 +25,9 @@ export type PlannedQuestion = { role: ClassQuestionRole; difficulty: QuestionDif
 
 const TIERS: QuestionDifficulty[] = ["EASY", "MEDIUM", "HARD"];
 
-export function chanceFor(difficulty: QuestionDifficulty, ability: number): number {
-  return expectedProbability(DIFFICULTY_RATING[difficulty], ability);
+/** The engine's chance for a student at `ability` in `category` (its ratings are per category). */
+export function chanceFor(category: QuestionCategory, difficulty: QuestionDifficulty, ability: number): number {
+  return expectedProbability(questionRating(category, difficulty), ability);
 }
 
 export function harderTier(difficulty: QuestionDifficulty): QuestionDifficulty {
@@ -41,19 +42,19 @@ export function tierFallback(difficulty: QuestionDifficulty): QuestionDifficulty
 }
 
 /** The tier a confident start uses: the hardest one still clearing the move-on bar. */
-export function startTier(ability: number | null): QuestionDifficulty {
+export function startTier(category: QuestionCategory, ability: number | null): QuestionDifficulty {
   if (ability === null) return "EASY";
-  const clearing = TIERS.filter((d) => chanceFor(d, ability) >= MOVE_ON_ABOVE);
+  const clearing = TIERS.filter((d) => chanceFor(category, d, ability) >= MOVE_ON_ABOVE);
   return clearing.length > 0 ? clearing[clearing.length - 1] : "EASY";
 }
 
 /** The tier whose chance is closest to an even split. */
-export function discussTier(ability: number | null): QuestionDifficulty {
+export function discussTier(category: QuestionCategory, ability: number | null): QuestionDifficulty {
   if (ability === null) return "MEDIUM";
   let best: QuestionDifficulty = "MEDIUM";
   let bestGap = Infinity;
   for (const d of TIERS) {
-    const gap = Math.abs(chanceFor(d, ability) - 0.5);
+    const gap = Math.abs(chanceFor(category, d, ability) - 0.5);
     if (gap < bestGap) {
       best = d;
       bestGap = gap;
@@ -62,10 +63,10 @@ export function discussTier(ability: number | null): QuestionDifficulty {
   return best;
 }
 
-export function planClassQuestions(medianAbility: number | null, count: number): PlannedQuestion[] {
-  const chance = (d: QuestionDifficulty) => (medianAbility === null ? null : chanceFor(d, medianAbility));
-  const start = startTier(medianAbility);
-  const discuss = discussTier(medianAbility);
+export function planClassQuestions(category: QuestionCategory, medianAbility: number | null, count: number): PlannedQuestion[] {
+  const chance = (d: QuestionDifficulty) => (medianAbility === null ? null : chanceFor(category, d, medianAbility));
+  const start = startTier(category, medianAbility);
+  const discuss = discussTier(category, medianAbility);
   const stretch = harderTier(discuss);
 
   const roles: ClassQuestionRole[] =

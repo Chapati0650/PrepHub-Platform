@@ -1,5 +1,6 @@
 "use client";
 
+import { CampusField } from "../campus-field";
 import { useActionState, useEffect, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { updateStudentInfoAction, type ActionState } from "./actions";
@@ -315,6 +316,7 @@ function StudentEditForm({
 }) {
   return (
     <form action={formAction} className="flex flex-col gap-4">
+      <CampusField />
       <input type="hidden" name="membershipId" value={student.membershipId} />
       <p className="text-base">
         Correct <span className="font-medium">{student.firstName}</span>&apos;s first name or class year. Nothing else

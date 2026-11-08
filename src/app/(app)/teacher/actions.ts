@@ -57,7 +57,7 @@ export async function createClassroomAction(_prev: TeacherActionState, formData:
     if (message) return { error: message };
     throw err;
   }
-  redirect(`/teacher/classes/${id}`);
+  redirect(`/teacher/classes/${id}?new=1`);
 }
 
 export async function renameClassroomAction(_prev: TeacherActionState, formData: FormData): Promise<TeacherActionState> {

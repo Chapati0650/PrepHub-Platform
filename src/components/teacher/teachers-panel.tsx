@@ -40,6 +40,7 @@ function plural(n: number, one: string, many = `${one}s`): string {
  */
 export function TeachersPanel({
   teachers,
+  campusId,
   invite,
   resend,
   remove,
@@ -48,8 +49,10 @@ export function TeachersPanel({
 }: {
   teachers: TeacherPanelRow[];
   invite: (prev: TeacherPanelState, formData: FormData) => Promise<TeacherPanelState>;
-  resend: (userId: string) => Promise<TeacherPanelState>;
-  remove: (userId: string) => Promise<TeacherPanelState>;
+  /** The campus a district administrator is managing; checked again on the server. */
+  campusId?: string;
+  resend: (userId: string, campusId?: string) => Promise<TeacherPanelState>;
+  remove: (userId: string, campusId?: string) => Promise<TeacherPanelState>;
   hidden?: Record<string, string>;
   readOnly?: boolean;
 }) {
@@ -65,6 +68,7 @@ export function TeachersPanel({
     e.preventDefault();
     const form = e.currentTarget;
     const data = new FormData(form);
+    if (campusId) data.set("school", campusId);
     startInvite(async () => {
       try {
         const result = await invite({}, data);
@@ -82,7 +86,7 @@ export function TeachersPanel({
 
   async function resendTo(t: TeacherPanelRow) {
     try {
-      const result = await resend(t.userId);
+      const result = await resend(t.userId, campusId);
       setNotice(result.error ?? result.message ?? `Sent ${t.firstName} a new invitation email.`);
     } catch (err) {
       setNotice(
@@ -147,7 +151,7 @@ export function TeachersPanel({
                       description={`${t.firstName} loses teacher access right away and their classes here close: students stop seeing that homework. Nothing is deleted — every result is kept — and adding ${t.firstName} again restores their access and reopens those classes.`}
                       confirmLabel="Remove teacher"
                       destructive
-                      onConfirm={() => remove(t.userId)}
+                      onConfirm={() => remove(t.userId, campusId)}
                     >
                       Remove
                     </ConfirmButton>

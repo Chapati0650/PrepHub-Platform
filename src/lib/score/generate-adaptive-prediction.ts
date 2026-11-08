@@ -2,7 +2,9 @@ import type { QuestionCategory } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ALL_CATEGORIES, MAX_ABILITY, MIN_ABILITY } from "@/lib/adaptive/config";
 import { computeAdaptivePrediction } from "./compute-adaptive-prediction";
-import { SCORING_ENGINE_VERSION } from "./config";
+import { SCORING_ENGINE_VERSION, progressWithinRange } from "./config";
+import { loadAnswerHistory } from "./answer-history";
+import { predictScore } from "./predict";
 import { ScoreError } from "./errors";
 
 // PRD-016 §3.2 / §13.2 — generates a new prediction after a completed
@@ -56,14 +58,24 @@ export async function generateAdaptivePrediction(studentId: string, practiceSetI
       throw new ScoreError("CATEGORY_STATE_MISSING", "One or more Category States are missing.");
     }
     const abilities: Record<QuestionCategory, number> = {} as Record<QuestionCategory, number>;
+    const initialAbilities: Record<QuestionCategory, number> = {} as Record<QuestionCategory, number>;
     for (const state of categoryStates) {
       if (state.ability < MIN_ABILITY || state.ability > MAX_ABILITY) {
         throw new ScoreError("INVALID_ABILITY", `Ability for ${state.category} is out of range: ${state.ability}`);
       }
       abilities[state.category] = state.ability;
+      initialAbilities[state.category] = state.initialAbility;
     }
 
-    const computed = computeAdaptivePrediction(abilities, initialPrediction.representativeMidpoint);
+    // The improvement baseline is the Diagnostic scored by this engine, from
+    // the initial abilities completePracticeSet re-derived from it a moment
+    // ago — not the stored Diagnostic entry's midpoint, which for a student
+    // who started before 2026.2 came from a different engine, and would make
+    // a recalibration look like a gain or a loss.
+    const baselinePoint = predictScore(initialAbilities).point;
+    // The band comes from every answer the abilities were estimated from.
+    const history = await loadAnswerHistory(tx, studentId);
+    const computed = computeAdaptivePrediction(abilities, [...history.diagnostic, ...history.practice], baselinePoint);
 
     return tx.predictionHistoryEntry.create({
       data: {
@@ -74,12 +86,15 @@ export async function generateAdaptivePrediction(studentId: string, practiceSetI
         mathAbility: computed.mathAbility,
         overallAbility: computed.overallAbility,
         internalDiagnosticEstimate: null,
-        displayedRangeIndex: computed.range.index,
-        displayedRangeMinimum: computed.range.scoreMin,
-        displayedRangeMaximum: computed.range.scoreMax,
-        representativeMidpoint: computed.range.midpoint,
+        // From 2026.3 the display columns hold a score and its likely band:
+        // representativeMidpoint is the predicted total, the range columns
+        // its band. The fifteen-range index no longer applies.
+        displayedRangeIndex: 0,
+        displayedRangeMinimum: computed.low,
+        displayedRangeMaximum: computed.high,
+        representativeMidpoint: computed.point,
         approximateImprovement: computed.approximateImprovement,
-        withinRangeProgress: computed.withinRangeProgress,
+        withinRangeProgress: progressWithinRange(computed.point, computed.low, computed.high),
         scoringEngineVersion: SCORING_ENGINE_VERSION,
       },
     });

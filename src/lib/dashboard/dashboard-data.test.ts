@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "@/generated/prisma/client";
 import { getDashboardData } from "@/lib/dashboard/dashboard-data";
-import { ALL_CATEGORIES } from "@/lib/adaptive/config";
+import { ALL_CATEGORIES, ENGINE_VERSION } from "@/lib/adaptive/config";
 import { prisma } from "@/lib/prisma";
 import { studyHoursBetween } from "@/lib/school/student-activity";
 
@@ -102,13 +102,41 @@ describe("getDashboardData", () => {
       startedAt: new Date("2026-01-01"),
       completedAt: new Date("2026-01-01"),
     });
-    mocked.predictionHistoryEntry.findMany.mockResolvedValue([{ displayedRangeMinimum: 810, displayedRangeMaximum: 880, representativeMidpoint: 845 }]); // latest
-    mocked.predictionHistoryEntry.findFirst.mockResolvedValue({ representativeMidpoint: 605 }); // diagnostic baseline
+    // The latest Practice Set entry carries its own distance from the
+    // Diagnostic, measured by the engine that wrote it.
+    mocked.predictionHistoryEntry.findMany.mockResolvedValue([
+      { sourceType: "ADAPTIVE_SET", displayedRangeMinimum: 810, displayedRangeMaximum: 880, representativeMidpoint: 845, approximateImprovement: 240 },
+    ]);
 
     const result = await getDashboardData("student1");
 
-    expect(result.currentRange).toEqual({ min: 810, max: 880 });
+    expect(result.currentRange).toEqual({ min: 810, max: 880, point: null });
     expect(result.approximateImprovementSinceStart).toBe(240);
+  });
+
+  it("reports no improvement while the Diagnostic is the latest prediction", async () => {
+    mocked.diagnosticSession.findUnique.mockResolvedValue({ status: "COMPLETED", startedAt: new Date(), completedAt: new Date() });
+    mocked.predictionHistoryEntry.findMany.mockResolvedValue([
+      { sourceType: "DIAGNOSTIC", displayedRangeMinimum: 970, displayedRangeMaximum: 1040, representativeMidpoint: 1005, approximateImprovement: 0 },
+    ]);
+
+    const result = await getDashboardData("student1");
+
+    expect(result.approximateImprovementSinceStart).toBe(0);
+  });
+
+  it("never compares two predictions from different engines", async () => {
+    // A recalibrated prediction below an old, inflated one is not a decline,
+    // and one above it would not be an improvement.
+    mocked.diagnosticSession.findUnique.mockResolvedValue({ status: "COMPLETED", startedAt: new Date(), completedAt: new Date() });
+    mocked.predictionHistoryEntry.findMany.mockResolvedValue([
+      { sourceType: "ADAPTIVE_SET", displayedRangeMinimum: 1050, displayedRangeMaximum: 1120, representativeMidpoint: 1085, scoringEngineVersion: "2026.2" },
+      { representativeMidpoint: 1005, scoringEngineVersion: "2026.1" },
+    ]);
+
+    const result = await getDashboardData("student1");
+
+    expect(result.recentImprovements.some((m) => m.startsWith("Estimated SAT"))).toBe(false);
   });
 
   it("flags a recent SAT improvement when the two most recent predictions increased", async () => {
@@ -138,12 +166,27 @@ describe("getDashboardData", () => {
     mocked.predictionHistoryEntry.findFirst.mockResolvedValue({ representativeMidpoint: 845 });
     mocked.categoryState.findMany.mockResolvedValue(categoryStatesAt(55)); // +5 from snapshot below
     mocked.practiceSet.findFirst.mockResolvedValue({
+      engineVersion: ENGINE_VERSION,
       categorySnapshots: [{ category: "ALGEBRA", abilityAtGeneration: 50 }],
     });
 
     const result = await getDashboardData("student1");
 
     expect(result.recentImprovements).toContain("Algebra mastery improved.");
+  });
+
+  it("doesn't compare against a snapshot taken by an earlier engine", async () => {
+    mocked.diagnosticSession.findUnique.mockResolvedValue({ status: "COMPLETED", startedAt: new Date(), completedAt: new Date() });
+    mocked.predictionHistoryEntry.findMany.mockResolvedValue([{ displayedRangeMinimum: 810, displayedRangeMaximum: 880, representativeMidpoint: 845 }]);
+    mocked.categoryState.findMany.mockResolvedValue(categoryStatesAt(55));
+    mocked.practiceSet.findFirst.mockResolvedValue({
+      engineVersion: "2026.1",
+      categorySnapshots: [{ category: "ALGEBRA", abilityAtGeneration: 50 }],
+    });
+
+    const result = await getDashboardData("student1");
+
+    expect(result.recentImprovements).not.toContain("Algebra mastery improved.");
   });
 
   it("does not extend the streak or count activity when no answers exist", async () => {

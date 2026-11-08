@@ -72,6 +72,40 @@ export const WARMUP_MAX_DAYS = 21;
 /** Absent and late students can catch up on a session for this long. */
 export const CATCH_UP_DAYS = 14;
 
+/**
+ * Individual practice (a session with no teacher pacing): each student works
+ * through their own questions at their own speed, the teacher watches.
+ *
+ * - `questions`: how many each student gets. About 25 minutes at the digital
+ *   SAT's own pace, and few enough that most of a class finishes.
+ * - `skillsPerStudent`: when skills are picked per student, the questions come
+ *   from their weakest this-many skills.
+ * - `idleAfterMs`: a student here, but with no answer this long (counted from
+ *   joining or their last answer), shows as "Idle".
+ * - `strugglingStreak`: this many wrong answers in a row shows "Needs help".
+ */
+export const INDIVIDUAL_PRACTICE = {
+  questions: 10,
+  skillsPerStudent: 3,
+  idleAfterMs: 3 * 60_000,
+  strugglingStreak: 3,
+} as const;
+
+/**
+ * Per-student report figures. A gap longer than `timeGapCapMs` between two of
+ * a student's timestamps counts as that much (a student who walked away, or
+ * answered a catch-up days later, is not "on task" for the gap). A confidence
+ * pattern needs at least `minConfidenceRatings` rated answers to say anything.
+ */
+export const STUDENT_REPORT = {
+  timeGapCapMs: 5 * 60_000,
+  minConfidenceRatings: 3,
+  /** "Sure but wrong" when at least this share of rated answers were sure and wrong. */
+  sureWrongShare: 0.25,
+  /** "Right but unsure" when at least this share were right but only "think so" or "guessing". */
+  unsureRightShare: 0.4,
+} as const;
+
 export const MATH_CATEGORIES: QuestionCategory[] = [
   "ALGEBRA",
   "ADVANCED_MATH",

@@ -9,6 +9,7 @@ import { CATEGORY_LABELS } from "@/lib/content/labels";
 import { SessionResults } from "@/components/session/session-results";
 import { ParentSummary } from "@/components/session/parent-summary";
 import { loadDiagnosticQuestionDetailAction } from "../actions";
+import { predictionText } from "@/lib/score/display";
 
 export const metadata = { title: "Diagnostic results" };
 
@@ -39,7 +40,7 @@ export default async function DiagnosticResultsPage() {
   const verdict = diagnosticVerdict(data.mastery);
   const weak = weakestCategories(data.mastery).map((c) => CATEGORY_LABELS[c]);
   const summary = [
-    `PrepHub Diagnostic result: predicted SAT score ${data.currentRange.min}–${data.currentRange.max} (${data.stats.correct}/${data.stats.total} correct).`,
+    `PrepHub Diagnostic result: predicted SAT score ${predictionText(data.currentRange)} (${data.stats.correct}/${data.stats.total} correct).`,
     `Weakest areas: ${weak.join(" and ")}.`,
     // The price is for a family that would be paying. Quoting it to a
     // family whose school already covers Premium is the "selling someone

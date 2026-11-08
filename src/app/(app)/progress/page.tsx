@@ -7,6 +7,7 @@ import { getProgressData, type ProgressHistoryPoint } from "@/lib/progress/progr
 import { LinkButton } from "@/components/ui/link-button";
 import { PageHeader } from "@/components/page-header";
 import { Marker } from "@/components/ui/marker";
+import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Your Progress" };
 
@@ -59,6 +60,8 @@ export default async function ProgressPage() {
   }
 
   const targetPct = data.targetProgressFraction !== null ? Math.round(data.targetProgressFraction * 100) : null;
+  // The trend line only joins predictions one engine made (progress-data.ts).
+  const comparableHistory = data.history.filter((p) => !p.earlierMethod);
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-12 p-4 pb-16 sm:p-8">
@@ -76,8 +79,13 @@ export default async function ProgressPage() {
               Current Prediction
             </p>
             <p className="mt-2 font-heading text-hero font-semibold tracking-tight tabular-nums">
-              {data.currentRange.min}&ndash;{data.currentRange.max}
+              {data.currentRange.point ?? `${data.currentRange.min}\u2013${data.currentRange.max}`}
             </p>
+            {data.currentRange.point !== null && (
+              <p className="mt-1 text-sm text-muted-foreground tabular-nums">
+                Likely range {data.currentRange.min}&ndash;{data.currentRange.max}
+              </p>
+            )}
           </div>
           {data.targetScore !== null ? (
             <div className="text-right">
@@ -121,18 +129,40 @@ export default async function ProgressPage() {
       {/* SAT Prediction History */}
       <section className="flex flex-col gap-5">
         <SectionTitle>SAT Prediction History</SectionTitle>
-        {data.history.length > 1 && <PredictionTrend history={data.history} />}
+        {comparableHistory.length > 1 && <PredictionTrend history={comparableHistory} />}
         <ul className="flex flex-col divide-y divide-border border-y border-border">
           {data.history.map((point, i) => (
             <li key={i} className="flex items-baseline justify-between gap-4 py-3 text-sm">
-              <span className="min-w-0 truncate font-medium">{point.label}</span>
+              <span className="min-w-0 truncate font-medium">
+                {point.label}
+                {point.earlierMethod && <span className="ml-2 font-normal text-muted-foreground">earlier method</span>}
+              </span>
               <span className="shrink-0 text-muted-foreground">{formatDate(point.date)}</span>
-              <span className="shrink-0 font-semibold tabular-nums">
-                {point.min}&ndash;{point.max}
+              <span className={cn("shrink-0 font-semibold tabular-nums", point.earlierMethod && "text-muted-foreground")}>
+                {point.point !== null ? (
+                  <>
+                    {point.point}
+                    <span className="ml-2 font-normal text-muted-foreground">
+                      likely {point.min}&ndash;{point.max}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    {point.min}&ndash;{point.max}
+                  </>
+                )}
               </span>
             </li>
           ))}
         </ul>
+        {comparableHistory.length < data.history.length && (
+          <p className="text-sm text-muted-foreground">
+            PrepHub changed how it predicts on 6 November 2026 (recalibrated against College Board&rsquo;s definitions of
+            question difficulty) and on 8 November 2026 (one score with a likely range, the way the real SAT reports a
+            score). Predictions marked &ldquo;earlier method&rdquo; came from an older calculation, so they aren&rsquo;t
+            compared with newer ones.
+          </p>
+        )}
       </section>
 
       {/* Study Statistics */}
@@ -195,7 +225,7 @@ function SectionTitle({ children }: { children: ReactNode }) {
 // were shorter than their own container's chrome, so the trend they exist to
 // show was the least visible thing in the box.
 function PredictionTrend({ history }: { history: ProgressHistoryPoint[] }) {
-  const midpoints = history.map((p) => (p.min + p.max) / 2);
+  const midpoints = history.map((p) => p.point ?? (p.min + p.max) / 2);
   const min = Math.min(...midpoints);
   const max = Math.max(...midpoints);
   const range = Math.max(max - min, 1);
@@ -203,7 +233,7 @@ function PredictionTrend({ history }: { history: ProgressHistoryPoint[] }) {
   return (
     <div className="flex h-36 items-end gap-1.5" aria-hidden>
       {history.map((point, i) => {
-        const mid = (point.min + point.max) / 2;
+        const mid = point.point ?? (point.min + point.max) / 2;
         const heightPct = range === 1 && max === min ? 60 : 15 + ((mid - min) / range) * 85;
         const isLatest = i === history.length - 1;
         return (
@@ -211,7 +241,7 @@ function PredictionTrend({ history }: { history: ProgressHistoryPoint[] }) {
             key={i}
             className={`w-full rounded-t-md ${isLatest ? "bg-primary" : "bg-primary/25"}`}
             style={{ height: `${heightPct}%` }}
-            title={`${point.label}: ${point.min}–${point.max}`}
+            title={`${point.label}: ${point.point !== null ? `${point.point} (likely ${point.min}–${point.max})` : `${point.min}–${point.max}`}`}
           />
         );
       })}

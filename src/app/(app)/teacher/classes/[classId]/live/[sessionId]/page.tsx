@@ -7,6 +7,8 @@ import { formatGoalDate } from "@/lib/community/goal";
 import { LinkButton } from "@/components/ui/link-button";
 import { StaffHeader, StaffPage, StaffSection, StatStrip, StatusChip } from "@/components/staff/staff-ui";
 import type { AnswerBreakdown } from "@/lib/teacher/answer-stats";
+import { MODE_LABELS } from "@/lib/guided/modes";
+import { StudentResults } from "./student-results";
 
 export const metadata = { title: "Guided Session report" };
 
@@ -29,6 +31,11 @@ function Spread({ breakdown }: { breakdown: AnswerBreakdown }) {
  * alone (a second vote can overstate how much a room learned), then who to
  * check in with and who was absent. Results on work the teacher gave their
  * class, like homework; nothing else from any student's account.
+ *
+ * Owner-approved (2026-11-08): the teacher who ran the session sees each
+ * student's individual results for it here, after it ends: answers, whether
+ * they were right, confidence, own-question score and time on task. Only that
+ * teacher (the session's own), and only for this session's questions.
  */
 export default async function GuidedReportPage({ params }: { params: Promise<{ classId: string; sessionId: string }> }) {
   const context = await requireTeacher();
@@ -41,8 +48,10 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
     throw err;
   }
   if (page.classroomId !== classId) notFound();
-  const { report } = page;
+  const { report, summary } = page;
+  const individual = page.mode === "INDIVIDUAL";
   const live = page.status === "OPEN";
+  const typical = summary.medianTimeOnTaskMs === null ? "—" : `${Math.max(1, Math.round(summary.medianTimeOnTaskMs / 60000))} min`;
   const minutes =
     page.startedAt && page.endedAt ? Math.max(1, Math.round((page.endedAt.getTime() - page.startedAt.getTime()) / 60000)) : null;
 
@@ -50,14 +59,16 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
     <StaffPage>
       <StaffHeader
         back={{ href: `/teacher/classes/${classId}`, label: page.className }}
-        eyebrow={`Guided Session · ${formatGoalDate(page.createdAt)}`}
+        eyebrow={`${MODE_LABELS[page.mode]} · ${formatGoalDate(page.createdAt)}`}
         title={page.categoryLabel}
         description={
           live
             ? "This session is still running."
             : page.suggested
               ? `You chose this skill; PrepHub had suggested ${page.suggested}.`
-              : "What the room did, what each student did on their own, and who to check in with."
+              : individual
+                ? "How each student did on their own questions."
+                : "What the room did, what each student did on their own, and who to check in with."
         }
         actions={live && <LinkButton href={`/teacher/live/${sessionId}`} size="cta">Back to the session</LinkButton>}
       />
@@ -67,7 +78,7 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
           { label: "Took part", value: `${report.joined} of ${page.rosterSize}`, hint: "students in the class" },
           {
             label: "On their own",
-            value: report.ownAverage === null ? "—" : `${report.ownAverage.toFixed(1)} of ${report.ownTotal}`,
+            value: report.ownAverage === null ? "—" : `${Number.isInteger(report.ownAverage) ? report.ownAverage : report.ownAverage.toFixed(1)} of ${report.ownTotal}`,
             hint: "average right, answered alone",
           },
           { label: "Absent", value: String(report.absent.length), hint: `${report.absent.filter((a) => a.caughtUp).length} caught up since` },
@@ -75,6 +86,36 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
         ]}
       />
 
+      <StaffSection
+        title="Each student"
+        description="One row per student in the class. First try is right on the first answer, before any talking. Final is right on the last answer given in the session. Open a row to see every question. Only you can see this."
+      >
+        <StatStrip
+          stats={[
+            { label: "Here", value: `${summary.attended} of ${page.rosterSize}`, hint: `${summary.absent} absent` },
+            { label: "First try right", value: pct(summary.avgFirstTryPct), hint: "average across students here" },
+            { label: "Final right", value: pct(summary.avgFinalPct), hint: "average across students here" },
+            { label: "Typical time", value: typical, hint: `${summary.sureButWrong} sure but wrong` },
+          ]}
+        />
+        <div className="flex flex-wrap gap-3">
+          <a
+            href={`/teacher/classes/${classId}/live/${sessionId}/export`}
+            className="inline-flex h-11 items-center rounded-md border border-border px-4 text-base font-medium hover:bg-muted"
+          >
+            Download results (CSV)
+          </a>
+          <a
+            href={`/teacher/classes/${classId}/live/${sessionId}/export?detail=questions`}
+            className="inline-flex h-11 items-center rounded-md border border-border px-4 text-base font-medium hover:bg-muted"
+          >
+            Download every answer (CSV)
+          </a>
+        </div>
+        <StudentResults rows={page.students} />
+      </StaffSection>
+
+      {!individual && (
       <StaffSection title="The questions" description="The first vote is what students knew alone. Where the room talked it over, the second vote is beside it.">
         <ul className="divide-y divide-border rounded-2xl border border-border">
           {report.questions.map((q) => (
@@ -106,7 +147,10 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
           ))}
         </ul>
       </StaffSection>
+      )}
 
+      {!individual && (
+      <>
       <StaffSection
         title="Check in with"
         description="Students who missed a class question on their final answer and two or more of their own. Worth a word after class."
@@ -152,6 +196,8 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
           ]}
         />
       </StaffSection>
+      </>
+      )}
 
       <p className="text-base text-muted-foreground">
         <Link href={`/teacher/classes/${classId}/live/new`} className="font-medium text-foreground underline underline-offset-2">

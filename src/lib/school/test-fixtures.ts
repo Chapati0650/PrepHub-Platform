@@ -20,7 +20,8 @@ type MockFn = { mockImplementation: (impl: (...args: never[]) => unknown) => unk
 
 export type AnswerRow = { studentId: string; answeredAt: Date };
 export type SessionRow = { studentId: string; startedAt: Date; completedAt: Date };
-export type PredictionRow = { studentId: string; representativeMidpoint: number; createdAt: Date };
+/** `scoringEngineVersion` defaults to one shared version when a test doesn't care. */
+export type PredictionRow = { studentId: string; representativeMidpoint: number; createdAt: Date; scoringEngineVersion?: string };
 
 const SESSION_HOUR_CAP = 3;
 
@@ -213,7 +214,12 @@ function perStudentActivity(fixture: ActivityFixture) {
   return [...byStudent.entries()].map(([studentId, row]) => ({ studentId, ...row }));
 }
 
-/** `GREATEST(last - first, 0)` per student, plus the same floor per step. */
+/**
+ * `GREATEST(last - first, 0)` per student within the engine that wrote their
+ * latest prediction, plus the same floor per step, steps only ever between
+ * two predictions from one engine — as the windows in aggregate-stats.ts
+ * partition by version.
+ */
 function scoreImprovement(fixture: ActivityFixture, since?: Date) {
   const byStudent = new Map<string, PredictionRow[]>();
   for (const entry of fixture.predictions) {
@@ -224,13 +230,17 @@ function scoreImprovement(fixture: ActivityFixture, since?: Date) {
 
   let total = 0;
   let weekly = 0;
+  const version = (p: PredictionRow) => p.scoringEngineVersion ?? "current";
   for (const entries of byStudent.values()) {
     const ordered = [...entries].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const latest = version(ordered[ordered.length - 1]);
+    const comparable = ordered.filter((p) => version(p) === latest);
     total += Math.max(
       0,
-      ordered[ordered.length - 1].representativeMidpoint - ordered[0].representativeMidpoint,
+      comparable[comparable.length - 1].representativeMidpoint - comparable[0].representativeMidpoint,
     );
     for (let i = 1; i < ordered.length; i++) {
+      if (version(ordered[i]) !== version(ordered[i - 1])) continue;
       if (!since || ordered[i].createdAt >= since) {
         weekly += Math.max(
           0,

@@ -1,7 +1,6 @@
-import type { QuestionCategory } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ALL_CATEGORIES } from "@/lib/adaptive/config";
-import { initialAbilityFromDiagnostic } from "@/lib/adaptive/diagnostic-initialization";
+import { initialAbilitiesFromDiagnostic } from "@/lib/adaptive/diagnostic-initialization";
 import { generatePracticeSet } from "@/lib/adaptive/generate-practice-set";
 import { generateDiagnosticPrediction } from "@/lib/score/generate-diagnostic-prediction";
 import { logGenerationFailure } from "@/lib/logger";
@@ -42,19 +41,15 @@ export async function completeDiagnostic(studentId: string) {
     }
   }
 
-  const byCategory = new Map<QuestionCategory, typeof session.attempts>();
-  for (const attempt of session.attempts) {
-    const list = byCategory.get(attempt.category) ?? [];
-    list.push(attempt);
-    byCategory.set(attempt.category, list);
-  }
+  // `session.attempts` was read before settleBonusRound waived the bonus
+  // questions this student didn't earn, but those were never answered, and
+  // only answered questions are counted — so this is the same set of answers
+  // generateDiagnosticPrediction reads afterwards, and the prediction is
+  // computed from exactly these abilities.
+  const abilities = initialAbilitiesFromDiagnostic(session.attempts);
 
   const categoryStatesData = ALL_CATEGORIES.map((category) => {
-    const attempts = byCategory.get(category) ?? [];
-    const easy = attempts.find((a) => a.difficulty === "EASY");
-    const medium = attempts.find((a) => a.difficulty === "MEDIUM");
-    const hard = attempts.find((a) => a.difficulty === "HARD");
-    const ability = initialAbilityFromDiagnostic(!!easy?.isCorrect, !!medium?.isCorrect, !!hard?.isCorrect);
+    const ability = abilities[category];
     return {
       studentId,
       category,

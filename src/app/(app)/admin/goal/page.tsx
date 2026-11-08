@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { DistrictCampusSwitcher, PickCampusPrompt } from "../school-switcher";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { getSchoolCommunityData } from "@/lib/community/school-community-data";
 import { localDateInputValue } from "@/lib/community/goal";
@@ -16,8 +17,11 @@ export const metadata = { title: "Community goal" };
 // student, which is the same aggregate-only line as the rest of this area.
 export default async function SchoolGoalPage({ searchParams }: { searchParams: Promise<{ school?: string }> }) {
   const { school } = await searchParams;
-  const { schoolId, viewingAsOwner, availableSchools } = await requireAdminSchoolContext(school);
+  const { schoolId, viewingAsOwner, availableSchools, district } = await requireAdminSchoolContext(school);
 
+  if (district && !schoolId) {
+    return <PickCampusPrompt basePath="/admin/goal" districtName={district.name} campuses={district.campuses} what="The community goal" />;
+  }
   if (!schoolId) return <StaffUnavailable title="The community goal isn't available for this account." />;
 
   const [org, community] = await Promise.all([
@@ -30,12 +34,15 @@ export default async function SchoolGoalPage({ searchParams }: { searchParams: P
 
   return (
     <StaffPage>
+      {district && (
+        <DistrictCampusSwitcher basePath="/admin/goal" districtName={district.name} campuses={district.campuses} currentSchoolId={schoolId} />
+      )}
       {viewingAsOwner && <OwnerSchoolSwitcher basePath="/admin/goal" schools={availableSchools} currentSchoolId={schoolId} />}
 
       <StaffHeader
         eyebrow="Your school"
         title="Community goal"
-        description="One target your whole school works toward together, like 5,000 questions answered by winter break. Every student sees the progress on their School Community page. A prize, such as a pizza party or a spirit day, is what makes it worth chasing."
+        description="One target your whole school works toward together, like 5,000 questions answered by winter break. Every student sees the progress on their School Community page. A prize, such as a pizza party or free admission to a home game, is what makes it worth chasing."
       />
 
       <div className="grid gap-8 lg:grid-cols-[1.1fr_1fr] lg:items-start">
@@ -51,6 +58,7 @@ export default async function SchoolGoalPage({ searchParams }: { searchParams: P
             <div className="rounded-2xl border border-border p-5 sm:p-6">
               <GoalEditor
                 action={saveSchoolGoalAction}
+                hidden={district && schoolId ? { school: schoolId } : undefined}
                 initial={{
                   metric: org.communityGoalMetric,
                   target: org.communityGoalTarget,

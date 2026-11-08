@@ -9,6 +9,7 @@ import { Marker } from "@/components/ui/marker";
 import { TeacherCard } from "./teacher-card";
 import { LessonState } from "./lesson-state";
 import { TEACHER } from "@/lib/teacher";
+import { isDemoAccount } from "@/lib/demo-account";
 
 export const metadata = { title: "The Curriculum" };
 
@@ -28,6 +29,7 @@ export default async function CurriculumPage() {
   if (!session?.user?.id) redirect("/home");
   if (!canUseStudentExperience(session.user.role)) redirect("/home");
 
+  const demo = isDemoAccount(session.user.email);
   const course = await getCurriculumOverview(session.user.id);
   const started = course.stats.completedCount > 0;
   const finished = course.stats.lessonCount > 0 && course.stats.completedCount === course.stats.lessonCount;
@@ -102,7 +104,9 @@ export default async function CurriculumPage() {
             <h2 className="font-heading text-xl font-semibold tracking-tight">Syllabus</h2>
             {course.modules.length === 0 ? (
               <div className="rounded-2xl bg-surface-tint p-6 text-sm text-muted-foreground">
-                The first lessons are being recorded. This page will fill in as they&apos;re published.
+                {demo
+                  ? "Access not provided with demo account."
+                  : "The first lessons are being recorded. This page will fill in as they’re published."}
               </div>
             ) : (
               course.modules.map((m, mi) => (

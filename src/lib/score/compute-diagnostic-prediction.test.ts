@@ -1,48 +1,130 @@
 import { describe, expect, it } from "vitest";
-import { computeDiagnosticPrediction, type DiagnosticCategoryResult } from "@/lib/score/compute-diagnostic-prediction";
-import { ALL_CATEGORIES } from "@/lib/adaptive/config";
 import type { QuestionCategory } from "@/generated/prisma/client";
+import { computeDiagnosticPrediction } from "@/lib/score/compute-diagnostic-prediction";
+import { computeAdaptivePrediction } from "@/lib/score/compute-adaptive-prediction";
+import { initialAbilitiesFromDiagnostic } from "@/lib/adaptive/diagnostic-initialization";
+import { ABILITY_MODEL, ALL_CATEGORIES } from "@/lib/adaptive/config";
+import { diagnosticAnswers } from "@/lib/adaptive/estimate";
+import { createRandom } from "@/lib/adaptive/random";
+import { CATEGORY_WEIGHT, SECTION_SCORE_LINES } from "@/lib/score/config";
 
-function resultsAt(pattern: DiagnosticCategoryResult): Record<QuestionCategory, DiagnosticCategoryResult> {
-  return Object.fromEntries(ALL_CATEGORIES.map((c) => [c, pattern])) as Record<QuestionCategory, DiagnosticCategoryResult>;
+function abilitiesAt(value: number): Record<QuestionCategory, number> {
+  return Object.fromEntries(ALL_CATEGORIES.map((c) => [c, value])) as Record<QuestionCategory, number>;
 }
 
+const at = new Date("2026-11-06T12:00:00Z");
+
+/**
+ * A staged Diagnostic as a student finishes it: Easy and Medium everywhere,
+ * the Hard question served only where the Medium was right and waived
+ * elsewhere. `bonus` says how each earned Hard question went.
+ */
+function stagedDiagnostic(core: Record<QuestionCategory, [boolean, boolean]>, bonus: Partial<Record<QuestionCategory, boolean>>) {
+  return ALL_CATEGORIES.flatMap((category) => {
+    const [easy, medium] = core[category];
+    const earned = medium;
+    return [
+      { category, difficulty: "EASY" as const, isCorrect: easy, submittedAt: at, waivedAt: null },
+      { category, difficulty: "MEDIUM" as const, isCorrect: medium, submittedAt: at, waivedAt: null },
+      {
+        category,
+        difficulty: "HARD" as const,
+        isCorrect: earned ? (bonus[category] ?? false) : null,
+        submittedAt: earned ? at : null,
+        waivedAt: earned ? null : at,
+      },
+    ];
+  });
+}
+
+const predictFrom = (attempts: ReturnType<typeof stagedDiagnostic>) =>
+  computeDiagnosticPrediction(initialAbilitiesFromDiagnostic(attempts), diagnosticAnswers(attempts));
+
 describe("computeDiagnosticPrediction", () => {
-  it("maps a perfect diagnostic (all correct) to the top 1530-1600 range", () => {
-    const result = computeDiagnosticPrediction(resultsAt({ easyCorrect: true, mediumCorrect: true, hardCorrect: true }));
-    expect(result.diagnosticEstimate).toBe(1600);
-    expect(result.range.index).toBe(15);
-    expect(result.range.scoreMin).toBe(1530);
-    expect(result.range.scoreMax).toBe(1600);
+  it("puts a typical PrepHub student (every category at the population mean) near 1010", () => {
+    const result = computeDiagnosticPrediction(abilitiesAt(ABILITY_MODEL.populationMean), []);
+    expect(result.totalScore).toBeGreaterThan(980);
+    expect(result.totalScore).toBeLessThan(1040);
+    expect(result.low).toBeLessThanOrEqual(result.point);
   });
 
-  it("maps a fully missed diagnostic (all incorrect) to the bottom 400-480 range", () => {
-    const result = computeDiagnosticPrediction(resultsAt({ easyCorrect: false, mediumCorrect: false, hardCorrect: false }));
-    expect(result.diagnosticEstimate).toBe(400);
-    expect(result.range.index).toBe(1);
+  it("scores the two sections on their own lines, reports each to the nearest 10, and adds them", () => {
+    const result = computeDiagnosticPrediction(abilitiesAt(60), []);
+    const rw = SECTION_SCORE_LINES.READING_WRITING.intercept + SECTION_SCORE_LINES.READING_WRITING.slope * 60;
+    const math = SECTION_SCORE_LINES.MATH.intercept + SECTION_SCORE_LINES.MATH.slope * 60;
+    expect(result.totalScore).toBeCloseTo(rw + math, 9);
+    expect(result.readingWritingScore).toBe(Math.round(rw / 10) * 10);
+    expect(result.mathScore).toBe(Math.round(math / 10) * 10);
+    expect(result.point).toBe(result.readingWritingScore + result.mathScore);
   });
 
-  it("weights Reading/Writing categories at 45/45/10 and Math categories at 35/35/15/15", () => {
-    const results = resultsAt({ easyCorrect: false, mediumCorrect: false, hardCorrect: false });
-    // Every category starts at the all-incorrect value (400) except Grammar,
-    // which is all-correct (1600) — isolates the RW weighting.
-    results.GRAMMAR = { easyCorrect: true, mediumCorrect: true, hardCorrect: true };
-
-    const result = computeDiagnosticPrediction(results);
-    // RW = 0.45*400 + 0.45*1600 + 0.10*400 = 940; Math unchanged at 400.
-    expect(result.readingWritingValue).toBeCloseTo(940, 6);
-    expect(result.mathValue).toBeCloseTo(400, 6);
-    expect(result.diagnosticEstimate).toBeCloseTo(670, 6);
+  it("weights a category by its share of its section, and leaves the other section alone", () => {
+    const base = computeDiagnosticPrediction(abilitiesAt(50), []);
+    const raised = computeDiagnosticPrediction({ ...abilitiesAt(50), GRAMMAR: 60 }, []);
+    expect(raised.readingWritingAbility - base.readingWritingAbility).toBeCloseTo(CATEGORY_WEIGHT.GRAMMAR * 10, 9);
+    expect(raised.totalScore - base.totalScore).toBeCloseTo(CATEGORY_WEIGHT.GRAMMAR * 10 * SECTION_SCORE_LINES.READING_WRITING.slope, 9);
+    expect(raised.mathScore).toBe(base.mathScore);
   });
 
-  it("computes within-range progress from the diagnostic estimate's position in the displayed range", () => {
-    // Craft a pattern set that lands the estimate inside a known band and
-    // verify progress is between 0 and 1 (exact value depends on the
-    // specific weighted mix, so we just check the invariant holds).
-    const results = resultsAt({ easyCorrect: true, mediumCorrect: false, hardCorrect: false }); // 1000 everywhere
-    const result = computeDiagnosticPrediction(results);
-    expect(result.diagnosticEstimate).toBe(1000);
-    expect(result.withinRangeProgress).toBeGreaterThanOrEqual(0);
-    expect(result.withinRangeProgress).toBeLessThanOrEqual(1);
+  it("keeps every prediction on the 400-1600 scale, band included", () => {
+    for (const ability of [0, 100]) {
+      const r = computeDiagnosticPrediction(abilitiesAt(ability), []);
+      expect(r.point).toBe(ability === 0 ? 400 : 1600);
+      expect(r.low).toBeGreaterThanOrEqual(400);
+      expect(r.high).toBeLessThanOrEqual(1600);
+      expect(r.readingWriting.low).toBeGreaterThanOrEqual(200);
+      expect(r.math.high).toBeLessThanOrEqual(800);
+    }
+  });
+
+  it("is exactly what a Practice Set predicts from the same abilities — a set that changes nothing moves nothing", () => {
+    const random = createRandom("no-jump");
+    for (let trial = 0; trial < 25; trial++) {
+      const abilities = Object.fromEntries(ALL_CATEGORIES.map((c) => [c, 20 + random() * 60])) as Record<QuestionCategory, number>;
+      const diagnostic = computeDiagnosticPrediction(abilities, []);
+      const practice = computeAdaptivePrediction(abilities, [], diagnostic.point);
+      expect(practice.point).toBe(diagnostic.point);
+      expect(practice.low).toBe(diagnostic.low);
+      expect(practice.high).toBe(diagnostic.high);
+      expect(practice.totalScore).toBe(diagnostic.totalScore);
+      expect(practice.approximateImprovement).toBe(0);
+    }
+  });
+});
+
+describe("the bonus round's promise: these can only raise your predicted score", () => {
+  it("holds for every earned bonus question, across many Diagnostics", () => {
+    const random = createRandom("bonus-promise");
+    for (let trial = 0; trial < 60; trial++) {
+      const core = Object.fromEntries(ALL_CATEGORIES.map((c) => [c, [random() < 0.78, random() < 0.57]])) as Record<
+        QuestionCategory,
+        [boolean, boolean]
+      >;
+      const earned = ALL_CATEGORIES.filter((c) => core[c][1]);
+      const bonus = Object.fromEntries(earned.map((c) => [c, random() < 0.41])) as Partial<Record<QuestionCategory, boolean>>;
+      const predict = (b: Partial<Record<QuestionCategory, boolean>>) => predictFrom(stagedDiagnostic(core, b));
+
+      // Against the score with every earned bonus question wrong — which is
+      // also what a student who didn't try one would get.
+      const floor = predict({});
+      const actual = predict(bonus);
+      expect(actual.totalScore).toBeGreaterThanOrEqual(floor.totalScore - 1e-9);
+      expect(actual.point).toBeGreaterThanOrEqual(floor.point);
+
+      // And one at a time: getting any single one right never costs anything.
+      for (const c of earned) {
+        if (bonus[c]) continue;
+        expect(predict({ ...bonus, [c]: true }).totalScore).toBeGreaterThan(actual.totalScore);
+      }
+    }
+  });
+
+  it("never scores a waived question as a miss", () => {
+    // Medium wrong in every category, so every Hard is waived: the same
+    // prediction as if those rows didn't exist at all.
+    const core = Object.fromEntries(ALL_CATEGORIES.map((c) => [c, [true, false]])) as Record<QuestionCategory, [boolean, boolean]>;
+    const attempts = stagedDiagnostic(core, {});
+    const withoutWaived = attempts.filter((a) => a.waivedAt === null);
+    expect(predictFrom(attempts)).toEqual(predictFrom(withoutWaived));
   });
 });

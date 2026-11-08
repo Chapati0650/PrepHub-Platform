@@ -90,12 +90,12 @@ describe("chooseQuestion", () => {
 
 describe("own questions", () => {
   it("gives Medium to a student with no Diagnostic", () => {
-    expect(ownDifficulties(null, 4, createRandom("o"))).toEqual(["MEDIUM", "MEDIUM", "MEDIUM", "MEDIUM"]);
+    expect(ownDifficulties("ALGEBRA", null, 4, createRandom("o"))).toEqual(["MEDIUM", "MEDIUM", "MEDIUM", "MEDIUM"]);
   });
 
   it("draws harder questions for a stronger student", () => {
-    const strong = ownDifficulties(95, 40, createRandom("s"));
-    const building = ownDifficulties(5, 40, createRandom("s"));
+    const strong = ownDifficulties("ALGEBRA", 95, 40, createRandom("s"));
+    const building = ownDifficulties("ALGEBRA", 5, 40, createRandom("s"));
     const hard = (ds: QuestionDifficulty[]) => ds.filter((d) => d === "HARD").length;
     expect(hard(strong)).toBeGreaterThan(hard(building));
   });

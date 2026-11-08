@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdminWriteContext } from "@/lib/admin/school-context";
+import { requireAdminWriteContext, schoolField } from "@/lib/admin/school-context";
 import { updateStudentInfo } from "@/lib/admin/student-directory";
 import { AdminError } from "@/lib/admin/errors";
 import { updateStudentInfoSchema } from "@/lib/validation/admin";
@@ -15,7 +15,7 @@ function formEntries(formData: FormData) {
 }
 
 export async function updateStudentInfoAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const context = await requireAdminWriteContext();
+  const context = await requireAdminWriteContext(schoolField(formData));
   if ("error" in context) return context;
   const { schoolId } = context;
 
@@ -56,7 +56,7 @@ export async function sendCampusInvitesAction(
   _prev: InviteState,
   formData: FormData,
 ): Promise<InviteState> {
-  const context = await requireAdminWriteContext();
+  const context = await requireAdminWriteContext(schoolField(formData));
   if ("error" in context) return context;
 
   try {

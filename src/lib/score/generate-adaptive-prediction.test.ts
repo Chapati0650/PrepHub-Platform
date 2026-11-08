@@ -2,12 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { generateAdaptivePrediction } from "@/lib/score/generate-adaptive-prediction";
 import { ALL_CATEGORIES } from "@/lib/adaptive/config";
 import { prisma } from "@/lib/prisma";
+import { SCORING_ENGINE_VERSION } from "@/lib/score/config";
 
 vi.mock("@/lib/prisma", () => {
   const mockPrisma: Record<string, unknown> = {
     predictionHistoryEntry: { findFirst: vi.fn(), create: vi.fn() },
     practiceSet: { findUnique: vi.fn() },
     categoryState: { findMany: vi.fn() },
+    diagnosticAttempt: { findMany: vi.fn().mockResolvedValue([]) },
+    finalizedAttempt: { findMany: vi.fn().mockResolvedValue([]) },
     $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   };
@@ -33,7 +36,7 @@ function completedSet(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 function categoryStatesAt(ability: number) {
-  return ALL_CATEGORIES.map((category) => ({ category, ability }));
+  return ALL_CATEGORIES.map((category) => ({ category, ability, initialAbility: 0 }));
 }
 
 beforeEach(() => {
@@ -117,13 +120,22 @@ describe("generateAdaptivePrediction", () => {
       internalDiagnosticEstimate: number | null;
       overallAbility: number;
       approximateImprovement: number;
+      representativeMidpoint: number;
+      scoringEngineVersion: string;
+      displayedRangeMinimum: number;
+      displayedRangeMaximum: number;
     };
 
     expect(result.sourceType).toBe("ADAPTIVE_SET");
     expect(result.sourceSetId).toBe("set1");
     expect(result.internalDiagnosticEstimate).toBeNull();
     expect(result.overallAbility).toBe(100);
-    // Baseline midpoint 440 (bottom range); ability 100 -> top range midpoint 1565.
-    expect(result.approximateImprovement).toBe(1125);
+    // Improvement is the new point less the Diagnostic scored by this same engine:
+    // initialAbility 0 everywhere is 400 (both sections at the 200 floor), ability 100 is 1600.
+    expect(result.approximateImprovement).toBe(1200);
+    expect(result.representativeMidpoint).toBe(1600);
+    expect(result.scoringEngineVersion).toBe(SCORING_ENGINE_VERSION);
+    expect(result.displayedRangeMaximum).toBe(1600);
+    expect(result.displayedRangeMinimum).toBeLessThan(1600);
   });
 });

@@ -13,12 +13,16 @@ const SAT_SCALE_MAX = 1600;
 export function ScorePrediction({
   min,
   max,
+  point = null,
   label,
   className,
   fit = false,
 }: {
+  /** The likely band. */
   min: number;
   max: number;
+  /** The predicted score (engine 2026.3 on). Without it, `min`-`max` is shown as the old range. */
+  point?: number | null;
   label: string;
   className?: string;
   /** Size the number to this component's own width instead of the fixed hero
@@ -47,8 +51,13 @@ export function ScorePrediction({
           fit ? "text-[length:clamp(2.25rem,17cqi,var(--text-hero-lg))] whitespace-nowrap" : "text-hero sm:text-hero-lg",
         )}
       >
-        {min}–{max}
+        {point !== null ? point : `${min}–${max}`}
       </p>
+      {point !== null && (
+        <p className="-mt-1 text-sm text-muted-foreground tabular-nums">
+          Likely range {min}–{max}
+        </p>
+      )}
       {/* The scale keeps its 400/1600 end labels so the bar reads as a real
           number line rather than an abstract progress meter — without them a
           viewer has no way to know the filled span means "where this range
@@ -63,6 +72,12 @@ export function ScorePrediction({
             className="absolute inset-y-0 rounded-full bg-primary"
             style={{ left: `${left}%`, width: `${width}%` }}
           />
+          {point !== null && (
+            <div
+              className="absolute inset-y-0 w-0.5 bg-foreground"
+              style={{ left: `${((point - SAT_SCALE_MIN) / (SAT_SCALE_MAX - SAT_SCALE_MIN)) * 100}%` }}
+            />
+          )}
         </div>
         <div className="mt-1.5 flex justify-between text-caption tabular-nums text-muted-foreground" aria-hidden>
           <span>{SAT_SCALE_MIN}</span>

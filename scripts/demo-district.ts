@@ -56,7 +56,8 @@ import "dotenv/config";
 import { randomBytes, randomUUID } from "node:crypto";
 import { PrismaClient, type QuestionCategory, type QuestionDifficulty } from "../src/generated/prisma/client.js";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { rangeForAbility, SCORING_ENGINE_VERSION } from "../src/lib/score/config";
+import { progressWithinRange, sectionScoreFromAbility, SCORING_ENGINE_VERSION } from "../src/lib/score/config";
+import { roundToStep } from "../src/lib/score/real-test";
 import { CORE_SEQUENCE, BONUS_SEQUENCE } from "../src/lib/diagnostic/sequence";
 import { hashPassword } from "../src/lib/password";
 
@@ -318,7 +319,8 @@ const DIFFICULTY_OFFSET: Record<QuestionDifficulty, number> = { EASY: -8, MEDIUM
 
 /** Correct with a probability that rises with ability over the question's difficulty. */
 function answers(ability: number, difficulty: QuestionDifficulty): boolean {
-  const target = 30 + DIFFICULTY_OFFSET[difficulty];
+  // Abilities are on engine 2026.2's scale, where 50 is a typical PrepHub student.
+  const target = 38 + DIFFICULTY_OFFSET[difficulty];
   return chance(1 / (1 + Math.exp(-(ability - target) / 8)));
 }
 
@@ -327,8 +329,16 @@ function answerFor(rev: Revision, correct: boolean): string | null {
   return rev.wrongIds.length ? pick(rev.wrongIds) : "1";
 }
 
-function prediction(studentId: string, ability: number, rw: number, math: number, firstMidpoint: number | null, at: Date, sourceSetId: string | null) {
-  const range = rangeForAbility(ability);
+const DEMO_BAND_HALF_WIDTH = 50;
+
+/** A prediction as the engine writes one (lib/score/predict.ts): each section scored on its own line, rounded to 10, then added. */
+function prediction(studentId: string, rw: number, math: number, firstMidpoint: number | null, at: Date, sourceSetId: string | null) {
+  const point = roundToStep(sectionScoreFromAbility("READING_WRITING", rw)) + roundToStep(sectionScoreFromAbility("MATH", math));
+  // Engine 2026.3 stores a score with a likely band; a demo has no answers to
+  // measure the band from, so it uses a typical half-width.
+  const low = Math.max(400, roundToStep(point - DEMO_BAND_HALF_WIDTH));
+  const high = Math.min(1600, roundToStep(point + DEMO_BAND_HALF_WIDTH));
+  const ability = (rw + math) / 2;
   return {
     id: randomUUID(),
     studentId,
@@ -337,12 +347,12 @@ function prediction(studentId: string, ability: number, rw: number, math: number
     readingWritingAbility: rw,
     mathAbility: math,
     overallAbility: ability,
-    displayedRangeIndex: range.index,
-    displayedRangeMinimum: range.scoreMin,
-    displayedRangeMaximum: range.scoreMax,
-    representativeMidpoint: range.midpoint,
-    approximateImprovement: firstMidpoint === null ? 0 : range.midpoint - firstMidpoint,
-    withinRangeProgress: Math.min(1, Math.max(0, (ability - range.abilityMin) / (range.abilityMax - range.abilityMin))),
+    displayedRangeIndex: 0,
+    displayedRangeMinimum: low,
+    displayedRangeMaximum: high,
+    representativeMidpoint: point,
+    approximateImprovement: firstMidpoint === null ? 0 : point - firstMidpoint,
+    withinRangeProgress: progressWithinRange(point, low, high),
     scoringEngineVersion: SCORING_ENGINE_VERSION,
     createdAt: at,
   };
@@ -460,8 +470,9 @@ async function create() {
     const grade = pick([9, 10, 10, 11, 11, 11, 12, 12]);
     // Most of a campus signs up in the first fortnight after launch, then a trickle.
     const joinedAt = launch.getTime() + (chance(0.7) ? between(0, 14) : between(14, 50)) * DAY;
-    const ability = Math.min(80, Math.max(8, normal(30 + (grade - 9) * 2, 26)));
-    const tilt = normal(0, 10);
+    // Engine 2026.2's scale: 50 is a typical PrepHub student (about 1010).
+    const ability = Math.min(85, Math.max(8, normal(40 + (grade - 9) * 1.5, 12)));
+    const tilt = normal(0, 6);
     const roll = rand();
     const engagement = roll < 0.14 ? "never" : roll < 0.22 ? "started" : roll < 0.52 ? "light" : roll < 0.86 ? "regular" : "keen";
     const id = randomUUID();
@@ -550,8 +561,9 @@ async function create() {
     });
     if (!finished) continue;
 
-    const first = rangeForAbility(s.ability).midpoint;
-    predictions.push(prediction(s.id, s.ability, s.rw, s.math, null, new Date(t + MINUTE), null));
+    const diagnosticEntry = prediction(s.id, s.rw, s.math, null, new Date(t + MINUTE), null);
+    const first = diagnosticEntry.representativeMidpoint;
+    predictions.push(diagnosticEntry);
 
     // Practice: how many sets, spread from the Diagnostic to now, the keenest
     // still at it this week.
@@ -622,7 +634,7 @@ async function create() {
         createdAt: new Date(created),
         completedAt: new Date(at),
       });
-      predictions.push(prediction(s.id, ability, rw, math, first, new Date(at + 5000), setId));
+      predictions.push(prediction(s.id, rw, math, first, new Date(at + 5000), setId));
     }
   }
 

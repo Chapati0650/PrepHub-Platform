@@ -1,6 +1,6 @@
 import type { QuestionCategory } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ALL_CATEGORIES } from "@/lib/adaptive/config";
+import { ALL_CATEGORIES, ENGINE_VERSION } from "@/lib/adaptive/config";
 import { CATEGORY_LABELS } from "@/lib/content/labels";
 import { getRecommendedPace, type RecommendedPace } from "@/lib/onboarding/study-commitment";
 import { answerActivity, studyHoursBetween } from "@/lib/school/student-activity";
@@ -9,11 +9,12 @@ import { answerActivity, studyHoursBetween } from "@/lib/school/student-activity
 // are in Texas, and a UTC day ends there at 7pm.
 import { GOAL_TIME_ZONE as STUDY_DAY_TIME_ZONE, localDateInputValue } from "@/lib/community/goal";
 import { streakFromDays } from "./study-streak";
+import { predictionView, type PredictionView } from "@/lib/score/display";
 
 export type DashboardData = {
   firstName: string;
   diagnosticStatus: "NOT_STARTED" | "IN_PROGRESS" | "COMPLETED";
-  currentRange: { min: number; max: number } | null;
+  currentRange: PredictionView | null;
   approximateImprovementSinceStart: number | null;
   weeklyQuestionsCompleted: number;
   weeklyStudyTimeSeconds: number;
@@ -68,9 +69,8 @@ export async function getDashboardData(studentId: string): Promise<DashboardData
     };
   }
 
-  const [recentPredictions, diagnosticPrediction, categoryStates, lastCompletedSet] = await Promise.all([
+  const [recentPredictions, categoryStates, lastCompletedSet] = await Promise.all([
     prisma.predictionHistoryEntry.findMany({ where: { studentId }, orderBy: { createdAt: "desc" }, take: 2 }),
-    prisma.predictionHistoryEntry.findFirst({ where: { studentId, sourceType: "DIAGNOSTIC" }, orderBy: { createdAt: "asc" } }),
     prisma.categoryState.findMany({ where: { studentId } }),
     prisma.practiceSet.findFirst({
       where: { studentId, status: "COMPLETED" },
@@ -87,13 +87,21 @@ export async function getDashboardData(studentId: string): Promise<DashboardData
   // ordering.
   const [latestPrediction, previousPrediction] = recentPredictions;
 
+  // Two predictions, or an ability and its snapshot, are only compared when
+  // the same engine produced both: across the recalibration of 2026-11-06 a
+  // difference is the change of method, not anything the student did.
   const recentImprovements: string[] = [];
-  if (latestPrediction && previousPrediction && latestPrediction.representativeMidpoint > previousPrediction.representativeMidpoint) {
+  if (
+    latestPrediction &&
+    previousPrediction &&
+    latestPrediction.scoringEngineVersion === previousPrediction.scoringEngineVersion &&
+    latestPrediction.representativeMidpoint > previousPrediction.representativeMidpoint
+  ) {
     recentImprovements.push(
       `Estimated SAT increased by ${latestPrediction.representativeMidpoint - previousPrediction.representativeMidpoint} points.`,
     );
   }
-  if (lastCompletedSet) {
+  if (lastCompletedSet && lastCompletedSet.engineVersion === ENGINE_VERSION) {
     const snapshotByCategory = new Map(lastCompletedSet.categorySnapshots.map((s) => [s.category, s.abilityAtGeneration]));
     for (const category of ALL_CATEGORIES) {
       const before = snapshotByCategory.get(category);
@@ -107,9 +115,12 @@ export async function getDashboardData(studentId: string): Promise<DashboardData
   return {
     firstName: user.firstName,
     diagnosticStatus: "COMPLETED",
-    currentRange: latestPrediction ? { min: latestPrediction.displayedRangeMinimum, max: latestPrediction.displayedRangeMaximum } : null,
+    currentRange: latestPrediction ? predictionView(latestPrediction) : null,
+    // Each Practice Set entry carries its own distance from the Diagnostic,
+    // measured by the engine that wrote it (generate-adaptive-prediction.ts),
+    // so this never subtracts one engine's number from another's.
     approximateImprovementSinceStart:
-      latestPrediction && diagnosticPrediction ? latestPrediction.representativeMidpoint - diagnosticPrediction.representativeMidpoint : 0,
+      latestPrediction?.sourceType === "ADAPTIVE_SET" ? latestPrediction.approximateImprovement : 0,
     ...activity,
     recentImprovements: recentImprovements.slice(0, 4),
     mastery,

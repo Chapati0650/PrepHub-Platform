@@ -3,7 +3,7 @@ import { Lock } from "lucide-react";
 import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
 import { hasPaidAccess } from "@/lib/entitlements";
-import { getRushResults, type RushParticipant } from "@/lib/rush/runs";
+import { getRushResults, type RushParticipant, type RushResults } from "@/lib/rush/runs";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
 import { RushQuestionReview } from "./rush-results";
@@ -12,6 +12,7 @@ import { RematchPanel } from "./rematch-panel";
 import { getRematchState } from "@/lib/rush/rematch";
 import { myWeeklyStanding } from "@/lib/rush/leaderboard";
 import { ShareChallenge } from "../../share-challenge";
+import { PracticeAvatar } from "../../practice-avatar";
 import { loadRushQuestionDetailAction, startRushAction } from "../../actions";
 
 export const metadata = { title: "1v1 Rush results" };
@@ -89,11 +90,16 @@ export default async function RushResultsPage({ params }: { params: Promise<{ ch
           {headline}
         </h1>
         {subline && <p className="mt-2 text-muted-foreground">{subline}</p>}
+        {data.practiceOpponent?.label && opponent && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            You played a practice opponent, not another student.
+          </p>
+        )}
 
         {opponent ? (
           <div className="mt-6 grid grid-cols-2 divide-x divide-border">
             <Column participant={data.me} label="You" streaks={data.scoringVersion >= 2} />
-            <Column participant={opponent} label={opponent.name} streaks={data.scoringVersion >= 2} />
+            <Column participant={opponent} label={opponent.name} streaks={data.scoringVersion >= 2} practice={data.practiceOpponent} />
           </div>
         ) : (
           <>
@@ -201,10 +207,26 @@ export default async function RushResultsPage({ params }: { params: Promise<{ ch
   );
 }
 
-function Column({ participant, label, streaks }: { participant: RushParticipant; label: string; streaks: boolean }) {
+function Column({
+  participant,
+  label,
+  streaks,
+  practice = null,
+}: {
+  participant: RushParticipant;
+  label: string;
+  streaks: boolean;
+  practice?: RushResults["practiceOpponent"];
+}) {
   return (
     <div className={participant.isMe ? "pr-6" : "pl-6"}>
-      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        {practice && <PracticeAvatar avatar={practice.avatar} size={22} />}
+        <span>
+          {label}
+          {practice?.label && <span className="block text-xs">{practice.label}</span>}
+        </span>
+      </p>
       <p className="mt-1 font-heading text-display font-semibold tracking-tight tabular-nums">{participant.score}</p>
       <p className="mt-1 text-sm text-muted-foreground">
         {participant.correctCount} correct · {seconds(participant.totalMs)}

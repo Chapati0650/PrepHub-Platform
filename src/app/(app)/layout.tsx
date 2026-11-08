@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { logoutAction, markPremiumCelebratedAction } from "./actions";
 import { resendDistrictVerificationAction } from "./access/actions";
 import { AppShell } from "@/components/app-shell";
+import { getBrandingForUser } from "@/lib/branding/load";
 
 // PRD-000's primary nav for students (Home/Practice/Progress/Profile) — also
 // shown to School Administrators (PRD-011 §6: "the account receives all
@@ -80,6 +81,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // so no extra query. Only an ACTIVE membership counts — a removed or
   // graduated one should stop branding the product.
   const { membership } = await getAccessContext(session.user.id);
+  // Co-branding (district or campus logo, name, accent), resolved once per request.
+  const branding = await getBrandingForUser(session.user.id, role);
   const provider =
     membership?.status === "ACTIVE"
       ? { name: membership.organization.officialName, logoMediaId: membership.organization.logoMediaId }
@@ -103,11 +106,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       user={{ name: session.user.name ?? "", email: session.user.email ?? "" }}
       showUpgrade={showUpgrade}
       provider={provider}
+      branding={branding}
       districtPrompt={districtPrompt}
       resendVerification={resendDistrictVerificationAction}
       celebration={celebration}
       markCelebrated={markPremiumCelebratedAction}
-      showHomework={Boolean(classEnrollment)}
+      showHomework={role === "STUDENT" || Boolean(classEnrollment)}
       logoutAction={logoutAction}
     >
       {children}

@@ -155,7 +155,7 @@ export function StudentSession({
   if (!mine.joined) {
     return (
       <Frame top={top} banners={banners}>
-        <JoinScreen t={t} sessionId={sessionId} onJoined={(m) => { setMine(m); refresh(); }} setError={setError} />
+        <JoinScreen t={t} practice={shared.mode === "INDIVIDUAL"} sessionId={sessionId} onJoined={(m) => { setMine(m); refresh(); }} setError={setError} />
       </Frame>
     );
   }
@@ -369,11 +369,13 @@ function EyesUp({ t, body }: { t: Strings; body: string }) {
 
 function JoinScreen({
   t,
+  practice,
   sessionId,
   onJoined,
   setError,
 }: {
   t: Strings;
+  practice: boolean;
   sessionId: string;
   onJoined: (mine: PersonalState) => void;
   setError: (e: string | null) => void;
@@ -382,7 +384,7 @@ function JoinScreen({
   return (
     <div className="rounded-3xl bg-surface-tint p-6 sm:p-10">
       <h1 className="text-page-title">{t.joinTitle}</h1>
-      <p className="mt-3 max-w-xl text-lg text-foreground/80">{t.joinBody}</p>
+      <p className="mt-3 max-w-xl text-lg text-foreground/80">{practice ? t.joinBodyPractice : t.joinBody}</p>
       <Button
         size="cta"
         className="mt-6"
@@ -683,8 +685,10 @@ function OwnScreen({
   const [sending, setSending] = useState(false);
   const [showing, setShowing] = useState<string | null>(null);
   const [bonusMissing, setBonusMissing] = useState(false);
+  // Individual practice runs at the student's own pace: no clock, no bonus.
+  const individual = shared.mode === "INDIVIDUAL";
   const endsAt = shared.phaseStartedAt + own.seconds * 1000;
-  const clock = useCountdown(endsAt, skew);
+  const clock = useCountdown(individual ? null : endsAt, skew);
 
   const main = own.slots.filter((s) => !s.bonus);
   const bonus = own.slots.find((s) => s.bonus) ?? null;
@@ -729,7 +733,7 @@ function OwnScreen({
         <h1 className="text-page-title">{t.done}</h1>
         <p className="text-display-sm font-semibold">{t.rightOf(right, main.length)}</p>
         {extraTime && <p className="text-base text-muted-foreground">{t.notYourClock}</p>}
-        {!bonus && !bonusMissing && (
+        {!individual && !bonus && !bonusMissing && (
           <div className="rounded-2xl bg-surface-tint p-5">
             <p className="text-lg font-semibold">{t.bonus}</p>
             <p className="mt-1 text-base text-muted-foreground">{t.bonusSub}</p>

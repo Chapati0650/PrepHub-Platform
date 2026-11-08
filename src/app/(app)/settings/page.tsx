@@ -242,7 +242,7 @@ export default async function SettingsPage() {
                       <Tile label="Questions answered" value={String(dashboard.totalQuestionsAnswered)} />
                       <Tile
                         label="Predicted score"
-                        value={dashboard.currentRange ? `${dashboard.currentRange.min}–${dashboard.currentRange.max}` : "—"}
+                        value={dashboard.currentRange ? String(dashboard.currentRange.point ?? `${dashboard.currentRange.min}–${dashboard.currentRange.max}`) : "—"}
                       />
                       <Tile
                         label="Strongest category"

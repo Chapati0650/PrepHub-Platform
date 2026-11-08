@@ -27,14 +27,21 @@ const mocked = prisma as unknown as Record<string, Record<string, ReturnType<typ
 const mockedActivity = getStudentActivity as unknown as ReturnType<typeof vi.fn>;
 const mockedGenerate = generateDiagnosticPrediction as unknown as ReturnType<typeof vi.fn>;
 
-function prediction(sourceType: "DIAGNOSTIC" | "ADAPTIVE_SET", min: number, sourceSetId: string | null = null) {
+function prediction(
+  sourceType: "DIAGNOSTIC" | "ADAPTIVE_SET",
+  min: number,
+  sourceSetId: string | null = null,
+  written: { approximateImprovement?: number; version?: string; max?: number; midpoint?: number } = {},
+) {
   return {
     sourceType,
     sourceSetId,
     createdAt: new Date("2026-08-01"),
     displayedRangeMinimum: min,
-    displayedRangeMaximum: min + 60,
-    representativeMidpoint: min + 30,
+    displayedRangeMaximum: written.max ?? min + 60,
+    representativeMidpoint: written.midpoint ?? min + 30,
+    approximateImprovement: written.approximateImprovement ?? 0,
+    scoringEngineVersion: written.version ?? "2026.2",
   };
 }
 
@@ -102,7 +109,7 @@ describe("getProgressData", () => {
     if (data.diagnosticStatus !== "COMPLETED") throw new Error("expected a completed Diagnostic");
 
     expect(mockedGenerate).toHaveBeenCalledWith("s1");
-    expect(data.currentRange).toEqual({ min: 900, max: 960 });
+    expect(data.currentRange).toEqual({ min: 900, max: 960, point: null });
     expect(data.history.map((h) => h.label)).toEqual(["Diagnostic"]);
   });
 
@@ -117,12 +124,49 @@ describe("getProgressData", () => {
 
     mocked.predictionHistoryEntry.findMany.mockResolvedValue([
       prediction("DIAGNOSTIC", 1000),
-      prediction("ADAPTIVE_SET", 1150, "set1"),
+      prediction("ADAPTIVE_SET", 1150, "set1", { approximateImprovement: 150 }),
     ]);
     data = await getProgressData("s1");
     if (data.diagnosticStatus !== "COMPLETED") throw new Error("expected a completed Diagnostic");
     // Midpoints 1030 -> 1180 against a target of 1330: halfway.
     expect(data.targetProgressFraction).toBe(0.5);
+  });
+
+  it("measures from the Diagnostic as the latest engine scores it, and marks older predictions", async () => {
+    // Started before the recalibration: an inflated 2026.1 Diagnostic, then a
+    // recalibrated set 80 points above the Diagnostic as 2026.2 scores it.
+    mocked.user.findUniqueOrThrow.mockResolvedValue({ targetScore: 1405 });
+    mocked.predictionHistoryEntry.findMany.mockResolvedValue([
+      prediction("DIAGNOSTIC", 1130, null, { max: 1200, midpoint: 1165, version: "2026.1" }),
+      prediction("ADAPTIVE_SET", 1050, "set1", { max: 1120, midpoint: 1085, approximateImprovement: 80 }),
+    ]);
+    const data = await getProgressData("s1");
+    if (data.diagnosticStatus !== "COMPLETED") throw new Error("expected a completed Diagnostic");
+
+    expect(data.history.map((p) => p.earlierMethod)).toEqual([true, false]);
+    // Start 1005 (970-1040), now 1085, target 1405: a fifth of the way.
+    expect(data.targetProgressFraction).toBeCloseTo(80 / 400, 9);
+    expect(data.journeyNarrative).not.toContain("1130");
+  });
+
+  it("shows a 2026.3 prediction as a score with its band, measured from the score the student started at", async () => {
+    mocked.user.findUniqueOrThrow.mockResolvedValue({ targetScore: 1300 });
+    mocked.predictionHistoryEntry.findMany.mockResolvedValue([
+      prediction("DIAGNOSTIC", 880, null, { max: 1040, midpoint: 960, version: "2026.2" }),
+      prediction("DIAGNOSTIC", 900, null, { max: 1020, midpoint: 960, version: "2026.3" }),
+      prediction("ADAPTIVE_SET", 1090, "set1", { max: 1190, midpoint: 1140, approximateImprovement: 180, version: "2026.3" }),
+    ]);
+    const data = await getProgressData("s1");
+    if (data.diagnosticStatus !== "COMPLETED") throw new Error("expected a completed Diagnostic");
+
+    expect(data.currentRange).toEqual({ min: 1090, max: 1190, point: 1140 });
+    expect(data.history.map((p) => p.point)).toEqual([null, 960, 1140]);
+    expect(data.history.map((p) => p.earlierMethod)).toEqual([true, false, false]);
+    // Measured to the score (1140), not the top of the band (1190).
+    expect(data.remainingToTarget).toBe(160);
+    // Started at 960 (1140 - 180): 180 of the 340 needed.
+    expect(data.targetProgressFraction).toBeCloseTo(180 / 340, 9);
+    expect(data.journeyNarrative).toContain("predicted SAT score of about 960.");
   });
 
   it("reports zeros rather than dividing by nothing when there's no activity", async () => {

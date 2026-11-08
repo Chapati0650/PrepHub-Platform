@@ -33,6 +33,8 @@ import {
   Target,
 } from "lucide-react";
 import { Logo, LogoMark } from "@/components/logo";
+import { SidebarCoBrand } from "@/components/co-brand";
+import type { OrganizationBranding } from "@/lib/branding/resolve";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
@@ -66,7 +68,7 @@ const STUDENT_ITEMS: NavItem[] = [
   { href: "/settings", label: "Profile", icon: UserRound },
 ];
 
-// Only for a student who is in at least one class (the layout decides), right
+// Every student gets it (the layout decides): with no class, /homework is where the class code is entered. Right
 // under Home: homework has a due date, so it belongs near the top.
 const HOMEWORK_ITEM: NavItem = { href: "/homework", label: "Homework", icon: NotebookPen };
 
@@ -224,6 +226,7 @@ export function AppShell({
   user,
   showUpgrade,
   provider,
+  branding,
   districtPrompt,
   resendVerification,
   celebration,
@@ -238,6 +241,8 @@ export function AppShell({
   showUpgrade: boolean;
   /** The school or district providing this student's access, when there is one. */
   provider?: { name: string; logoMediaId: string | null } | null;
+  /** District or campus co-branding, shown beside (never instead of) PrepHub. */
+  branding?: OrganizationBranding | null;
   /** The one step left before a student's school access switches on, if any. */
   districtPrompt?: DistrictPrompt | null;
   resendVerification?: (prev: ResendState) => Promise<ResendState>;
@@ -324,6 +329,7 @@ export function AppShell({
         <Link href="/home" className="px-2 transition-opacity hover:opacity-80">
           <Logo tone="inverted" />
         </Link>
+        {branding && <SidebarCoBrand branding={branding} />}
         <NavList sections={sections} pathname={pathname} onNavigate={() => setMobileOpen(false)} />
       </div>
 
@@ -351,7 +357,7 @@ export function AppShell({
             as a stranger they happened to sign up with. */}
         {provider && (
           <div className="mb-2 flex items-center gap-2.5 px-3 py-2">
-            {provider.logoMediaId && (
+            {provider.logoMediaId && !branding && (
               <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-white p-0.5">
                 <Image
                   src={`/api/media/${provider.logoMediaId}`}

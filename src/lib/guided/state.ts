@@ -1,6 +1,5 @@
-import type { GuidedItemKind, GuidedPhase, GuidedSessionStatus, QuestionCategory } from "@/generated/prisma/client";
+import type { GuidedItemKind, GuidedPhase, GuidedSessionMode, GuidedSessionStatus, QuestionCategory } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { CATEGORY_LABELS } from "@/lib/content/labels";
 import type { StudentQuestionContent } from "@/lib/session/question-content";
 import { answerBreakdown, answerLabel } from "@/lib/teacher/answer-stats";
 import { formatJoinCode } from "@/lib/teacher/join-code";
@@ -8,6 +7,7 @@ import { teacherName } from "@/lib/teacher/names";
 import { answerKeyOf, correctChoiceId, loadRevisions, type RevisionInfo } from "./content";
 import { itemLabels, reachedItem } from "./report";
 import { sectionOf, type Section } from "./config";
+import { sessionSkillLabel } from "./modes";
 
 /**
  * The room, as every screen in it sees it: the projector and each student's
@@ -65,6 +65,7 @@ export type SharedRecap = {
 };
 
 export type SharedState = {
+  mode: GuidedSessionMode;
   sessionId: string;
   version: number;
   status: GuidedSessionStatus;
@@ -167,6 +168,7 @@ async function buildSharedState(stateKey: string, now: number): Promise<SharedSt
   const recap = session.phase === "RECAP" || session.status === "ENDED" ? await recapFor(session.id, session.items, labels) : null;
 
   return {
+    mode: session.mode,
     sessionId: session.id,
     version: session.version,
     status: session.status,
@@ -181,7 +183,7 @@ async function buildSharedState(stateKey: string, now: number): Promise<SharedSt
     teacherName: teacherName(session.teacher),
     joinCode: formatJoinCode(session.joinCode),
     category: session.category,
-    categoryLabel: CATEGORY_LABELS[session.category],
+    categoryLabel: sessionSkillLabel(session),
     section: sectionOf(session.category),
     joined,
     rosterSize,

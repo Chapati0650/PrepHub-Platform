@@ -33,7 +33,7 @@ function givenSessions(rows: { studentId: string; startedAt: Date; completedAt: 
   fixture.sessions = rows;
 }
 
-function givenPredictions(rows: { studentId: string; representativeMidpoint: number; createdAt: Date }[]) {
+function givenPredictions(rows: { studentId: string; representativeMidpoint: number; createdAt: Date; scoringEngineVersion?: string }[]) {
   fixture.predictions = rows;
 }
 
@@ -151,6 +151,22 @@ describe("getSchoolCommunityData", () => {
     const result = await getSchoolCommunityData("school1");
 
     expect(result.stats.totalEstimatedSatPointsImproved).toBe(200);
+  });
+
+  it("never counts the recalibration of 2026-11-06 as points improved", async () => {
+    // s1's old prediction was higher than the recalibrated one, and then they
+    // genuinely improved by 40: only the 40 is real.
+    mocked.studentMembership.findMany.mockResolvedValue([{ studentId: "s1" }]);
+    givenPredictions([
+      { studentId: "s1", representativeMidpoint: 1165, createdAt: new Date("2026-10-01"), scoringEngineVersion: "2026.1" },
+      { studentId: "s1", representativeMidpoint: 1325, createdAt: new Date("2026-10-08"), scoringEngineVersion: "2026.1" },
+      { studentId: "s1", representativeMidpoint: 1045, createdAt: new Date("2026-11-08"), scoringEngineVersion: "2026.2" },
+      { studentId: "s1", representativeMidpoint: 1085, createdAt: new Date("2026-11-10"), scoringEngineVersion: "2026.2" },
+    ]);
+
+    const result = await getSchoolCommunityData("school1");
+
+    expect(result.stats.totalEstimatedSatPointsImproved).toBe(40);
   });
 
   it("computes the community goal's current progress from the matching stat", async () => {

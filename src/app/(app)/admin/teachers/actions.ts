@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdminWriteContext } from "@/lib/admin/school-context";
+import { requireAdminWriteContext, schoolField } from "@/lib/admin/school-context";
 import { inviteTeacher, removeTeacher, resendTeacherInvite } from "@/lib/teacher/accounts";
 import { TeacherError } from "@/lib/teacher/errors";
 import { logServerError } from "@/lib/logger";
@@ -13,14 +13,14 @@ import type { TeacherPanelState } from "@/components/teacher/teachers-panel";
  * call can't add or remove a teacher anywhere else (GER §6). The Owner's
  * preview is read-only, like every admin write.
  */
-async function adminSchool(): Promise<{ schoolId: string } | { error: string }> {
-  const context = await requireAdminWriteContext();
+async function adminSchool(school?: string | null): Promise<{ schoolId: string } | { error: string }> {
+  const context = await requireAdminWriteContext(school);
   if ("error" in context) return context;
   return { schoolId: context.schoolId };
 }
 
 export async function inviteTeacherAction(_prev: TeacherPanelState, formData: FormData): Promise<TeacherPanelState> {
-  const school = await adminSchool();
+  const school = await adminSchool(schoolField(formData));
   if ("error" in school) return { error: school.error };
   try {
     const { created, restoredClasses, inviteEmailFailed } = await inviteTeacher({
@@ -52,8 +52,8 @@ function inviteMessage(created: boolean, restoredClasses: number): string {
   return `Added back — their access is restored, and the ${restoredClasses === 1 ? "class" : `${restoredClasses} classes`} closed when they were removed ${restoredClasses === 1 ? "is" : "are"} open again.`;
 }
 
-export async function resendTeacherInviteAction(userId: string): Promise<TeacherPanelState> {
-  const school = await adminSchool();
+export async function resendTeacherInviteAction(userId: string, campus?: string): Promise<TeacherPanelState> {
+  const school = await adminSchool(campus);
   if ("error" in school) return { error: school.error };
   try {
     const { emailSent } = await resendTeacherInvite(userId, school.schoolId, "Your school's PrepHub administrator");
@@ -65,8 +65,8 @@ export async function resendTeacherInviteAction(userId: string): Promise<Teacher
   }
 }
 
-export async function removeTeacherAction(userId: string): Promise<TeacherPanelState> {
-  const school = await adminSchool();
+export async function removeTeacherAction(userId: string, campus?: string): Promise<TeacherPanelState> {
+  const school = await adminSchool(campus);
   if ("error" in school) return { error: school.error };
   try {
     await removeTeacher(userId, school.schoolId);

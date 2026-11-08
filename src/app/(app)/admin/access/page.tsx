@@ -1,4 +1,5 @@
 import { Mail } from "lucide-react";
+import { DistrictCampusSwitcher, PickCampusPrompt } from "../school-switcher";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { OwnerSchoolSwitcher } from "../school-switcher";
 import { formatContractDate, getSchoolAccessInfo, type SchoolAccessState } from "@/lib/admin/access-info";
@@ -38,8 +39,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // contract-management portal."
 export default async function SchoolAccessPage({ searchParams }: { searchParams: Promise<{ school?: string }> }) {
   const { school } = await searchParams;
-  const { schoolId, viewingAsOwner, availableSchools } = await requireAdminSchoolContext(school);
+  const { schoolId, viewingAsOwner, availableSchools, district } = await requireAdminSchoolContext(school);
 
+  if (district && !schoolId) {
+    return <PickCampusPrompt basePath="/admin/access" districtName={district.name} campuses={district.campuses} what="Access and support" />;
+  }
   if (!schoolId) return <StaffUnavailable title="Access & support isn't available for this account." />;
 
   const info = await getSchoolAccessInfo(schoolId);
@@ -50,6 +54,9 @@ export default async function SchoolAccessPage({ searchParams }: { searchParams:
 
   return (
     <StaffPage>
+      {district && (
+        <DistrictCampusSwitcher basePath="/admin/access" districtName={district.name} campuses={district.campuses} currentSchoolId={schoolId} />
+      )}
       {viewingAsOwner && (
         <OwnerSchoolSwitcher basePath="/admin/access" schools={availableSchools} currentSchoolId={schoolId} />
       )}

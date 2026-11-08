@@ -1,5 +1,8 @@
-import type { ClubSection, RushLiveStatus } from "@/generated/prisma/client";
+import { randomInt } from "node:crypto";
+import type { ClubSection, Prisma, RushLiveStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { expectedProbability } from "@/lib/adaptive/ability";
+import { questionRating } from "@/lib/adaptive/config";
 import { isAnswerCorrect } from "@/lib/adaptive/grading";
 import { getStudentQuestionContent, type StudentQuestionContent } from "@/lib/session/question-content";
 import {
@@ -7,6 +10,9 @@ import {
   LIVE_GAP_MS,
   LIVE_LOBBY_STALE_MS,
   LIVE_PRESENCE_MS,
+  RUSH_BOT_ENABLED,
+  RUSH_BOT_LABEL,
+  RUSH_BOT_LABELED,
   RUSH_DIFFICULTY,
   RUSH_GRACE_MS,
   RUSH_SECTIONS,
@@ -15,6 +21,16 @@ import {
 import { createChallenge, createSet } from "./create";
 import { scoreRushAnswerWithStreak, streakBefore } from "./scoring";
 import { RushError, rushError } from "./errors";
+import {
+  botAvatar,
+  botHasAnswered,
+  botRounds,
+  botSnapshot,
+  buildBotProfile,
+  lobbyDecision,
+  parseBotProfile,
+  type BotAvatar,
+} from "./bot";
 
 // Live head-to-head rooms. Two players, one server-side clock, no
 // WebSockets (this host can't hold one open): both clients poll
@@ -54,7 +70,15 @@ export type LiveState = {
   rematchFor: string | null;
   /** The points rules this room is scored by; streak UI shows only from 2. */
   scoringVersion: number;
-  opponent: { name: string; score: number; correctCount: number; present: boolean; answered: LiveRoundAnswer | null } | null;
+  opponent: {
+    name: string;
+    score: number;
+    correctCount: number;
+    present: boolean;
+    answered: LiveRoundAnswer | null;
+    /** Set when the opponent is the practice opponent. `label` is null if RUSH_BOT_LABELED is off. */
+    practice: { label: string | null; avatar: BotAvatar } | null;
+  } | null;
   // The round that just closed, for the pause between questions.
   lastRound: { position: number; me: LiveRoundAnswer | null; opponent: LiveRoundAnswer | null } | null;
 };
@@ -131,6 +155,38 @@ export async function startLiveRandom(studentId: string, section: ClubSection): 
   return { challengeId: room.challengeId, matched: false };
 }
 
+// Matches a waiting random lobby with the practice opponent. The profile is
+// built from the creator's own ability on the questions in the set, then the
+// room is claimed with the same WAITING -> COUNTDOWN guard a human joiner
+// uses, so a real student arriving in the same instant wins or loses cleanly
+// and never ends up in a room with a bot as well. Returns whether it claimed.
+export async function claimBotOpponent(challengeId: string, studentId: string): Promise<boolean> {
+  const [slots, student] = await Promise.all([
+    prisma.rushSlot.findMany({
+      where: { set: { challenges: { some: { id: challengeId } } } },
+      orderBy: { position: "asc" },
+      select: { question: { select: { category: true, difficulty: true } } },
+    }),
+    prisma.user.findUnique({ where: { id: studentId }, select: { firstName: true } }),
+  ]);
+  const categories = [...new Set(slots.map((s) => s.question.category))];
+  const states = await prisma.categoryState.findMany({ where: { studentId, category: { in: categories } }, select: { category: true, ability: true } });
+  const ability = new Map(states.map((st) => [st.category, st.ability]));
+  const profile = buildBotProfile({
+    seed: randomInt(1, 2 ** 31 - 1),
+    avoidName: student?.firstName,
+    slots: slots.map((s) => {
+      const a = ability.get(s.question.category);
+      return { difficulty: s.question.difficulty, expectedP: a === undefined ? null : expectedProbability(questionRating(s.question.category, s.question.difficulty), a) };
+    }),
+  });
+  const claimed = await prisma.rushChallenge.updateMany({
+    where: { id: challengeId, live: true, mode: "RANDOM", liveStatus: "WAITING", invitedStudentId: null, runs: { none: { studentId: { not: studentId } } } },
+    data: { liveStatus: "COUNTDOWN", liveStartsAt: new Date(Date.now() + LIVE_COUNTDOWN_MS), bot: profile as unknown as Prisma.InputJsonValue },
+  });
+  return claimed.count === 1;
+}
+
 // Leaving a lobby nobody has joined removes it (the set goes with it).
 // Anything past WAITING is a match in progress and stays.
 export async function cancelLiveRoom(studentId: string, challengeId: string): Promise<boolean> {
@@ -161,6 +217,18 @@ export async function tickLive(challengeId: string): Promise<void> {
   if (!c || !c.live) return;
   const now = new Date();
 
+  if (c.liveStatus === "WAITING") {
+    const decision = lobbyDecision({
+      mode: c.mode,
+      liveStatus: c.liveStatus,
+      runCount: c.runs.length,
+      invited: c.invitedStudentId !== null,
+      waitedMs: now.getTime() - c.createdAt.getTime(),
+      botEnabled: RUSH_BOT_ENABLED,
+    });
+    if (decision === "MATCH_BOT") await claimBotOpponent(challengeId, c.creatorId);
+    return;
+  }
   if (c.liveStatus === "COUNTDOWN" && c.liveStartsAt && c.liveStartsAt <= now) {
     await prisma.rushChallenge.updateMany({
       where: { id: challengeId, liveStatus: "COUNTDOWN" },
@@ -174,7 +242,9 @@ export async function tickLive(challengeId: string): Promise<void> {
   const total = c.set._count.slots;
   const limitMs = RUSH_TIME_LIMIT_MS[c.set.section];
   const startedAt = c.livePositionStartedAt;
-  const allAnswered = c.runs.every((r) => r.answers.some((a) => a.position === pos && a.answeredAt));
+  const bot = parseBotProfile(c.bot);
+  const botDone = !bot || botHasAnswered(botRounds(bot, limitMs, c.scoringVersion), pos, pos, now.getTime() - startedAt.getTime());
+  const allAnswered = botDone && c.runs.every((r) => r.answers.some((a) => a.position === pos && a.answeredAt));
   const expired = now.getTime() >= startedAt.getTime() + limitMs + RUSH_GRACE_MS;
   if (!allAnswered && !expired) return;
 
@@ -236,6 +306,26 @@ export async function getLiveState(studentId: string, challengeId: string): Prom
   const questionOpen = playing && startedAt! <= now;
   const pos = c.livePosition;
 
+  const botProfile = parseBotProfile(c.bot);
+  const rounds = botProfile ? botRounds(botProfile, limitMs, c.scoringVersion) : null;
+  const finished = c.liveStatus === "FINISHED";
+  const openElapsed = questionOpen ? now - startedAt! : null;
+  const botOpen = finished ? rounds?.length ?? 0 : pos;
+  const botRound = (p: number): LiveRoundAnswer | null => {
+    const r = rounds?.[p];
+    return r ? { isCorrect: r.isCorrect, points: r.points, elapsedMs: r.elapsedMs, timedOut: r.timedOut } : null;
+  };
+  const botOpponent =
+    botProfile && rounds
+      ? {
+          name: botProfile.name,
+          ...botSnapshot(rounds, botOpen, openElapsed),
+          present: true,
+          answered: playing && botHasAnswered(rounds, pos, pos, openElapsed) ? botRound(pos) : null,
+          practice: { label: RUSH_BOT_LABELED ? RUSH_BOT_LABEL : null, avatar: botAvatar(botProfile) },
+        }
+      : null;
+
   return {
     challengeId: c.id,
     code: c.code,
@@ -273,10 +363,13 @@ export async function getLiveState(studentId: string, challengeId: string): Prom
           correctCount: opp.correctCount,
           present: now - opp.lastSeenAt.getTime() < LIVE_PRESENCE_MS,
           answered: playing ? roundOf(c, opp.id, pos) : null,
+          practice: null,
         }
-      : null,
+      : botOpponent,
     lastRound:
-      playing && pos > 0 ? { position: pos - 1, me: roundOf(c, me.id, pos - 1), opponent: opp ? roundOf(c, opp.id, pos - 1) : null } : null,
+      playing && pos > 0
+        ? { position: pos - 1, me: roundOf(c, me.id, pos - 1), opponent: opp ? roundOf(c, opp.id, pos - 1) : botRound(pos - 1) }
+        : null,
   };
 }
 

@@ -2,6 +2,8 @@ import type { QuestionCategory } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ALL_CATEGORIES } from "./config";
 import { AdaptiveError } from "./errors";
+import { abilitiesFromHistory } from "./diagnostic-initialization";
+import { diagnosticAnswers } from "./estimate";
 import { finalizeAnswer } from "./finalize-answer";
 
 // PRD-014 §13 "Set submission with blanks" / "Completion". Blank confirmation
@@ -45,14 +47,40 @@ export async function completePracticeSet(studentId: string, practiceSetId: stri
     });
 
     if (claimed.count === 1) {
+      // Every category is re-estimated from the whole history (estimate.ts):
+      // per-answer updates are only a running approximation, and this is the
+      // estimate the prediction and the next set are built from. The initial
+      // ability is re-derived the same way from the Diagnostic alone, so
+      // "since your Diagnostic" always compares two numbers from one engine —
+      // including for a student whose Diagnostic was scored under an older one.
+      const [diagnosticAttempts, practiceAnswers] = await Promise.all([
+        tx.diagnosticAttempt.findMany({
+          where: { diagnosticSession: { studentId } },
+          select: { category: true, difficulty: true, isCorrect: true, submittedAt: true, waivedAt: true },
+        }),
+        tx.finalizedAttempt.findMany({
+          where: { studentId },
+          select: { category: true, difficulty: true, isCorrect: true },
+        }),
+      ]);
+      // Both start where the Diagnostic put the student, which is the top of
+      // the scale for a section they answered perfectly (diagnostic-initialization.ts).
+      const fromDiagnostic = diagnosticAnswers(diagnosticAttempts);
+      const initial = abilitiesFromHistory(fromDiagnostic);
+      const current = abilitiesFromHistory(fromDiagnostic, practiceAnswers);
+
       for (const category of ALL_CATEGORIES) {
         const count = countsByCategory.get(category) ?? 0;
         await tx.categoryState.update({
           where: { studentId_category: { studentId, category } },
-          data:
-            count === 1
+          data: {
+            ability: current[category],
+            initialAbility: initial[category],
+            lastAbilityUpdatedAt: new Date(),
+            ...(count === 1
               ? { consecutiveSetsWithoutExtraAllocation: { increment: 1 } }
-              : { consecutiveSetsWithoutExtraAllocation: 0 },
+              : { consecutiveSetsWithoutExtraAllocation: 0 }),
+          },
         });
       }
     }

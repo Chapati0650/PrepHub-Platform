@@ -6,19 +6,25 @@ import { emptyStudentActivity, getStudentActivity } from "@/lib/school/student-a
 import { buildJourneyNarrative } from "./journey-narrative";
 import { computeMilestones } from "./milestones";
 import { generateDiagnosticPrediction } from "@/lib/score/generate-diagnostic-prediction";
+import { SCORE_RANGES } from "@/lib/score/config";
+import { hasPointEstimate, predictionView } from "@/lib/score/display";
 
 export type ProgressHistoryPoint = {
   label: string; // "Diagnostic" or "Set 4"
   date: Date;
   min: number;
   max: number;
+  /** The predicted score, for entries from engine 2026.3 on. */
+  point: number | null;
+  /** Scored by an earlier engine than the latest entry, so never compared with it. */
+  earlierMethod: boolean;
 };
 
 export type ProgressData =
   | { diagnosticStatus: "NOT_STARTED" | "IN_PROGRESS" }
   | {
       diagnosticStatus: "COMPLETED";
-      currentRange: { min: number; max: number };
+      currentRange: { min: number; max: number; point: number | null };
       targetScore: number | null;
       remainingToTarget: number | null;
       targetProgressFraction: number | null;
@@ -63,18 +69,30 @@ export async function getProgressData(studentId: string): Promise<ProgressData> 
   const predictions =
     storedPredictions.length > 0 ? storedPredictions : [await generateDiagnosticPrediction(studentId)];
 
+  const latest = predictions[predictions.length - 1];
   const setById = new Map(completedSets.map((s) => [s.id, s]));
   const history: ProgressHistoryPoint[] = predictions.map((p) => {
-    if (p.sourceType === "DIAGNOSTIC") {
-      return { label: "Diagnostic", date: p.createdAt, min: p.displayedRangeMinimum, max: p.displayedRangeMaximum };
-    }
+    const earlierMethod = p.scoringEngineVersion !== latest.scoringEngineVersion;
+    const { min, max, point } = predictionView(p);
+    const range = { date: p.createdAt, min, max, point, earlierMethod };
+    if (p.sourceType === "DIAGNOSTIC") return { label: "Diagnostic", ...range };
     const set = p.sourceSetId ? setById.get(p.sourceSetId) : undefined;
-    return { label: set ? `Set ${set.setNumber}` : "Set", date: p.createdAt, min: p.displayedRangeMinimum, max: p.displayedRangeMaximum };
+    return { label: set ? `Set ${set.setNumber}` : "Set", ...range };
   });
 
-  const startingRange = history[0] ?? { min: 400, max: 480 };
-  const latest = predictions[predictions.length - 1];
-  const currentRange = { min: latest.displayedRangeMinimum, max: latest.displayedRangeMaximum };
+  // Where the student started, as the engine behind the latest prediction
+  // scores it: a Practice Set entry stores its distance from the Diagnostic
+  // measured that way (generate-adaptive-prediction.ts). For a student who
+  // started before the recalibration of 2026-11-06 this is not their first
+  // stored entry, which came from a different engine.
+  const startMid =
+    latest.sourceType === "ADAPTIVE_SET" ? latest.representativeMidpoint - latest.approximateImprovement : latest.representativeMidpoint;
+  // From 2026.3 the start is a score, not one of fifteen ranges.
+  const latestHasPoint = hasPointEstimate(latest.scoringEngineVersion);
+  const startBand = latestHasPoint ? undefined : SCORE_RANGES.find((r) => r.midpoint === startMid);
+  const startingRange = startBand ? { min: startBand.scoreMin, max: startBand.scoreMax } : (history[0] ?? { min: 400, max: 480 });
+  const currentRange = predictionView(latest);
+  const currentScore = currentRange.point ?? currentRange.max;
   // The journey narrative is about the prediction, which only Practice Sets
   // move, so it counts those alone.
   const completedPracticeSets = predictions.filter((p) => p.sourceType === "ADAPTIVE_SET").length;
@@ -95,11 +113,10 @@ export async function getProgressData(studentId: string): Promise<ProgressData> 
   }
 
   const targetScore = user.targetScore;
-  const remainingToTarget = targetScore !== null ? Math.max(0, targetScore - currentRange.max) : null;
+  const remainingToTarget = targetScore !== null ? Math.max(0, targetScore - currentScore) : null;
   // Midpoint to midpoint, so the bar is empty on the day of the Diagnostic.
   // It went from the starting range's bottom to the current range's top, which
   // counted the range's own width (60-80 points) as progress before any work.
-  const startMid = predictions[0].representativeMidpoint;
   const targetProgressFraction =
     targetScore !== null && targetScore > startMid
       ? Math.min(1, Math.max(0, (latest.representativeMidpoint - startMid) / (targetScore - startMid)))
@@ -114,7 +131,11 @@ export async function getProgressData(studentId: string): Promise<ProgressData> 
     weakestSkills.push(...ALL_CATEGORIES.slice(0, 3).map((c) => ({ category: c, label: CATEGORY_LABELS[c] })));
   }
 
-  const highestPredictedScore = Math.max(...predictions.map((p) => p.displayedRangeMaximum));
+  const highestPredictedScore = Math.max(
+    ...predictions
+      .filter((p) => p.scoringEngineVersion === latest.scoringEngineVersion)
+      .map((p) => (hasPointEstimate(p.scoringEngineVersion) ? p.representativeMidpoint : p.displayedRangeMaximum)),
+  );
 
   return {
     diagnosticStatus: "COMPLETED",
@@ -125,12 +146,13 @@ export async function getProgressData(studentId: string): Promise<ProgressData> 
     history,
     journeyNarrative: buildJourneyNarrative({
       startingRange: { min: startingRange.min, max: startingRange.max },
+      startingPoint: latestHasPoint ? startMid : null,
       completedSessions: completedPracticeSets,
       totalQuestionsAnswered,
-      totalImprovement: latest.representativeMidpoint - predictions[0].representativeMidpoint,
+      totalImprovement: latest.representativeMidpoint - startMid,
       greatestImprovement,
       targetScore,
-      currentRangeMax: currentRange.max,
+      currentRangeMax: currentScore,
     }),
     milestones: computeMilestones({
       totalStudyTimeSeconds,

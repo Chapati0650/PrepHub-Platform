@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DistrictCampusSwitcher, PickCampusPrompt } from "../school-switcher";
 import { Download } from "lucide-react";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { OwnerSchoolSwitcher } from "../school-switcher";
@@ -52,8 +53,11 @@ function parseFilters(searchParams: SearchParams): StudentDirectoryFilters {
 // in the URL so a filtered list is a link that can be bookmarked or shared.
 export default async function StudentDirectoryPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams;
-  const { schoolId, viewingAsOwner, availableSchools } = await requireAdminSchoolContext(one(params.school));
+  const { schoolId, viewingAsOwner, availableSchools, district, carryCampusParam } = await requireAdminSchoolContext(one(params.school));
 
+  if (district && !schoolId) {
+    return <PickCampusPrompt basePath="/admin/students" districtName={district.name} campuses={district.campuses} what="The student list" />;
+  }
   if (!schoolId) return <StaffUnavailable title="The student list isn't available for this account." />;
 
   const filters = parseFilters(params);
@@ -64,10 +68,13 @@ export default async function StudentDirectoryPage({ searchParams }: { searchPar
     getSchoolAccessInfo(schoolId),
   ]);
   const currentYear = new Date().getFullYear();
-  const schoolParam = viewingAsOwner ? `school=${schoolId}` : "";
+  const schoolParam = carryCampusParam ? `school=${schoolId}` : "";
 
   return (
     <StaffPage>
+      {district && (
+        <DistrictCampusSwitcher basePath="/admin/students" districtName={district.name} campuses={district.campuses} currentSchoolId={schoolId} />
+      )}
       {viewingAsOwner && (
         <OwnerSchoolSwitcher basePath="/admin/students" schools={availableSchools} currentSchoolId={schoolId} />
       )}
@@ -99,7 +106,7 @@ export default async function StudentDirectoryPage({ searchParams }: { searchPar
         accessLive={access.state === "ACTIVE"}
       />
 
-      <CampusInvitePanel summary={invites} readOnly={viewingAsOwner} />
+      <CampusInvitePanel summary={invites} readOnly={viewingAsOwner} campusId={district ? (schoolId ?? undefined) : undefined} />
 
       <StudentDirectoryTable
         students={directory.entries}
