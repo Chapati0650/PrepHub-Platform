@@ -60,7 +60,13 @@ export default async function LivePage() {
           <ul className="divide-y divide-border rounded-2xl border border-border">
             {past.map((s) => {
               const work = workFor.get(s.id);
-              const owed = work ? work.toCatchUp + work.toRetry : 0;
+              const label = !work
+                ? "Review →"
+                : work.toCatchUp > 0
+                  ? `${work.toCatchUp} to catch up →`
+                  : work.toRetry > 0
+                    ? `${work.toRetry} to try again →`
+                    : "Review →";
               return (
                 <li key={s.id}>
                   <Link href={`/live/${s.id}`} className="flex flex-wrap items-center justify-between gap-3 p-4 transition-colors hover:bg-muted/40">
@@ -71,7 +77,7 @@ export default async function LivePage() {
                       </span>
                     </span>
                     <span className="text-sm font-medium text-primary">
-                      {owed > 0 ? `${owed} to try again →` : "Review →"}
+                      {label}
                     </span>
                   </Link>
                 </li>

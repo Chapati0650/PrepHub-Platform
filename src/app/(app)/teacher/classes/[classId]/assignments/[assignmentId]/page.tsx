@@ -92,7 +92,8 @@ export default async function AssignmentResultsPage({
                 : "students who turned it in",
           },
           { label: "Started", value: String(summary.inProgress), hint: "partway through" },
-          { label: "Not started", value: String(summary.notStarted), hint: notStartedHint },
+          // "Missing" once it's past due, as the table and gradebook say it.
+          { label: pastDue ? "Missing" : "Not started", value: String(summary.notStarted), hint: notStartedHint },
           {
             label: "Class average",
             value: summary.averagePercent === null ? "—" : `${summary.averagePercent}%`,

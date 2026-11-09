@@ -347,7 +347,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
           </span>
           <span className="shrink-0 text-right">
             <span className="block font-heading text-xl font-semibold tabular-nums">{daily.streak}</span>
-            <span className="block text-xs text-muted-foreground">day streak</span>
+            <span className="block text-xs text-muted-foreground">Daily Challenge streak</span>
           </span>
         </Link>
       )}

@@ -100,5 +100,9 @@ export function mostMissedPositions(
     .map((s) => ({ position: s.position, share: s.correct / s.answered }))
     .filter((s) => s.share < 0.7)
     .sort((a, b) => a.share - b.share || a.position - b.position);
-  return new Set(ranked.slice(0, 2).map((s) => s.position));
+  if (ranked.length <= 2) return new Set(ranked.map((s) => s.position));
+  // The two lowest, and any tied with the second (review, 2026-11-09: Q8 and Q10 at 47% went unflagged
+  // beside a flagged Q4 at 47%).
+  const cutoff = ranked[1].share;
+  return new Set(ranked.filter((s, i) => i < 2 || s.share === cutoff).map((s) => s.position));
 }
