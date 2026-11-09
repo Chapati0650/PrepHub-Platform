@@ -129,8 +129,16 @@ const SHORT_KEYS = ["MISSES_MATH_ONLY", "MISSES_READING_ONLY", "MISSES_BOTH"] as
  * give it away (district minus the others), so it is withheld; where two or more do, it reveals only
  * their sum. Then the district's own breakdown gets the same one-more-group rule a campus's does.
  */
+/**
+ * A campus joins the district's TSI roll-up from this many students measured: below it, a campus's own
+ * small groups cascade into withheld district figures (review, 2026-11-09: one 13-student campus blanked
+ * the district's "Crossed" and "Still below"). Real campuses are far larger; small ones are left out and
+ * the page says how many.
+ */
+export const MIN_CAMPUS_FOR_DISTRICT_READINESS = 2 * MIN_STUDENTS_FOR_SCORE_FIGURES;
+
 export function districtBenchmark(campuses: RawBenchmark[]): CampusImpactReport["benchmark"] {
-  const included = campuses.filter((b) => measuredOf(b) >= MIN_STUDENTS_FOR_SCORE_FIGURES);
+  const included = campuses.filter((b) => measuredOf(b) >= MIN_CAMPUS_FOR_DISTRICT_READINESS);
   const shown = included.map((b) => protectBenchmarkGroups(b));
   const total: RawBenchmark = {
     crossed: 0,
@@ -178,7 +186,7 @@ export function buildDistrictOverview(districtName: string, raw: RawCampusFigure
       activeThisWeek: 0,
       scoreGain: raw.length - gainShown.length,
       // Campuses with someone measured but fewer than the minimum: not in the district figure.
-      readiness: raw.filter((r) => measuredOf(r.benchmark) > 0 && measuredOf(r.benchmark) < MIN_STUDENTS_FOR_SCORE_FIGURES).length,
+      readiness: raw.filter((r) => measuredOf(r.benchmark) > 0 && measuredOf(r.benchmark) < MIN_CAMPUS_FOR_DISTRICT_READINESS).length,
     },
     readiness: districtBenchmark(raw.map((r) => r.benchmark)),
     campuses: raw.map((r) => ({

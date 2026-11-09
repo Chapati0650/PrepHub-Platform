@@ -1,5 +1,5 @@
 import { MIN_GROUP_SIZE, MIN_STUDENTS_FOR_SCORE_FIGURES, type ProtectedCount } from "@/lib/admin/impact";
-import type { DistrictOverview, FigureRow } from "@/lib/admin/district-overview";
+import { MIN_CAMPUS_FOR_DISTRICT_READINESS, type DistrictOverview, type FigureRow } from "@/lib/admin/district-overview";
 import { StaffHeader, StaffNote, StaffPage, StaffSection, StatStrip } from "@/components/staff/staff-ui";
 import type { GrowthByStudyTime } from "@/lib/admin/growth-by-time";
 import { PrintButton } from "@/components/staff/print-button";
@@ -111,7 +111,7 @@ export function DistrictOverviewView({
         benchmark={overview.readiness}
         note={
           excluded.readiness > 0
-            ? `Leaves out ${excluded.readiness === 1 ? "1 campus" : `${excluded.readiness} campuses`} with fewer than ${MIN_STUDENTS_FOR_SCORE_FIGURES} students measured.`
+            ? `Leaves out ${excluded.readiness === 1 ? "1 campus" : `${excluded.readiness} campuses`} with fewer than ${MIN_CAMPUS_FOR_DISTRICT_READINESS} students measured.`
             : undefined
         }
       />

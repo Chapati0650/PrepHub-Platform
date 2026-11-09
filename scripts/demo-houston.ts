@@ -602,7 +602,7 @@ async function create() {
     // students miss only Reading & Writing; with a tighter tilt no campus ever showed one.
     // About one in eight leans clearly toward Math, as many English learners do (Reading & Writing a
     // section behind), so "Reading & Writing only" is a real group, not 0 or 1 at every campus.
-    const tilt = chance(0.15) ? normal(-26, 8) : normal(0, 18);
+    const tilt = chance(0.2) ? normal(-26, 8) : normal(0, 18);
     const roll = clamp(rand() - CAMPUSES[ci].quiet, 0, 0.999);
     const engagement = roll < 0.12 ? "never" : roll < 0.2 ? "started" : roll < 0.48 ? "light" : roll < 0.84 ? "regular" : "keen";
     const id = randomUUID();
