@@ -426,7 +426,8 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
           </Panel>
         </div>
 
-        <div className="flex flex-col gap-6">
+        {/* First on a phone: the score was the last block, 2,300px down (review, 2026-11-09). */}
+        <div className="order-first flex flex-col gap-6 lg:order-none">
           {/* Score panel — Predicted over Target, the reference's score card.
               The prediction keeps its hero scale so it stays the one number
               on the page that reads first. */}

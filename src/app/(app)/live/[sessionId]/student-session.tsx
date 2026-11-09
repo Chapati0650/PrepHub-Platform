@@ -211,6 +211,17 @@ export function StudentSession({
           <div className="opacity-60">
             <p className="mb-3 font-mono text-xs tracking-wider text-muted-foreground uppercase">{t.exampleTitle}</p>
             <LatexText text={item.content.questionText} className="text-lg" />
+            {/* The choices too: the last step says "which is choice B" (review, 2026-11-09). */}
+            {item.content.answerChoices.length > 0 && (
+              <ol className="mt-3 flex flex-col gap-1 text-base">
+                {item.content.answerChoices.map((c, i) => (
+                  <li key={c.id} className="flex gap-2">
+                    <span className="font-semibold">{String.fromCharCode(65 + i)}.</span>
+                    <LatexText text={c.text} />
+                  </li>
+                ))}
+              </ol>
+            )}
             {/* One step behind the board, except at the last step: before, the example's final step never
                 reached students before Question 1 started (review, 2026-11-09). */}
             {item.steps && (item.steps.length > 1 || item.steps.length === item.stepTotal) && (

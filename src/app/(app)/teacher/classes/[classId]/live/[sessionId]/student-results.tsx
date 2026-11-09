@@ -35,7 +35,7 @@ function mark(correct: boolean | null): string {
   return correct === null ? "—" : correct ? "Right" : "Wrong";
 }
 
-function Drill({ rows, name }: { rows: DrillRow[]; name: string }) {
+function Drill({ rows, name, individual = false }: { rows: DrillRow[]; name: string; individual?: boolean }) {
   if (rows.length === 0)
     return (
       <p className="p-4 text-base text-muted-foreground">
@@ -59,9 +59,12 @@ function Drill({ rows, name }: { rows: DrillRow[]; name: string }) {
           <th scope="col" className="p-2 font-medium">
             Result
           </th>
-          <th scope="col" className="p-2 font-medium">
-            Confidence
-          </th>
+          {/* Individual practice never asks how sure a student is. */}
+          {!individual && (
+            <th scope="col" className="p-2 font-medium">
+              Confidence
+            </th>
+          )}
         </tr>
       </thead>
       <tbody className="divide-y divide-border">
@@ -117,15 +120,17 @@ function Drill({ rows, name }: { rows: DrillRow[]; name: string }) {
                     </span>
                   )}
               </td>
-              <td className="p-2">
-                {d.confidence === "SURE"
-                  ? "Sure"
-                  : d.confidence === "THINK_SO"
-                    ? "Think so"
-                    : d.confidence === "GUESSING"
-                      ? "Guessing"
-                      : "—"}
-              </td>
+              {!individual && (
+                <td className="p-2">
+                  {d.confidence === "SURE"
+                    ? "Sure"
+                    : d.confidence === "THINK_SO"
+                      ? "Think so"
+                      : d.confidence === "GUESSING"
+                        ? "Guessing"
+                        : "—"}
+                </td>
+              )}
             </tr>
           </Fragment>
         ))}
@@ -299,7 +304,7 @@ export function StudentResults({
                     className="bg-surface-tint/50"
                   >
                     <td colSpan={columns.length + 1} className="p-3">
-                      <Drill rows={r.drill} name={r.name} />
+                      <Drill rows={r.drill} name={r.name} individual={individual} />
                     </td>
                   </tr>
                 )}
