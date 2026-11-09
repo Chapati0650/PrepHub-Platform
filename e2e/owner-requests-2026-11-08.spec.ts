@@ -275,7 +275,8 @@ test.describe("Owner requests of 2026-11-08", () => {
     await expect(table.getByRole("row")).toHaveCount(3);
     await expect(table.getByRole("link", { name: north.officialName })).toBeVisible();
     await expect(table.getByRole("link", { name: south.officialName })).toBeVisible();
-    await expect(ap.getByText(/Fewer than 5/).first()).toBeVisible();
+    // Activity counts are shown exactly since 2026-11-09 (campus pages show them); readiness has its own column.
+    await expect(table.getByRole("columnheader", { name: /Meet TSI now/ })).toBeVisible();
     await shot(ap, "admin-district.png", true);
 
     await table.getByRole("link", { name: north.officialName }).click();
