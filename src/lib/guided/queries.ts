@@ -155,9 +155,14 @@ export type SchoolGuidedTotals = { sessions: number; students: number; minutes: 
  * class time. Totals only; never a result.
  */
 export async function schoolGuidedTotals(schoolId: string, days: number, now: Date = new Date()): Promise<SchoolGuidedTotals> {
+  return campusesGuidedTotals([schoolId], days, now);
+}
+
+/** The same totals across several campuses (a district's), each student counted once. */
+export async function campusesGuidedTotals(schoolIds: string[], days: number, now: Date = new Date()): Promise<SchoolGuidedTotals> {
   const since = new Date(now.getTime() - days * DAY_MS);
   const sessions = await prisma.guidedSession.findMany({
-    where: { status: "ENDED", endedAt: { gte: since }, classroom: { schoolId } },
+    where: { status: "ENDED", endedAt: { gte: since }, classroom: { schoolId: { in: schoolIds } } },
     select: { startedAt: true, endedAt: true, participants: { select: { studentId: true } } },
   });
   const students = new Set(sessions.flatMap((s) => s.participants.map((p) => p.studentId)));
@@ -186,4 +191,14 @@ export async function pastSessionsForStudent(studentId: string, now: Date = new 
     select: { id: true, category: true, perStudentSkills: true, endedAt: true, classroom: { select: { name: true } } },
   });
   return sessions.map((s) => ({ id: s.id, className: s.classroom.name, skill: sessionSkillLabel(s), endedAt: s.endedAt! }));
+}
+
+/** Homework set and finished in the last `days` days across these campuses (counts only). */
+export async function campusesHomeworkTotals(schoolIds: string[], days: number, now: Date = new Date()) {
+  const since = new Date(now.getTime() - days * DAY_MS);
+  const [assigned, finished] = await Promise.all([
+    prisma.assignment.count({ where: { createdAt: { gte: since }, classroom: { schoolId: { in: schoolIds } } } }),
+    prisma.homeworkSession.count({ where: { completedAt: { gte: since }, assignment: { classroom: { schoolId: { in: schoolIds } } } } }),
+  ]);
+  return { assigned, finished };
 }

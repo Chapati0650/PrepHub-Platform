@@ -26,7 +26,9 @@ export function DistrictOverviewView({
   campuses,
   growth,
   skills,
+  teaching,
 }: {
+  teaching: { guided: { sessions: number; students: number; minutes: number }; homework: { assigned: number; finished: number } };
   overview: DistrictOverview;
   campuses: { id: string; name: string }[];
   skills: { gaps: SkillGaps; left: number };
@@ -75,6 +77,20 @@ export function DistrictOverviewView({
             their first. Any group of fewer than {MIN_GROUP_SIZE} students is shown that way rather than as a number.
           </StaffNote>
         )}
+      </StaffSection>
+
+      <StaffSection
+        title="In class, last 30 days"
+        description="Guided Sessions your teachers ran and homework they set, across every campus. Teachers see their own class's results; you see totals."
+      >
+        <StatStrip
+          stats={[
+            { label: "Guided Sessions run", value: teaching.guided.sessions.toLocaleString(), hint: "live, whole-class or individual" },
+            { label: "Students who took part", value: teaching.guided.students.toLocaleString(), hint: "each counted once" },
+            { label: "Homework set", value: teaching.homework.assigned.toLocaleString(), hint: "assignments, by any teacher" },
+            { label: "Homework finished", value: teaching.homework.finished.toLocaleString(), hint: "by students, all assignments" },
+          ]}
+        />
       </StaffSection>
 
       {totals.averageScoreGain !== null && (

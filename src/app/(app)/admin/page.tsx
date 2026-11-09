@@ -10,7 +10,7 @@ import {
 } from "@/lib/admin/impact";
 import { formatContractDate, type SchoolAccessInfo, type SchoolAccessState } from "@/lib/admin/access-info";
 import { getStudentDirectorySummary } from "@/lib/admin/student-directory";
-import { schoolGuidedTotals } from "@/lib/guided/queries";
+import { campusesGuidedTotals, campusesHomeworkTotals, schoolGuidedTotals } from "@/lib/guided/queries";
 import { SCHOOLS_CONTACT_EMAIL } from "@/components/marketing/site-chrome";
 import {
   StaffHeader,
@@ -100,8 +100,16 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
     const overview = await getDistrictOverview(district.name, district.campuses);
     // Only campuses whose own score figure is shown, like the district's average gain.
     const shown = overview.campuses.filter((c) => c.averageScoreGain !== null).map((c) => c.campusId);
-    const [growth, skills] = await Promise.all([getGrowthByStudyTime(shown), getDistrictSkillGaps(district.campuses.map((c) => c.id))]);
-    return <DistrictOverviewView overview={overview} campuses={district.campuses} growth={growth} skills={skills} />;
+    const ids = district.campuses.map((c) => c.id);
+    const [growth, skills, guided, homework] = await Promise.all([
+      getGrowthByStudyTime(shown),
+      getDistrictSkillGaps(ids),
+      campusesGuidedTotals(ids, 30),
+      campusesHomeworkTotals(ids, 30),
+    ]);
+    return (
+      <DistrictOverviewView overview={overview} campuses={district.campuses} growth={growth} skills={skills} teaching={{ guided, homework }} />
+    );
   }
 
   if (!schoolId) return <StaffUnavailable title="The Overview isn't available for this account." />;
