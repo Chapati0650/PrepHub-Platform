@@ -130,7 +130,7 @@ export function SetupForm({
                 ? "No one in this class has taken the Diagnostic yet"
                 : `Only ${pick.measured} of your ${rosterSize} students have taken the Diagnostic`}
               , so PrepHub can&apos;t suggest a skill until at least {minStudents} have. Choose one yourself. A first
-              session spent on the Diagnostic (about 20 minutes) fixes this.
+              session spent on the Diagnostic (about 15 minutes) fixes this.
             </>
           )
         }

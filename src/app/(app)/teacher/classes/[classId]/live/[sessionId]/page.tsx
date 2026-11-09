@@ -129,6 +129,7 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
           </a>
         </div>
         <StudentResults rows={page.students} individual={individual} />
+        <p className="text-sm text-muted-foreground md:hidden">Swipe the table sideways to see every column.</p>
       </StaffSection>
 
       {!individual && (
