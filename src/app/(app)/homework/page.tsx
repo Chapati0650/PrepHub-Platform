@@ -4,6 +4,7 @@ import { ArrowRight, Check } from "lucide-react";
 import { auth } from "@/auth";
 import { listHomework, listStudentClasses, type HomeworkItem } from "@/lib/teacher/homework";
 import { describeDue, type DueTone } from "@/lib/teacher/homework-due";
+import { formatGoalDate } from "@/lib/community/goal";
 import { Marker } from "@/components/ui/marker";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
@@ -300,7 +301,7 @@ function HomeworkRow({ item, now }: { item: HomeworkItem; now: Date }) {
           {!done && <span className={cn("block text-sm", TONE_CLASS[tone])}>{due.text}</span>}
           {done && item.completedAt && (
             <span className="block text-sm text-muted-foreground">
-              Finished {item.completedAt.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+              Finished {formatGoalDate(item.completedAt)}
             </span>
           )}
           {item.status === "IN_PROGRESS" && (
