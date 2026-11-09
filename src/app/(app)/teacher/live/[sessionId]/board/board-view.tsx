@@ -264,12 +264,20 @@ function Center({ children }: { children: React.ReactNode }) {
   return <div className="flex flex-1 flex-col justify-center gap-6">{children}</div>;
 }
 
+/**
+ * Fractions at full size on the projector: inline LaTeX draws a fraction at script size, about 12px from
+ * the back of a room (review, 2026-11-09).
+ */
+function big(latex: string): string {
+  return latex.replace(/\\frac(?=[{\s])/g, String.raw`\dfrac`);
+}
+
 function BoardQuestion({ item, compact = false }: { item: SharedItem; compact?: boolean }) {
   const c = item.content;
   const text = compact ? "text-2xl leading-snug" : "text-4xl leading-snug";
   const question = (
     <div className="flex min-w-0 flex-col gap-6">
-      <QuestionStatement text={c.questionText} imageId={c.questionImageId} mediaBasePath="/api/media" className="bg-transparent p-0" textClassName={text} />
+      <QuestionStatement text={big(c.questionText)} imageId={c.questionImageId} mediaBasePath="/api/media" className="bg-transparent p-0" textClassName={text} />
       {c.questionType === "MULTIPLE_CHOICE" && (
         <ol className={`grid gap-x-10 gap-y-3 md:grid-cols-2 ${compact ? "text-2xl" : "text-3xl"}`}>
           {c.answerChoices.map((choice, i) => (
@@ -278,7 +286,7 @@ function BoardQuestion({ item, compact = false }: { item: SharedItem; compact?: 
                 {LETTERS[i]}
               </span>
               <span className="min-w-0 pt-1">
-                <LatexText text={choice.text} />
+                <LatexText text={big(choice.text)} />
               </span>
             </li>
           ))}
