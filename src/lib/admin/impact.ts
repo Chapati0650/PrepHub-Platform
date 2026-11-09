@@ -108,9 +108,14 @@ export type CellCount = number | null | "withheld";
  * only as a last resort.
  */
 export function protectPartition(raw: number[], avoid: number[] = []): CellCount[] {
-  const out: CellCount[] = raw.map(protectedCount);
-  if (out.filter((c) => c === null).length !== 1) return out;
-  const candidates = raw.map((n, i) => i).filter((i) => out[i] !== null && raw[i] > 0);
+  return complementCells(raw, raw.map(protectedCount), avoid);
+}
+
+/** The same rule over cells already decided (a district's, where a cell can be hidden for other reasons). */
+export function complementCells(raw: number[], cells: CellCount[], avoid: number[] = []): CellCount[] {
+  const out = [...cells];
+  if (out.filter((c) => typeof c !== "number").length !== 1) return out;
+  const candidates = raw.map((n, i) => i).filter((i) => typeof out[i] === "number" && raw[i] > 0);
   const preferred = candidates.filter((i) => !avoid.includes(i));
   const pool = preferred.length > 0 ? preferred : candidates;
   if (pool.length === 0) return out;
@@ -127,9 +132,17 @@ type RawGroups = Pick<CampusImpact["benchmark"], "crossed" | "held" | "slipped" 
  * add back up to it, so one of them is hidden too.
  */
 export function protectBenchmarkGroups(b: RawGroups) {
-  const [crossed, held, slipped, below] = protectPartition([b.crossed, b.held, b.slipped, b.below], [3]);
+  return benchmarkCells(b, {
+    groups: [b.crossed, b.held, b.slipped, b.below].map(protectedCount),
+    shortfall: [b.shortfall.MISSES_MATH_ONLY, b.shortfall.MISSES_READING_ONLY, b.shortfall.MISSES_BOTH].map(protectedCount),
+  });
+}
+
+/** Both partitions' complements over cells decided beforehand (a campus's: protectedCount; a district's: see district-overview). */
+export function benchmarkCells(b: RawGroups, start: { groups: CellCount[]; shortfall: CellCount[] }) {
+  const [crossed, held, slipped, below] = complementCells([b.crossed, b.held, b.slipped, b.below], start.groups, [3]);
   const shortRaw = [b.shortfall.MISSES_MATH_ONLY, b.shortfall.MISSES_READING_ONLY, b.shortfall.MISSES_BOTH];
-  let short = protectPartition(shortRaw);
+  let short = complementCells(shortRaw, start.shortfall);
   if (typeof below !== "number" && short.every((c) => typeof c === "number")) {
     const nonzero = shortRaw.map((n, i) => i).filter((i) => shortRaw[i] > 0);
     if (nonzero.length > 0) {

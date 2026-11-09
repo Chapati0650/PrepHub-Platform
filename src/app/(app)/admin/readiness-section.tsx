@@ -63,6 +63,16 @@ export function ReadinessSection({
       }
     >
       <div className="flex break-inside-avoid flex-col gap-5 rounded-2xl border border-border p-5">
+        {typeof benchmark.below === "number" && typeof benchmark.slipped === "number" && (
+          // The number a CCMR office reports, said first (review, 2026-11-09: with a small group
+          // withheld, a campus admin couldn't see how many of their students meet the benchmark).
+          <p className="text-lg">
+            <span className="font-heading text-3xl font-semibold tabular-nums">
+              {(benchmark.measured - benchmark.below - benchmark.slipped).toLocaleString()}
+            </span>{" "}
+            of {benchmark.measured.toLocaleString()} students meet both benchmarks now
+          </p>
+        )}
         {!anyWithheld && (
           <div className="flex h-4 w-full overflow-hidden rounded-full bg-foreground/5" aria-hidden>
             {groups.map((g) =>

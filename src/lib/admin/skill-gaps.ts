@@ -5,7 +5,7 @@ import { CATEGORY_ORDER } from "@/lib/content/constants";
 import { SKILL_LINES } from "@/lib/guided/pick-skill";
 import { SKILL_WEIGHTS, sectionOf } from "@/lib/guided/config";
 import { inSchools } from "@/lib/school/student-activity";
-import { MIN_STUDENTS_FOR_SCORE_FIGURES, protectedCount, type ProtectedCount } from "./impact";
+import { MIN_STUDENTS_FOR_SCORE_FIGURES, protectedCount, type CellCount } from "./impact";
 
 /**
  * "Where students fall short, by skill" (2026-11-09) for the campus and district Overviews: for each
@@ -24,7 +24,7 @@ export type RawSkillGaps = { measured: number; below: Partial<Record<QuestionCat
 
 export type SkillGap = {
   category: QuestionCategory;
-  below: ProtectedCount;
+  below: CellCount;
   /** Share below, 0-1, or null when the count is withheld. */
   share: number | null;
   /** How much of its section the skill is, for ordering. */
@@ -33,13 +33,16 @@ export type SkillGap = {
 
 export type SkillGaps = { measured: number; skills: SkillGap[] } | null;
 
-/** Pure: raw counts into the shown figures, most students below first. */
-export function protectSkillGaps(raw: RawSkillGaps): SkillGaps {
+/**
+ * Pure: raw counts into the shown figures, most students below first. `hide` names skills to show as
+ * "Withheld" (a district's, where one campus alone hides that skill).
+ */
+export function protectSkillGaps(raw: RawSkillGaps, hide: QuestionCategory[] = []): SkillGaps {
   if (raw.measured < MIN_STUDENTS_FOR_SCORE_FIGURES) return null;
   const skills = CATEGORY_ORDER.map((category) => {
     const n = raw.below[category] ?? 0;
-    const below = protectedCount(n);
-    return { category, below, share: below === null ? null : n / raw.measured, weight: SKILL_WEIGHTS[category], n };
+    const below: CellCount = hide.includes(category) ? "withheld" : protectedCount(n);
+    return { category, below, share: typeof below === "number" ? n / raw.measured : null, weight: SKILL_WEIGHTS[category], n };
   })
     // Most students below first: plainer to read than the Guided pick's weighted priority, which is
     // for choosing one skill, not for listing seven.
@@ -53,15 +56,20 @@ export function allShown(raw: RawSkillGaps): boolean {
   return raw.measured >= MIN_STUDENTS_FOR_SCORE_FIGURES && CATEGORY_ORDER.every((c) => protectedCount(raw.below[c] ?? 0) !== null);
 }
 
-/** Pure: a district's figures from its campuses, over those shown in full. */
-export function combineSkillGaps(campuses: RawSkillGaps[]): { raw: RawSkillGaps; left: number } {
-  const shown = campuses.filter(allShown);
+/**
+ * Pure: a district's figures from every campus with enough students (2026-11-09; it used to take only
+ * campuses with no small count). A skill one campus alone hides is withheld at district level, since
+ * the district minus the other campuses would give it away; one hidden at two or more reveals only a sum.
+ */
+export function combineSkillGaps(campuses: RawSkillGaps[]): { raw: RawSkillGaps; left: number; hide: QuestionCategory[] } {
+  const included = campuses.filter((c) => c.measured >= MIN_STUDENTS_FOR_SCORE_FIGURES);
   const raw: RawSkillGaps = { measured: 0, below: {} };
-  for (const c of shown) {
+  for (const c of included) {
     raw.measured += c.measured;
     for (const cat of CATEGORY_ORDER) raw.below[cat] = (raw.below[cat] ?? 0) + (c.below[cat] ?? 0);
   }
-  return { raw, left: campuses.filter((c) => c.measured > 0 && !allShown(c)).length };
+  const hide = CATEGORY_ORDER.filter((cat) => included.filter((c) => protectedCount(c.below[cat] ?? 0) === null).length === 1);
+  return { raw, left: campuses.filter((c) => c.measured > 0 && c.measured < MIN_STUDENTS_FOR_SCORE_FIGURES).length, hide };
 }
 
 /** One campus's raw counts: ACTIVE students with a finished Diagnostic, by skill. */
@@ -92,6 +100,6 @@ export async function getSkillGaps(schoolId: string): Promise<SkillGaps> {
 
 /** `campusIds` must be the administrator's own district's campuses. */
 export async function getDistrictSkillGaps(campusIds: string[]): Promise<{ gaps: SkillGaps; left: number }> {
-  const { raw, left } = combineSkillGaps(await Promise.all(campusIds.map(rawSkillGaps)));
-  return { gaps: protectSkillGaps(raw), left };
+  const { raw, left, hide } = combineSkillGaps(await Promise.all(campusIds.map(rawSkillGaps)));
+  return { gaps: protectSkillGaps(raw, hide), left };
 }

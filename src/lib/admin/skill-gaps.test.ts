@@ -24,15 +24,18 @@ describe("protectSkillGaps", () => {
 });
 
 describe("combineSkillGaps", () => {
-  it("sums only campuses whose every count is shown", () => {
+  it("sums every campus with ten students, withholding a skill only one campus hides", () => {
     const a: RawSkillGaps = { measured: 30, below: all(10) };
     const b: RawSkillGaps = { measured: 20, below: { ...all(6), GRAMMAR: 2 } };
     const c: RawSkillGaps = { measured: 4, below: all(1) };
     expect(allShown(a)).toBe(true);
     expect(allShown(b)).toBe(false);
-    const { raw, left } = combineSkillGaps([a, b, c]);
-    expect(raw.measured).toBe(30);
-    expect(raw.below.ALGEBRA).toBe(10);
-    expect(left).toBe(2);
+    const { raw, left, hide } = combineSkillGaps([a, b, c]);
+    expect(raw.measured).toBe(50);
+    expect(raw.below.ALGEBRA).toBe(16);
+    expect(left).toBe(1);
+    expect(hide).toEqual(["GRAMMAR"]);
+    const shown = protectSkillGaps(raw, hide)!;
+    expect(shown.skills.find((s) => s.category === "GRAMMAR")).toMatchObject({ below: "withheld", share: null });
   });
 });

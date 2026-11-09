@@ -110,7 +110,7 @@ export function DistrictOverviewView({
         benchmark={overview.readiness}
         note={
           excluded.readiness > 0
-            ? `Across the campuses whose own breakdown is shown in full; leaves out ${excluded.readiness === 1 ? "1 campus" : `${excluded.readiness} campuses`} with a group too small to show.`
+            ? `Leaves out ${excluded.readiness === 1 ? "1 campus" : `${excluded.readiness} campuses`} with fewer than ${MIN_STUDENTS_FOR_SCORE_FIGURES} students measured.`
             : undefined
         }
       />
@@ -120,7 +120,7 @@ export function DistrictOverviewView({
           gaps={skills.gaps}
           note={
             skills.left > 0
-              ? `Across the campuses whose seven counts are all shown; leaves out ${skills.left === 1 ? "1 campus" : `${skills.left} campuses`} with a group too small to show.`
+              ? `Leaves out ${skills.left === 1 ? "1 campus" : `${skills.left} campuses`} where fewer than ${MIN_STUDENTS_FOR_SCORE_FIGURES} students have taken the Diagnostic.`
               : undefined
           }
         />
@@ -147,9 +147,9 @@ export function DistrictOverviewView({
         {overview.campuses.length > 0 && (
           <p className="text-sm text-muted-foreground">
             <strong className="font-medium text-foreground">Not enough yet</strong>: fewer than {MIN_STUDENTS_FOR_SCORE_FIGURES} students
-            at the campus can be compared so far. <strong className="font-medium text-foreground">Withheld</strong>: the campus has a
-            group of 1 to {MIN_GROUP_SIZE - 1} students in its readiness breakdown, so its total isn&apos;t shown here; the campus&apos;s
-            own page shows the rest. Meet TSI now counts students whose latest prediction meets both benchmarks.
+            at the campus can be compared so far. <strong className="font-medium text-foreground">Withheld</strong>: showing it would give
+            away a group of fewer than {MIN_GROUP_SIZE} students on the campus&apos;s own page. Meet TSI now counts students whose latest
+            prediction meets both benchmarks. Click a column heading to sort.
           </p>
         )}
       </StaffSection>

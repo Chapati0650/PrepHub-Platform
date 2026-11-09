@@ -26,7 +26,7 @@ export function SkillGapsSection({ gaps, note }: { gaps: SkillGaps; note?: strin
         <>
           Of the {gaps.measured.toLocaleString()} students who have taken the Diagnostic, how many are below the
           college-ready level in each tested skill: the level that, across its section, predicts 480 in Reading &amp;
-          Writing or 530 in Math. Most students below first.{note ? ` ${note}` : ""}
+          Writing or 530 in Math. Listed with the most students below first.{note ? ` ${note}` : ""}
         </>
       }
     >
@@ -44,7 +44,7 @@ export function SkillGapsSection({ gaps, note }: { gaps: SkillGaps; note?: strin
                 {s.share !== null && <div className="h-full rounded-full bg-primary" style={{ width: `${Math.round(s.share * 100)}%` }} />}
               </div>
               <p className="text-base tabular-nums sm:text-right">
-                {s.below === null ? `Fewer than ${MIN_GROUP_SIZE}` : `${s.below.toLocaleString()} below`}
+                {s.below === null ? `Fewer than ${MIN_GROUP_SIZE}` : s.below === "withheld" ? "Withheld" : `${s.below.toLocaleString()} below`}
                 {s.share !== null && <span className="ml-1 text-sm text-muted-foreground">({Math.round(s.share * 100)}%)</span>}
               </p>
             </li>

@@ -46,43 +46,16 @@ describe("buildDistrictOverview", () => {
     expect(o.campuses[1].averageScoreGain).toBe(45);
   });
 
-  it("withholds a campus's small groups, but still counts them in the district", () => {
+  it("shows activity counts exactly, as the campus pages and Students lists do (2026-11-09)", () => {
     const o = buildDistrictOverview("Demo ISD", [
       campus({ campusId: "big" }),
       campus({ campusId: "tiny", started: 3, activeThisWeek: 1 }),
     ]);
-    expect(o.campuses[1].started).toBeNull();
-    expect(o.campuses[1].activeThisWeek).toBeNull();
-    expect(o.campuses[0].started).toBe(60);
-    // The district figure leaves the withheld campus out entirely.
-    expect(o.totals.started).toBe(60);
-    expect(o.excluded.started).toBe(1);
-  });
-
-  it("does not let a withheld value be recovered from the totals", () => {
-    const visible = campus({ campusId: "big", started: 60, activeThisWeek: 30 });
-    const a = buildDistrictOverview("D", [visible, campus({ campusId: "hidden", started: 3, activeThisWeek: 2 })]);
-    const b = buildDistrictOverview("D", [visible, campus({ campusId: "hidden", started: 4, activeThisWeek: 1 })]);
-    // Different hidden values, identical district figures: nothing to subtract.
-    expect(a.totals).toEqual(b.totals);
-  });
-
-  it("shows zero as zero, and withholds a district group of fewer than five", () => {
-    const zero = buildDistrictOverview("D", [campus({ campusId: "a", started: 0, activeThisWeek: 0 })]);
-    expect(zero.totals.started).toBe(0);
-    expect(zero.campuses[0].started).toBe(0);
-    const few = buildDistrictOverview("D", [
-      campus({ campusId: "a", started: 2, activeThisWeek: 2 }),
-      campus({ campusId: "b", started: 1, activeThisWeek: 1 }),
-    ]);
-    expect(few.totals.started).toBe(0);
-    expect(few.excluded.started).toBe(2);
-    // Two visible campuses of 2 and 3 are each shown only if 0 or 5+; a district of visible campuses summing under five is withheld.
-    const under = buildDistrictOverview("D", [campus({ campusId: "a", started: 0 }), campus({ campusId: "b", started: 0 })]);
-    expect(under.totals.started).toBe(0);
-    // Exactly five is shown.
-    const five = buildDistrictOverview("D", [campus({ campusId: "a", started: 5 })]);
-    expect(five.campuses[0].started).toBe(5);
+    expect(o.campuses[1].started).toBe(3);
+    expect(o.campuses[1].activeThisWeek).toBe(1);
+    expect(o.totals.started).toBe(63);
+    expect(o.totals.activeThisWeek).toBe(31);
+    expect(o.excluded.started).toBe(0);
   });
 
   it("shows score growth only for 10 or more measurable students, per campus and for the district", () => {
@@ -112,23 +85,34 @@ describe("buildDistrictOverview", () => {
     expect(o.totals).toMatchObject({ registered: 0, started: 0, averageScoreGain: null });
   });
 
-  it("rolls TSI readiness up from whole campuses only, so a withheld group can't be subtracted out", () => {
+  it("rolls TSI readiness up from every campus with ten measured, hiding a group only one campus hides", () => {
     const o = buildDistrictOverview("D", [
-      campus({ campusId: "a" }),
-      // 3 crossed is withheld on its campus page, so the whole campus stays out of the district figure.
+      campus({ campusId: "a" }), // 8 crossed, 12 held, 0 slipped, 20 below: all shown
+      // 3 crossed is "Fewer than 5" on its page (and 10 held is withheld with it).
       campus({ campusId: "b", benchmark: { crossed: 3, held: 10, slipped: 0, below: 12, shortfall: { MISSES_MATH_ONLY: 6, MISSES_READING_ONLY: 6, MISSES_BOTH: 0 } } }),
-      // Too few measured to show at all.
+      // Too few measured: left out, and counted as left out.
       campus({ campusId: "c", benchmark: { crossed: 2, held: 2, slipped: 0, below: 3, shortfall: { MISSES_MATH_ONLY: 3, MISSES_READING_ONLY: 0, MISSES_BOTH: 0 } } }),
       campus({ campusId: "d", benchmark: { crossed: 0, held: 0, slipped: 0, below: 0, shortfall: { MISSES_MATH_ONLY: 0, MISSES_READING_ONLY: 0, MISSES_BOTH: 0 } } }),
     ]);
-    expect(o.readiness).toMatchObject({ measured: 40, crossed: 8, held: 12, below: 20, slipped: 0 });
-    expect(o.excluded.readiness).toBe(2); // b and c; d has nobody measured
-    expect(o.campuses.map((c) => c.readiness)).toEqual([{ meet: 20, measured: 40 }, { withheld: true }, null, null]);
+    // a + b: 65 measured. Only b hides "crossed" and "held", so the district can't show them (it would be
+    // the district minus a); slipped and below are shown.
+    expect(o.readiness).toMatchObject({ measured: 65, crossed: "withheld", held: "withheld", slipped: 0, below: 32 });
+    expect(o.excluded.readiness).toBe(1);
+    // b's "meet now" is on its own page already (25 - 12 - 0), so the table shows it.
+    expect(o.campuses.map((c) => c.readiness)).toEqual([{ meet: 20, measured: 40 }, { meet: 13, measured: 25 }, null, null]);
   });
 
-  it("has no district readiness until a whole campus can be shown", () => {
+  it("shows a group two campuses hide, since the district reveals only their sum", () => {
+    const small = { crossed: 2, held: 10, slipped: 0, below: 20, shortfall: { MISSES_MATH_ONLY: 10, MISSES_READING_ONLY: 5, MISSES_BOTH: 5 } };
+    const o = buildDistrictOverview("D", [campus({ campusId: "a", benchmark: small }), campus({ campusId: "b", benchmark: small })]);
+    expect(o.readiness).toMatchObject({ measured: 64, crossed: null, below: 40 });
+    // One district group of 1-4 is hidden, so one more goes with it.
+    expect(o.readiness?.held).toBe("withheld");
+  });
+
+  it("has no district readiness under ten measured", () => {
     const o = buildDistrictOverview("D", [
-      campus({ campusId: "a", benchmark: { crossed: 1, held: 9, slipped: 0, below: 10, shortfall: { MISSES_MATH_ONLY: 5, MISSES_READING_ONLY: 5, MISSES_BOTH: 0 } } }),
+      campus({ campusId: "a", benchmark: { crossed: 1, held: 3, slipped: 0, below: 5, shortfall: { MISSES_MATH_ONLY: 5, MISSES_READING_ONLY: 0, MISSES_BOTH: 0 } } }),
     ]);
     expect(o.readiness).toBeNull();
   });
