@@ -2868,3 +2868,14 @@ Reviewed as Houston ISD's head of CCMR would see the demo (four reviewers, two r
   - Guided: no Premium celebration over /live; un-ended sessions stop offering Join after 8 hours
     (`OPEN_SESSION_JOINABLE_MS`); the board keeps the newest example step in view; "Most common wrong
     answer"; "Check in with" for individual practice; session lists tag Teacher-led / Individual.
+- **Round-3 changes:**
+  - District administrators can send one announcement to every campus (Announcements with no campus
+    chosen; `school=district` in `publishAnnouncementAction` writes it to each campus of their own district).
+  - A student in a class at a school whose access is live, but not a member (personal email, joined by
+    code), gets a `USE_SCHOOL_EMAIL` district-bar prompt instead of any upsell (`lib/district/class-school.ts`).
+  - Onboarding goal starts at 970-1040 (holds the TSI total, 1010) with a line saying so.
+  - Guided "Check in with": class questions count only if most of the room got them right; own work under
+    `CHECK_IN_ALONE_BELOW` (4 in 10); "Sure but wrong" needs two confident misses.
+  - Class page homework "N of M done" uses each assignment's `expected` (who it was set for); student
+    homework dates are Chicago dates; campus Overview has the same "In class" strip as the district.
+  - Demo: a math-leaning subgroup (~15%) so "Reading & Writing only" is a real group.
