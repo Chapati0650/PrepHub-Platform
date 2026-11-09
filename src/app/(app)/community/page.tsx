@@ -8,13 +8,14 @@ import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { getSchoolCommunityData } from "@/lib/community/school-community-data";
 import { PageHeader } from "@/components/page-header";
 import { GoalCard } from "@/components/community/goal-card";
+import { PickCampusPrompt } from "@/app/(app)/admin/school-switcher";
 
 export const metadata = { title: "School Community" };
 
 // PRD-009 — collaborative, aggregate-only view of a student's school. Only
 // reachable by students with an active school membership; individual/unpaid
 // students have no school to show a community for.
-export default async function SchoolCommunityPage() {
+export default async function SchoolCommunityPage({ searchParams }: { searchParams: Promise<{ school?: string }> }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/home");
   if (!canUseStudentExperience(session.user.role)) redirect("/home");
@@ -31,10 +32,23 @@ export default async function SchoolCommunityPage() {
           select: { schoolId: true, status: true },
         })
       : null,
-    isAdmin ? requireAdminSchoolContext() : null,
+    isAdmin ? requireAdminSchoolContext((await searchParams).school) : null,
   ]);
 
   const schoolId = membership?.status === "ACTIVE" ? membership.schoolId : adminContext?.schoolId;
+
+  // A district administrator picks a campus, as on the admin pages (review, 2026-11-09: this page
+  // told them to connect a school email, which led to a page selling a subscription).
+  if (!schoolId && adminContext?.district) {
+    return (
+      <PickCampusPrompt
+        basePath="/community"
+        districtName={adminContext.district.name}
+        campuses={adminContext.district.campuses}
+        what="School Community"
+      />
+    );
+  }
 
   if (!schoolId) {
     return (
