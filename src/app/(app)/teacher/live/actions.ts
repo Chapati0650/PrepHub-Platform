@@ -9,7 +9,8 @@ import { TeacherError } from "@/lib/teacher/errors";
 import { CATEGORY_ORDER } from "@/lib/content/constants";
 import { SESSION_LENGTHS, type SessionLength } from "@/lib/guided/config";
 import { createGuidedSession } from "@/lib/guided/create";
-import { runCommand, type GuidedCommand } from "@/lib/guided/control";
+import { requireOwnedSession, runCommand, type GuidedCommand } from "@/lib/guided/control";
+import { getQuestionWithKey } from "@/lib/teacher/question-bank";
 import { GuidedError } from "@/lib/guided/errors";
 
 export type StartState = { error?: string };
@@ -107,4 +108,17 @@ export async function setExtraTimeAction(classroomId: string, studentId: string,
   ]);
   revalidatePath(`/teacher/classes/${classroomId}`);
   return { ok: true };
+}
+
+/**
+ * One of a past session's class questions with its answer key, for the report (review, 2026-11-09:
+ * the report named "Question 3 · 18% right" but a teacher who doesn't know the SAT couldn't see it to
+ * go over it). Only the session's own teacher, as everything on the report.
+ */
+export async function previewGuidedItemAction(sessionId: string, itemId: string) {
+  const context = await requireTeacherAction();
+  const session = await requireOwnedSession(context, sessionId);
+  const item = session.items.find((i) => i.id === itemId);
+  if (!item) throw new Error("Question not found.");
+  return getQuestionWithKey(item.questionRevisionId);
 }

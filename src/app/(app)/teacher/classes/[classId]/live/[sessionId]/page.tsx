@@ -9,6 +9,7 @@ import { StaffHeader, StaffPage, StaffSection, StatStrip, StatusChip } from "@/c
 import type { AnswerBreakdown } from "@/lib/teacher/answer-stats";
 import { MODE_LABELS } from "@/lib/guided/modes";
 import { StudentResults } from "./student-results";
+import { GuidedQuestionPreview } from "./question-preview";
 
 export const metadata = { title: "Guided Session report" };
 
@@ -146,6 +147,7 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
                     <StatusChip tone="warn">Most who missed it chose {q.first.commonWrong}</StatusChip>
                   </span>
                 )}
+                <GuidedQuestionPreview sessionId={sessionId} itemId={q.itemId} />
               </span>
             </li>
           ))}
