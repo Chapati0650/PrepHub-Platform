@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { MIN_GROUP_SIZE, MIN_STUDENTS_FOR_SCORE_FIGURES, type ProtectedCount } from "@/lib/admin/impact";
 import type { DistrictOverview, FigureRow } from "@/lib/admin/district-overview";
 import { StaffHeader, StaffNote, StaffPage, StaffSection, StatStrip } from "@/components/staff/staff-ui";
@@ -6,6 +5,7 @@ import type { GrowthByStudyTime } from "@/lib/admin/growth-by-time";
 import { PrintButton } from "@/components/staff/print-button";
 import { shortCampusName } from "@/lib/admin/campus-names";
 import { DistrictCampusSwitcher } from "./school-switcher";
+import { CampusTable } from "./campus-table";
 import { GrowthByTimeSection } from "./growth-by-time";
 import { ReadinessSection } from "./readiness-section";
 import { SkillGapsSection } from "./skill-gaps-section";
@@ -130,45 +130,19 @@ export function DistrictOverviewView({
         {overview.campuses.length === 0 ? (
           <StaffNote>No campuses are linked to this district yet. Email PrepHub to add them.</StaffNote>
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-border print:overflow-visible">
-            <table className="w-full min-w-[56rem] text-left text-base print:min-w-0 print:text-sm">
-              <caption className="sr-only">PrepHub activity by campus</caption>
-              <thead className="bg-surface-tint text-sm">
-                <tr>
-                  <th scope="col" className="px-4 py-3 font-semibold">Campus</th>
-                  <th scope="col" className="px-4 py-3 text-right font-semibold">Signed up</th>
-                  <th scope="col" className="px-4 py-3 text-right font-semibold">Started practicing</th>
-                  <th scope="col" className="px-4 py-3 text-right font-semibold">Active this week</th>
-                  <th scope="col" className="px-4 py-3 text-right font-semibold">Questions answered</th>
-                  <th scope="col" className="px-4 py-3 text-right font-semibold">Average gain</th>
-                  <th scope="col" className="px-4 py-3 text-right font-semibold">Meet TSI now</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {overview.campuses.map((c) => (
-                  <tr key={c.campusId}>
-                    <th scope="row" className="px-4 py-3 font-medium">
-                      <Link href={`/admin?school=${c.campusId}`} className="underline underline-offset-4">
-                        {shortCampusName(c.campusName, overview.campuses.map((x) => x.campusName))}
-                      </Link>
-                    </th>
-                    <td className="px-4 py-3 text-right tabular-nums">{c.registered.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{count(c.started)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{count(c.activeThisWeek)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{c.questionsAnswered.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap tabular-nums">{gain(c)}</td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap tabular-nums">
-                      {!c.readiness
-                        ? "Not enough yet"
-                        : "withheld" in c.readiness
-                          ? "Withheld"
-                          : `${c.readiness.meet.toLocaleString()} of ${c.readiness.measured.toLocaleString()}`}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <CampusTable
+            smallGroup={MIN_GROUP_SIZE}
+            rows={overview.campuses.map((c) => ({
+              campusId: c.campusId,
+              name: shortCampusName(c.campusName, overview.campuses.map((x) => x.campusName)),
+              registered: c.registered,
+              started: c.started,
+              activeThisWeek: c.activeThisWeek,
+              questionsAnswered: c.questionsAnswered,
+              averageGain: c.averageScoreGain,
+              tsi: !c.readiness ? "NOT_ENOUGH" : "withheld" in c.readiness ? "WITHHELD" : c.readiness,
+            }))}
+          />
         )}
         {overview.campuses.length > 0 && (
           <p className="text-sm text-muted-foreground">

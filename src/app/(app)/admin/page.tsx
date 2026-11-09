@@ -5,7 +5,6 @@ import {
   MIN_GROUP_SIZE,
   MIN_STUDENTS_FOR_SCORE_FIGURES,
   getCampusImpact,
-  type CampusImpactReport,
   type ProtectedCount,
 } from "@/lib/admin/impact";
 import { formatContractDate, type SchoolAccessInfo, type SchoolAccessState } from "@/lib/admin/access-info";

@@ -44,7 +44,7 @@ export function protectSkillGaps(raw: RawSkillGaps): SkillGaps {
     // Most students below first: plainer to read than the Guided pick's weighted priority, which is
     // for choosing one skill, not for listing seven.
     .sort((a, b) => b.n - a.n || b.weight - a.weight)
-    .map(({ n: _n, ...rest }) => rest);
+    .map(({ category, below, share, weight }) => ({ category, below, share, weight }));
   return { measured: raw.measured, skills };
 }
 

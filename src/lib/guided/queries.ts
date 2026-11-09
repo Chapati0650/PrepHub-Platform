@@ -1,6 +1,5 @@
 import type { ExtraTime } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { CATEGORY_LABELS } from "@/lib/content/labels";
 import { normalizeJoinCode } from "@/lib/teacher/join-code";
 import { teacherName } from "@/lib/teacher/names";
 import { CATCH_UP_DAYS } from "./config";
