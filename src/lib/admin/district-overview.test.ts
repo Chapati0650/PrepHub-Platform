@@ -116,4 +116,14 @@ describe("buildDistrictOverview", () => {
     ]);
     expect(o.readiness).toBeNull();
   });
+
+  it("leaves out a campus whose own 'Still below' is hidden, so it can't blank the district", () => {
+    const o = buildDistrictOverview("D", [
+      campus({ campusId: "a" }),
+      // 1 crossed + 3 already met: two small groups adding to 4, so "Still below" is hidden on its page.
+      campus({ campusId: "b", benchmark: { crossed: 1, held: 3, slipped: 0, below: 21, shortfall: { MISSES_MATH_ONLY: 8, MISSES_READING_ONLY: 3, MISSES_BOTH: 10 } } }),
+    ]);
+    expect(o.readiness).toMatchObject({ measured: 40, crossed: 8, held: 12, below: 20, meetNow: 20 });
+    expect(o.excluded.readiness).toBe(1);
+  });
 });

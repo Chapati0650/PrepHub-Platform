@@ -137,8 +137,19 @@ const SHORT_KEYS = ["MISSES_MATH_ONLY", "MISSES_READING_ONLY", "MISSES_BOTH"] as
  */
 export const MIN_CAMPUS_FOR_DISTRICT_READINESS = 2 * MIN_STUDENTS_FOR_SCORE_FIGURES;
 
+/**
+ * Whether a campus joins the district's TSI roll-up: enough students, and its own page shows "Still below"
+ * and "Fell back" (so how many meet the benchmark is public there already). A campus whose "Still below"
+ * is hidden would otherwise blank the district's figures with it.
+ */
+export function inDistrictReadiness(b: RawBenchmark): boolean {
+  if (measuredOf(b) < MIN_CAMPUS_FOR_DISTRICT_READINESS) return false;
+  const p = protectBenchmarkGroups(b);
+  return typeof p.below === "number" && typeof p.slipped === "number";
+}
+
 export function districtBenchmark(campuses: RawBenchmark[]): CampusImpactReport["benchmark"] {
-  const included = campuses.filter((b) => measuredOf(b) >= MIN_CAMPUS_FOR_DISTRICT_READINESS);
+  const included = campuses.filter(inDistrictReadiness);
   const shown = included.map((b) => protectBenchmarkGroups(b));
   const total: RawBenchmark = {
     crossed: 0,
@@ -186,7 +197,7 @@ export function buildDistrictOverview(districtName: string, raw: RawCampusFigure
       activeThisWeek: 0,
       scoreGain: raw.length - gainShown.length,
       // Campuses with someone measured but fewer than the minimum: not in the district figure.
-      readiness: raw.filter((r) => measuredOf(r.benchmark) > 0 && measuredOf(r.benchmark) < MIN_CAMPUS_FOR_DISTRICT_READINESS).length,
+      readiness: raw.filter((r) => measuredOf(r.benchmark) > 0 && !inDistrictReadiness(r.benchmark)).length,
     },
     readiness: districtBenchmark(raw.map((r) => r.benchmark)),
     campuses: raw.map((r) => ({

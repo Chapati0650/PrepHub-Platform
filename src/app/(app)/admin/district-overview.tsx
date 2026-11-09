@@ -111,7 +111,7 @@ export function DistrictOverviewView({
         benchmark={overview.readiness}
         note={
           excluded.readiness > 0
-            ? `Leaves out ${excluded.readiness === 1 ? "1 campus" : `${excluded.readiness} campuses`} with fewer than ${MIN_CAMPUS_FOR_DISTRICT_READINESS} students measured.`
+            ? `Leaves out ${excluded.readiness === 1 ? "1 campus" : `${excluded.readiness} campuses`} with fewer than ${MIN_CAMPUS_FOR_DISTRICT_READINESS} students measured or a group too small to show.`
             : undefined
         }
       />
