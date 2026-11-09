@@ -70,7 +70,7 @@ export function ReadinessSection({
             <span className="font-heading text-3xl font-semibold tabular-nums">
               {(benchmark.measured - benchmark.below - benchmark.slipped).toLocaleString()}
             </span>{" "}
-            of {benchmark.measured.toLocaleString()} students meet both benchmarks now
+            of the {benchmark.measured.toLocaleString()} students with two predictions to compare meet both benchmarks now
           </p>
         )}
         {!anyWithheld && (

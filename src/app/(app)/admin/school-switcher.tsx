@@ -193,8 +193,8 @@ export function PickCampusPrompt({
       <div className="rounded-3xl bg-surface-tint p-6 sm:p-8">
         <h1 className="text-page-title">Choose a campus</h1>
         <p className="mt-3 text-lg text-foreground/75">
-          {what} belong to one campus at a time. Pick a campus in{" "}
-          {districtName} to see it. The district totals are on the Overview.
+          {what}: one campus at a time. Pick a campus in {districtName} to see it for that campus. The district totals are on
+          the Overview.
         </p>
       </div>
       <DistrictCampusSwitcher

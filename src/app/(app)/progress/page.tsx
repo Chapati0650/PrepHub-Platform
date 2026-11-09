@@ -232,15 +232,17 @@ function SectionTitle({ children }: { children: ReactNode }) {
 // show was the least visible thing in the box.
 function PredictionTrend({ history }: { history: ProgressHistoryPoint[] }) {
   const midpoints = history.map((p) => p.point ?? (p.min + p.max) / 2);
-  const min = Math.min(...midpoints);
+  // Bars stand on a floor 150 points below the lowest score, not on the lowest score itself: drawn
+  // from the minimum, a 930-to-990 change looked seven times taller (review, 2026-11-09).
   const max = Math.max(...midpoints);
+  const min = Math.max(400, Math.min(...midpoints) - 150);
   const range = Math.max(max - min, 1);
 
   return (
     <div className="flex h-36 items-end gap-1.5" aria-hidden>
       {history.map((point, i) => {
         const mid = point.point ?? (point.min + point.max) / 2;
-        const heightPct = range === 1 && max === min ? 60 : 15 + ((mid - min) / range) * 85;
+        const heightPct = Math.max(8, ((mid - min) / range) * 100);
         const isLatest = i === history.length - 1;
         return (
           <div

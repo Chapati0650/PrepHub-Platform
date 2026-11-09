@@ -157,9 +157,14 @@ export function DistrictOverviewView({
         {overview.campuses.length > 0 && (
           <p className="text-sm text-muted-foreground">
             <strong className="font-medium text-foreground">Not enough yet</strong>: fewer than {MIN_STUDENTS_FOR_SCORE_FIGURES} students
-            at the campus can be compared so far. <strong className="font-medium text-foreground">Withheld</strong>: showing it would give
-            away a group of fewer than {MIN_GROUP_SIZE} students on the campus&apos;s own page. Meet TSI now counts students whose latest
-            prediction meets both benchmarks. Click a column heading to sort.
+            at the campus can be compared so far.{" "}
+            {overview.campuses.some((c) => c.readiness && "withheld" in c.readiness) && (
+              <>
+                <strong className="font-medium text-foreground">Withheld</strong>: showing it would give away a group of fewer than{" "}
+                {MIN_GROUP_SIZE} students on the campus&apos;s own page.{" "}
+              </>
+            )}
+            Meet TSI now counts students whose latest prediction meets both benchmarks. Click or tap a column heading to sort.
           </p>
         )}
       </StaffSection>
