@@ -29,6 +29,8 @@ export type StudentItem = {
   label: string;
   key: AssignedQuestionKey;
   talked: boolean;
+  /** The question's skill, for the drill-down and the CSV (class questions share the session's skill, the warm-up may not). */
+  skill?: string | null;
 };
 
 export type StudentResponseInput = {
@@ -169,7 +171,7 @@ export function buildStudentRows(params: {
       drill.push({
         group: "TOGETHER",
         label: item.label,
-        skill: null,
+        skill: item.skill ?? null,
         correctAnswer: correctLabel(item.key),
         answer: r?.firstAnswer ? answerLabel(item.key, r.firstAnswer) : null,
         secondAnswer: item.talked && r?.secondAnswer ? answerLabel(item.key, r.secondAnswer) : null,

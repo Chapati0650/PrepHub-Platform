@@ -25,6 +25,8 @@ import {
 import { DistrictCampusSwitcher, OwnerSchoolSwitcher } from "./school-switcher";
 import { DistrictOverviewView } from "./district-overview";
 import { getDistrictOverview } from "@/lib/admin/district-overview";
+import { getGrowthByStudyTime } from "@/lib/admin/growth-by-time";
+import { GrowthByTimeSection } from "./growth-by-time";
 
 export const metadata = { title: "School overview" };
 
@@ -83,19 +85,23 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
   // and a row per campus; choosing a campus shows that campus's own overview.
   if (district && !schoolId) {
     const overview = await getDistrictOverview(district.name, district.campuses);
-    return <DistrictOverviewView overview={overview} campuses={district.campuses} />;
+    // Only campuses whose own score figure is shown, like the district's average gain.
+    const shown = overview.campuses.filter((c) => c.averageScoreGain !== null).map((c) => c.campusId);
+    const growth = await getGrowthByStudyTime(shown);
+    return <DistrictOverviewView overview={overview} campuses={district.campuses} growth={growth} />;
   }
 
   if (!schoolId) return <StaffUnavailable title="The Overview isn't available for this account." />;
 
   // The student counts come from the Students page's own summary, so the two
   // pages can never disagree about how many have started or are active.
-  const [data, impact, setup, students, guided] = await Promise.all([
+  const [data, impact, setup, students, guided, growthByTime] = await Promise.all([
     getAdminOverviewData(schoolId),
     getCampusImpact(schoolId),
     getAdminSetupProgress(schoolId),
     getStudentDirectorySummary(schoolId),
     schoolGuidedTotals(schoolId, 30),
+    getGrowthByStudyTime([schoolId]),
   ]);
 
   const { enrollment, stats } = data;
@@ -250,6 +256,8 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
           />
         )}
       </StaffSection>
+
+      {growth && <GrowthByTimeSection growth={growthByTime} scope="your school" />}
 
       <ReadinessSection impact={impact} />
 

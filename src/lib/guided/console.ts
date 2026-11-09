@@ -345,6 +345,7 @@ export async function getSessionReport(context: TeacherContext, sessionId: strin
       label: labels.get(i.id) ?? "",
       key: answerKeyOf(infos.get(i.questionRevisionId)!),
       talked: i.talked,
+      skill: CATEGORY_LABELS[i.question.category],
     })),
     responses,
     ownSlots: ownSlots.map((s) => ({

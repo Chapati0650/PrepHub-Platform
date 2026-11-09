@@ -27,7 +27,7 @@ export async function requireOwnedSession(context: TeacherContext, sessionId: st
     where: { id: sessionId },
     include: {
       classroom: { select: { teacherId: true, schoolId: true, name: true, id: true } },
-      items: { orderBy: { position: "asc" } },
+      items: { orderBy: { position: "asc" }, include: { question: { select: { category: true } } } },
     },
   });
   if (!session || session.teacherId !== context.userId || session.classroom.schoolId !== context.schoolId) {

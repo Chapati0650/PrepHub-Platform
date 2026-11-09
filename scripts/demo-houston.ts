@@ -6,6 +6,7 @@
  *   npx tsx scripts/demo-houston.ts check            reports, writes nothing
  *   DEMO_PASSWORD=... npx tsx scripts/demo-houston.ts create
  *   npx tsx scripts/demo-houston.ts remove           deletes every demo row
+ *   npx tsx scripts/demo-houston.ts refresh          rebuilds it as of today, same password
  *
  * Against production: DATABASE_URL="$NEON" (from the gitignored .env.neon).
  *
@@ -300,6 +301,29 @@ async function check() {
   }
   const published = await prisma.question.count({ where: { status: "PUBLISHED", currentPublishedRevisionId: { not: null } } });
   console.log(`Published questions: ${published}.`);
+  // The demo's dates are relative to the day it was built, so it goes stale: the open homework turns
+  // overdue and Maya's last set drifts into the past. `refresh` rebuilds it as of today.
+  const teacher = await prisma.user.findUnique({ where: { email: ACCOUNTS.teacher }, select: { id: true } });
+  if (teacher) {
+    const open = await prisma.assignment.findFirst({ where: { classroom: { teacherId: teacher.id } }, orderBy: { dueAt: "desc" }, select: { dueAt: true } });
+    if (open?.dueAt) {
+      const days = Math.round((open.dueAt.getTime() - Date.now()) / DAY);
+      console.log(
+        days >= 2
+          ? `Open homework due in ${days} days: the demo is current.`
+          : `Open homework ${days >= 0 ? `due in ${days} day(s)` : `${-days} day(s) overdue`}: run \`refresh\` before showing the demo.`,
+      );
+    }
+  }
+}
+
+/** remove, then create again as of today, keeping the logins' password (read from the existing admin). */
+async function refresh() {
+  const admin = await prisma.user.findUnique({ where: { email: ACCOUNTS.admin }, select: { passwordHash: true } });
+  if (!admin?.passwordHash && !process.env.DEMO_PASSWORD) throw new Error("No demo admin to take the password from: use `create` with DEMO_PASSWORD.");
+  if (admin?.passwordHash) process.env.DEMO_PASSWORD_HASH = admin.passwordHash;
+  await remove();
+  await create();
 }
 
 // ---- remove ----------------------------------------------------------------------
@@ -1028,7 +1052,8 @@ async function addHomework(
     const plan = plans[i];
     const createdAt = NOW - (plans.length - i) * between(6, 9) * DAY;
     const open = i === plans.length - 1;
-    const dueAt = open ? afternoon(NOW + int(2, 5) * DAY, 23.9) : createdAt + 7 * DAY;
+    // Due 9-12 days out, so a demo stays current for a week after it is built (`check` says when to refresh).
+    const dueAt = open ? afternoon(NOW + int(9, 12) * DAY, 23.9) : createdAt + 7 * DAY;
     const used = new Set<string>();
     const questions = Array.from({ length: int(8, 10) }, (_, position) => {
       // A teacher's mix: mostly Easy and Medium, a Hard one or two to stretch.
@@ -1320,7 +1345,8 @@ async function main() {
   if (command === "check") await check();
   else if (command === "create") await create();
   else if (command === "remove") await remove();
-  else console.log("Usage: npx tsx scripts/demo-houston.ts check | create | remove");
+  else if (command === "refresh") await refresh();
+  else console.log("Usage: npx tsx scripts/demo-houston.ts check | create | remove | refresh");
 }
 
 main()

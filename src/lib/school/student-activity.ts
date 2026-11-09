@@ -35,11 +35,21 @@ import { prisma } from "@/lib/prisma";
  * school aggregate uses; the Student Directory also lists students whose
  * access has ended, so it asks for every status.
  */
-type StudentScope = { studentIds: string[] } | { schoolId: string; activeOnly: boolean };
+type StudentScope =
+  | { studentIds: string[] }
+  | { schoolId: string; activeOnly: boolean }
+  /** Several campuses at once, for a district figure (2026-11-09). */
+  | { schoolIds: string[]; activeOnly: boolean };
 
 function inScope(column: string, scope: StudentScope): Prisma.Sql {
   const col = Prisma.raw(column);
   if ("studentIds" in scope) return Prisma.sql`${col} IN (${Prisma.join(scope.studentIds)})`;
+  if ("schoolIds" in scope) {
+    return Prisma.sql`${col} IN (
+    SELECT m."studentId" FROM "student_memberships" m
+     WHERE m."schoolId" IN (${Prisma.join(scope.schoolIds)})${scope.activeOnly ? Prisma.sql` AND m."status" = 'ACTIVE'` : Prisma.empty}
+  )`;
+  }
   return Prisma.sql`${col} IN (
     SELECT m."studentId" FROM "student_memberships" m
      WHERE m."schoolId" = ${scope.schoolId}${scope.activeOnly ? Prisma.sql` AND m."status" = 'ACTIVE'` : Prisma.empty}
@@ -135,6 +145,16 @@ export function sessionActivity(studentIds: string[]): Prisma.Sql {
 /** The same rows as `sessionActivity`, for every student with a membership at a school. */
 export function schoolSessionActivity(schoolId: string, { activeOnly }: { activeOnly: boolean }): Prisma.Sql {
   return sessionsIn({ schoolId, activeOnly });
+}
+
+/** The same rows for every student with an ACTIVE membership at any of several campuses (a district figure). */
+export function schoolsSessionActivity(schoolIds: string[]): Prisma.Sql {
+  return sessionsIn({ schoolIds, activeOnly: true });
+}
+
+/** `col IN (students with an ACTIVE membership at any of these campuses)`, for queries outside this module. */
+export function inSchools(column: string, schoolIds: string[]): Prisma.Sql {
+  return inScope(column, { schoolIds, activeOnly: true });
 }
 
 function sessionsIn(scope: StudentScope): Prisma.Sql {

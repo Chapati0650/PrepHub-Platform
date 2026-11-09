@@ -2,7 +2,9 @@ import Link from "next/link";
 import { MIN_GROUP_SIZE, MIN_STUDENTS_FOR_SCORE_FIGURES, type ProtectedCount } from "@/lib/admin/impact";
 import type { DistrictOverview, FigureRow } from "@/lib/admin/district-overview";
 import { StaffHeader, StaffNote, StaffPage, StaffSection, StatStrip } from "@/components/staff/staff-ui";
+import type { GrowthByStudyTime } from "@/lib/admin/growth-by-time";
 import { DistrictCampusSwitcher } from "./school-switcher";
+import { GrowthByTimeSection } from "./growth-by-time";
 
 function count(value: ProtectedCount): string {
   return value === null ? `Fewer than ${MIN_GROUP_SIZE}` : value.toLocaleString();
@@ -17,9 +19,12 @@ function gain(row: FigureRow): string {
 export function DistrictOverviewView({
   overview,
   campuses,
+  growth,
 }: {
   overview: DistrictOverview;
   campuses: { id: string; name: string }[];
+  /** Over the campuses whose own score figure is shown (see page.tsx). */
+  growth: GrowthByStudyTime | null;
 }) {
   const { totals, excluded } = overview;
   const note = (n: number, rule: string) => (n > 0 ? ` · excludes ${n === 1 ? "1 campus" : `${n} campuses`} with ${rule}` : "");
@@ -63,6 +68,18 @@ export function DistrictOverviewView({
           </StaffNote>
         )}
       </StaffSection>
+
+      {totals.averageScoreGain !== null && (
+        <GrowthByTimeSection
+          growth={growth}
+          scope="your district"
+          excludedNote={
+            excluded.scoreGain > 0
+              ? `Leaves out ${excluded.scoreGain === 1 ? "1 campus" : `${excluded.scoreGain} campuses`} with fewer than ${MIN_STUDENTS_FOR_SCORE_FIGURES} measurable students, like the average above.`
+              : undefined
+          }
+        />
+      )}
 
       <StaffSection title="By campus" description="Open a campus to see its own overview, students, teachers, announcements and goal.">
         {overview.campuses.length === 0 ? (
