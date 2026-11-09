@@ -128,7 +128,7 @@ export function CampusTable({
           <tbody className="divide-y divide-border">
             {sorted.map((r) => (
               <tr key={r.campusId}>
-                <th scope="row" className="px-4 py-3 font-medium">
+                <th scope="row" className="min-w-[13rem] px-4 py-3 font-medium">
                   <Link
                     href={`/admin?school=${r.campusId}`}
                     className="underline underline-offset-4"
