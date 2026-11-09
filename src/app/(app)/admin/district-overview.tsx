@@ -86,7 +86,7 @@ export function DistrictOverviewView({
       >
         <StatStrip
           stats={[
-            { label: "Guided Sessions run", value: teaching.guided.sessions.toLocaleString(), hint: "live, whole-class or individual" },
+            { label: "Guided Sessions run", value: teaching.guided.sessions.toLocaleString(), hint: "teacher-led or individual practice" },
             { label: "Students who took part", value: teaching.guided.students.toLocaleString(), hint: "each counted once" },
             { label: "Homework set", value: teaching.homework.assigned.toLocaleString(), hint: "assignments, by any teacher" },
             { label: "Homework finished", value: teaching.homework.finished.toLocaleString(), hint: "by students, all assignments" },

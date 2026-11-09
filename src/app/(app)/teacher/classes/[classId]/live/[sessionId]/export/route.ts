@@ -25,7 +25,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ clas
   const detail = new URL(request.url).searchParams.get("detail") === "questions";
   const slug = page.className.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "class";
   const day = page.createdAt.toISOString().slice(0, 10);
-  const rows = detail ? studentDetailRows(page.students) : studentSummaryRows(page.students);
+  const rows = detail ? studentDetailRows(page.students) : studentSummaryRows(page.students, { individual: page.mode === "INDIVIDUAL" });
   return new NextResponse(toCsv(rows), {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",

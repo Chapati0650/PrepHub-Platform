@@ -10,7 +10,18 @@ const minutes = (ms: number | null) => (ms === null ? "" : (Math.round(ms / 6000
 const result = (v: boolean | null) => (v === null ? "" : v ? "Right" : "Wrong");
 const confidenceWord = (c: string | null) => (c === "SURE" ? "Sure" : c === "THINK_SO" ? "Think so" : c === "GUESSING" ? "Guessing" : "");
 
-export function studentSummaryRows(students: StudentRow[]): string[][] {
+/** Columns that only mean something in a teacher-led session (votes, talking, confidence ratings). */
+const TEACHER_LED_ONLY = ["First try right (%)", "Final right (%)", "Sure", "Think so", "Guessing", "Confidence pattern", "Caught up later"];
+
+export function studentSummaryRows(students: StudentRow[], opts: { individual?: boolean } = {}): string[][] {
+  const rows = summaryRows(students);
+  if (!opts.individual) return rows;
+  // Individual practice: drop the teacher-led columns, which were empty or "Not enough ratings" (review, 2026-11-09).
+  const keep = rows[0].map((h, i) => (TEACHER_LED_ONLY.includes(h) ? -1 : i)).filter((i) => i >= 0);
+  return rows.map((r) => keep.map((i) => r[i]));
+}
+
+function summaryRows(students: StudentRow[]): string[][] {
   return [
     [
       "Student",

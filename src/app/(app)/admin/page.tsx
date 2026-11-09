@@ -241,9 +241,10 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
             Each student&apos;s first predicted SAT score compared with their latest. Predictions are PrepHub estimates, not
             official College Board results.{" "}
             {/* How the counts on this page narrow (review, 2026-11-09: 40, 33, 28, 22 with no explanation). */}
-            Of {students.registered.toLocaleString()} signed up, {(students.active - students.notStarted).toLocaleString()} have
-            answered a question{skillGaps ? `, ${skillGaps.measured.toLocaleString()} have taken the Diagnostic` : ""} and{" "}
-            {impact.measurableStudents.toLocaleString()} have a second prediction to compare.
+            Of {students.registered.toLocaleString()} signed up, {(students.active - students.notStarted).toLocaleString()}{" "}
+            {students.active - students.notStarted === 1 ? "has" : "have"} answered a question
+            {skillGaps ? `, ${skillGaps.measured.toLocaleString()} ${skillGaps.measured === 1 ? "has" : "have"} taken the Diagnostic` : ""} and{" "}
+            {impact.measurableStudents.toLocaleString()} {impact.measurableStudents === 1 ? "has" : "have"} a second prediction to compare.
           </>
         }
       >
