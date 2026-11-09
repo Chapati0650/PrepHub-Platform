@@ -77,7 +77,7 @@ export function SetupForm({
     <form onSubmit={submit} className="flex flex-col gap-10">
       <StaffSection
         title="1. How should it run?"
-        description="Both keep results for you and never change a student's predicted score."
+        description="Both keep each student's results for you. Session answers are practice: a student's predicted score moves with their own Practice Sets."
       >
         <fieldset className="grid gap-3 sm:grid-cols-2">
           <legend className="sr-only">Mode</legend>
@@ -86,11 +86,11 @@ export function SetupForm({
               {
                 key: "TEACHER_LED",
                 detail:
-                  "You run it from the front. The whole class does the same warm-up, example and questions together, then each student gets questions of their own. About 30 minutes. The screen tells you what to do and say.",
+                  `You run it from the front. The whole class does the same warm-up, example and questions together, then each student gets questions of their own. ${LENGTHS.find((l) => l.key === length)?.label ?? "About 30 minutes"}, as chosen below. The screen tells you what to do and say.`,
               },
               {
                 key: "INDIVIDUAL",
-                detail: `Every student works alone, at their own speed, on questions picked for them (${INDIVIDUAL_PRACTICE.questions} each). You walk around and watch who is stuck. No teaching needed: each answer is explained on the student's screen.`,
+                detail: `Every student works alone, at their own speed, on questions picked for them (${INDIVIDUAL_PRACTICE.questions} each, usually 15 to 20 minutes). You walk around and watch who is stuck. No teaching needed: each answer is explained on the student's screen.`,
               },
             ] as const
           ).map((m) => (

@@ -166,7 +166,7 @@ export function StudentResults({ rows }: { rows: StudentRow[] }) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border">
+    <div className="relative overflow-x-auto rounded-2xl border border-border">
       <table className="w-full min-w-[56rem] text-left text-base">
         <caption className="sr-only">
           How each student did in this session. Use the column buttons to sort.

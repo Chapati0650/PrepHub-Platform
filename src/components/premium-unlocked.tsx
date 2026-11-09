@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Confetti } from "@/components/confetti";
 import { Button } from "@/components/ui/button";
@@ -27,13 +28,20 @@ export function PremiumUnlocked({
   logoMediaId,
   firstName,
   onSeen,
+  needsDiagnostic = false,
+  showCurriculum = true,
 }: {
   organizationName: string;
   logoMediaId: string | null;
   firstName: string | null;
   onSeen: () => Promise<void>;
+  /** Practice opens after the Diagnostic, so a brand-new student's button goes there (review, 2026-11-09). */
+  needsDiagnostic?: boolean;
+  /** Off for demo logins, which can't open The Curriculum. */
+  showCurriculum?: boolean;
 }) {
   const [open, setOpen] = useState(true);
+  const router = useRouter();
 
   function close() {
     setOpen(false);
@@ -109,12 +117,15 @@ export function PremiumUnlocked({
             </div>
 
             <DialogPrimitive.Description className="mt-6 text-muted-foreground">
-              Every Practice Set, the 800 Club, 1v1 Rush and The Curriculum — paid for by {organizationName},
+              Every Practice Set, the 800 Club{showCurriculum ? ", 1v1 Rush and The Curriculum" : " and 1v1 Rush"} — paid for by {organizationName},
               for as long as you&apos;re a student there. No card, no code.
             </DialogPrimitive.Description>
 
-            <DialogPrimitive.Close render={<Button size="cta" className="mt-7 w-full" />}>
-              Start practicing
+            <DialogPrimitive.Close
+              render={<Button size="cta" className="mt-7 w-full" />}
+              onClick={needsDiagnostic ? () => router.push("/diagnostic") : undefined}
+            >
+              {needsDiagnostic ? "Begin your Diagnostic" : "Start practicing"}
             </DialogPrimitive.Close>
           </div>
         </DialogPrimitive.Popup>

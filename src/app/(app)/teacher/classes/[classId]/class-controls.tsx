@@ -151,7 +151,7 @@ export function ClassCodePanel({
             class code.
           </li>
           <li>
-            <span className="font-semibold">3.</span> Add your last name, so you can tell two Masons apart, then press
+            <span className="font-semibold">3.</span> Add your last name, so your teacher can tell two Masons apart, then press
             Join class.
           </li>
         </ol>

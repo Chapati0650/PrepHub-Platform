@@ -18,6 +18,7 @@ import {
   setClassLastName,
   startHomework,
 } from "@/lib/teacher/homework";
+import { DEMO_LOCKED_MESSAGE, isDemoSession } from "@/lib/demo-guard";
 
 /**
  * Homework is for student accounts. Not the Administrator's shared school
@@ -80,8 +81,9 @@ export async function setClassLastNameAction(_prev: JoinState, formData: FormDat
   return { success: true };
 }
 
-export async function leaveClassAction(classroomId: string): Promise<void> {
+export async function leaveClassAction(classroomId: string): Promise<{ error: string } | void> {
   const studentId = await requireStudentId();
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   await leaveClassroom(studentId, classroomId);
   revalidatePath("/", "layout");
 }

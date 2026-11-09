@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { getAccessContext, hasActiveSchoolEntitlement, hasPaidAccess } from "@/lib/entitlements";
 import { catchUpDistrictEnrollment } from "@/lib/district/enrollment";
 import { prisma } from "@/lib/prisma";
+import { isDemoAccount } from "@/lib/demo-account";
 import { logoutAction, markPremiumCelebratedAction } from "./actions";
 import { resendDistrictVerificationAction } from "./access/actions";
 import { AppShell } from "@/components/app-shell";
@@ -95,12 +96,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // The once-per-student "your school covers Premium" moment. Only while the
   // entitlement is genuinely live — a membership whose contract hasn't
   // started grants nothing, so celebrating it would be a lie.
+  const celebrate = role === "STUDENT" && membership && !membership.celebratedAt && hasActiveSchoolEntitlement(membership);
   const celebration =
-    role === "STUDENT" && membership && !membership.celebratedAt && hasActiveSchoolEntitlement(membership)
+    celebrate && membership
       ? {
           organizationName: membership.organization.officialName,
           logoMediaId: membership.organization.logoMediaId,
           firstName: session.user.name ?? null,
+          needsDiagnostic: !(await prisma.diagnosticSession.findFirst({
+            where: { studentId: session.user.id, completedAt: { not: null } },
+            select: { id: true },
+          })),
+          showCurriculum: !isDemoAccount(session.user.email),
         }
       : null;
 

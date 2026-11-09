@@ -36,7 +36,7 @@ export type ReportStudent = { studentId: string; name: string };
 export type ReportQuestion = {
   itemId: string;
   kind: GuidedItemKind;
-  /** "Warm-up", "Question 2", "One like question 3". */
+  /** "Warm-up", "Question 2", "Follow-up to question 3". */
   label: string;
   correctAnswer: string;
   firstAnswered: number;
@@ -81,7 +81,7 @@ export function itemLabels(items: { id: string; kind: GuidedItemKind }[]): Map<s
     if (item.kind === "WARMUP") labels.set(item.id, "Warm-up");
     else if (item.kind === "EXAMPLE") labels.set(item.id, "Worked example");
     else if (item.kind === "CLASS") labels.set(item.id, `Question ${++classNumber}`);
-    else labels.set(item.id, `One like question ${classNumber}`);
+    else labels.set(item.id, `Follow-up to question ${classNumber}`);
   }
   return labels;
 }

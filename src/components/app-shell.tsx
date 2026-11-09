@@ -250,7 +250,13 @@ export function AppShell({
   districtPrompt?: DistrictPrompt | null;
   resendVerification?: (prev: ResendState) => Promise<ResendState>;
   /** Set once, while a new school membership hasn't been celebrated yet. */
-  celebration?: { organizationName: string; logoMediaId: string | null; firstName: string | null } | null;
+  celebration?: {
+    organizationName: string;
+    logoMediaId: string | null;
+    firstName: string | null;
+    needsDiagnostic?: boolean;
+    showCurriculum?: boolean;
+  } | null;
   markCelebrated?: () => Promise<void>;
   /** The student is in at least one class, so Homework belongs in the nav. */
   showHomework?: boolean;

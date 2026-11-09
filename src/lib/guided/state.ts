@@ -43,7 +43,7 @@ export type SharedReveal = {
 export type SharedItem = {
   id: string;
   kind: GuidedItemKind;
-  /** "Question 2", "Warm-up", "One like question 3". */
+  /** "Question 2", "Warm-up", "Follow-up to question 3". */
   label: string;
   /** 1-based among class questions; null for the warm-up and the example. */
   number: number | null;

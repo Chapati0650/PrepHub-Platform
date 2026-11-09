@@ -38,6 +38,7 @@ import {
 import { TeacherError } from "@/lib/teacher/errors";
 import { endOfLocalDay } from "@/lib/community/goal";
 import { CATEGORY_LABELS, DIFFICULTY_LABELS, QUESTION_TYPE_LABELS } from "@/lib/content/labels";
+import { DEMO_LOCKED_MESSAGE, isDemoSession } from "@/lib/demo-guard";
 
 export type TeacherActionState = { error?: string; success?: boolean };
 
@@ -74,21 +75,24 @@ export async function renameClassroomAction(_prev: TeacherActionState, formData:
   return { success: true };
 }
 
-export async function regenerateJoinCodeAction(classroomId: string): Promise<void> {
+export async function regenerateJoinCodeAction(classroomId: string): Promise<{ error: string } | void> {
   const context = await requireTeacherAction();
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   await regenerateJoinCode(context, classroomId);
   revalidatePath(`/teacher/classes/${classroomId}`);
 }
 
-export async function setClassroomArchivedAction(classroomId: string, archived: boolean): Promise<void> {
+export async function setClassroomArchivedAction(classroomId: string, archived: boolean): Promise<{ error: string } | void> {
   const context = await requireTeacherAction();
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   await setClassroomArchived(context, classroomId, archived);
   revalidatePath(`/teacher/classes/${classroomId}`);
   revalidatePath("/teacher");
 }
 
-export async function removeStudentAction(classroomId: string, studentId: string): Promise<void> {
+export async function removeStudentAction(classroomId: string, studentId: string): Promise<{ error: string } | void> {
   const context = await requireTeacherAction();
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   await removeStudentFromClassroom(context, classroomId, studentId);
   revalidatePath(`/teacher/classes/${classroomId}`);
 }
@@ -291,6 +295,7 @@ export async function setAssignmentClosedAction(assignmentId: string, closed: bo
 
 export async function deleteAssignmentAction(assignmentId: string, classroomId: string): Promise<TeacherActionState> {
   const context = await requireTeacherAction();
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   try {
     await deleteAssignment(context, assignmentId);
   } catch (err) {

@@ -9,6 +9,7 @@ import { deleteAccountSchema } from "@/lib/validation/auth";
 import { deleteAccount, logOutAllDevices } from "@/lib/auth/account";
 import { AuthError } from "@/lib/auth/errors";
 import type { ActionState } from "@/app/(auth)/actions";
+import { DEMO_LOCKED_MESSAGE, isDemoSession } from "@/lib/demo-guard";
 
 export async function logoutAction() {
   await signOut({ redirectTo: "/login" });
@@ -18,7 +19,8 @@ export async function logOutAllDevicesAction() {
   const session = await auth();
   if (!session?.user.id) redirect("/login");
 
-  await logOutAllDevices(session.user.id);
+  // On a shared demo login, ending every session would sign out everyone else trying the demo.
+  if (!(await isDemoSession())) await logOutAllDevices(session.user.id);
   await signOut({ redirectTo: "/login" });
 }
 
@@ -28,6 +30,8 @@ export async function deleteAccountAction(
 ): Promise<ActionState> {
   const session = await auth();
   if (!session?.user.id) redirect("/login");
+
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
 
   const parsed = deleteAccountSchema.safeParse({
     password: formData.get("password") ?? undefined,

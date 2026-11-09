@@ -70,7 +70,7 @@ function report() {
 describe("itemLabels", () => {
   it("numbers class questions and names the extras", () => {
     const labels = itemLabels(items);
-    expect([...labels.values()]).toEqual(["Warm-up", "Worked example", "Question 1", "Question 2", "One like question 2"]);
+    expect([...labels.values()]).toEqual(["Warm-up", "Worked example", "Question 1", "Question 2", "Follow-up to question 2"]);
   });
 });
 

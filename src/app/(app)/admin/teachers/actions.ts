@@ -6,6 +6,7 @@ import { inviteTeacher, removeTeacher, resendTeacherInvite } from "@/lib/teacher
 import { TeacherError } from "@/lib/teacher/errors";
 import { logServerError } from "@/lib/logger";
 import type { TeacherPanelState } from "@/components/teacher/teachers-panel";
+import { DEMO_LOCKED_MESSAGE, isDemoSession } from "@/lib/demo-guard";
 
 /**
  * An Administrator manages their own school's teachers. The school comes from
@@ -66,6 +67,7 @@ export async function resendTeacherInviteAction(userId: string, campus?: string)
 }
 
 export async function removeTeacherAction(userId: string, campus?: string): Promise<TeacherPanelState> {
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   const school = await adminSchool(campus);
   if ("error" in school) return { error: school.error };
   try {
