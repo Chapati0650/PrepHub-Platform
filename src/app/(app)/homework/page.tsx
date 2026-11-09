@@ -14,7 +14,7 @@ export const metadata = { title: "Homework" };
 // Exactly what a teacher's pages show about a student, so the sentence is
 // true: their roster and gradebook carry the email, not only the results.
 const TEACHER_SEES =
-  "Your teacher sees your first name, the last name you give their class, your email address, and your results on the homework they assign — nothing else from your PrepHub account.";
+  "Your teacher sees your first name, the last name you give their class, your email address, and your results on the homework they assign and the Guided Sessions they run in class — nothing else from your PrepHub account.";
 
 const JOIN_STEPS = [
   ["01", "Get the code", "Your teacher shares it in class or with a join link."],

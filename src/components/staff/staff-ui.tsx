@@ -21,7 +21,7 @@ import { SCHOOLS_CONTACT_EMAIL } from "@/components/marketing/site-chrome";
 
 /** The page column. Wide enough for a table, narrow enough to read. */
 export function StaffPage({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("mx-auto flex w-full max-w-5xl flex-col gap-10 p-4 pb-20 sm:p-8", className)}>{children}</div>;
+  return <div className={cn("mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-10 p-4 pb-20 sm:p-8", className)}>{children}</div>;
 }
 
 /**

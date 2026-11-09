@@ -301,7 +301,7 @@ export default async function SettingsPage() {
                 <div className="flex max-w-sm flex-col gap-3">
                   <JoinClassForm />
                   <p className="text-xs text-muted-foreground">
-                    Your teacher sees your results on the homework they assign — nothing else from your account.{" "}
+                    Your teacher sees your results on the homework they assign and the Guided Sessions they run in class — nothing else from your account.{" "}
                     <Link href="/homework" className="underline underline-offset-4">
                       Your homework
                     </Link>

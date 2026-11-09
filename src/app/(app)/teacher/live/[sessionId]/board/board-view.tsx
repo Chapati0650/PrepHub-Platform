@@ -187,6 +187,30 @@ function Body({ state, item, clock }: { state: SharedState; item: SharedItem | n
       if (!item?.reveal) return null;
       return <Reveal item={item} />;
     case "OWN":
+      if (state.mode === "INDIVIDUAL") {
+        // Individual practice has no class phases: the board is how students join, and how far the
+        // room has got, with nothing about any one student.
+        return (
+          <div className="flex flex-1 flex-col justify-center gap-10">
+            <h1 className="text-6xl font-semibold tracking-tight">Practice on your own · {state.ownQuestionCount} questions</h1>
+            <div className="grid gap-10 md:grid-cols-[1.4fr_1fr]">
+              <div>
+                <p className="text-2xl text-muted-foreground">Go to</p>
+                <p className="text-6xl font-semibold tracking-tight">prephubtp.com/live</p>
+              </div>
+              <div>
+                <p className="text-2xl text-muted-foreground">Code</p>
+                <p className="font-mono text-7xl font-semibold tracking-[0.15em]">{state.joinCode}</p>
+              </div>
+            </div>
+            <p className="text-3xl">Everyone gets their own questions, picked for them. Each answer is explained on your screen.</p>
+            <p className="text-4xl">
+              <span className="font-mono font-semibold tabular-nums">{state.joined}</span> here ·{" "}
+              <span className="font-mono font-semibold tabular-nums">{state.ownFinished}</span> finished
+            </p>
+          </div>
+        );
+      }
       return (
         <Center>
           <p className="font-mono text-3xl tracking-wider text-primary uppercase">On your own · {state.ownQuestionCount} questions</p>

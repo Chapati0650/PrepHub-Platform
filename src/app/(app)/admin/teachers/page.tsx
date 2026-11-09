@@ -34,7 +34,7 @@ export default async function AdminTeachersPage({ searchParams }: { searchParams
       <StaffHeader
         eyebrow="Your school"
         title="Teachers"
-        description="Teachers make classes, give students a code to join, and assign PrepHub questions as homework. They see results on the homework they assign. You see how many classes and students each one has, never anyone's results."
+        description="Teachers make classes, give students a code to join, and assign PrepHub questions as homework. They see their own students' results on the homework they assign and the Guided Sessions they run. You see how many classes and students each one has, never anyone's results."
       />
 
       {teachers.length === 0 && (

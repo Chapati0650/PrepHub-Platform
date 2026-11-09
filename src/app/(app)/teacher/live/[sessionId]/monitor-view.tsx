@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/confirm-button";
@@ -135,6 +136,16 @@ export function MonitorView({ initial }: { initial: MonitorData }) {
         </span>
         <span className="text-muted-foreground">{state.skillLabel}</span>
         <span className="flex-1" />
+        {/* The projector shows the join code and a finished count, never this screen's names
+            and "Needs help" (review, 2026-11-09). */}
+        <Link
+          href={`/teacher/live/${state.sessionId}/board`}
+          target="_blank"
+          rel="noopener"
+          className="inline-flex h-11 items-center rounded-md border border-border px-4 text-base font-medium hover:bg-muted"
+        >
+          Open the board
+        </Link>
         <Button size="xl" variant="outline" onClick={() => send({ type: "PAUSE", paused: !state.paused })} aria-pressed={state.paused}>
           {state.paused ? "Resume screens" : "Pause screens"}
         </Button>
@@ -268,7 +279,7 @@ function StudentRowView({ row }: { row: MonitorRow }) {
       <td className="p-3 text-muted-foreground">
         {row.current ? `Question ${row.current}${row.currentSkill ? ` · ${row.currentSkill}` : ""}` : here && row.total > 0 ? "Finished" : "—"}
       </td>
-      <td className="p-3 text-muted-foreground">{here ? quietFor(row.quietMs) : "—"}</td>
+      <td className="p-3 text-muted-foreground">{!here ? "—" : row.answered === 0 ? "None yet" : quietFor(row.quietMs)}</td>
     </tr>
   );
 }

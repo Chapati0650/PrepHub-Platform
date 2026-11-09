@@ -53,7 +53,7 @@ export default async function JoinClassPage({ params }: { params: Promise<{ code
           their roster and gradebook, so "nothing else" without it wasn't true. */}
       <p className="mt-3 text-muted-foreground">
         {preview.teacherName} will be able to assign you homework here. They&apos;ll see your first name, the last name
-        you give this class, your email address, and your results on the homework they assign — nothing else from your
+        you give this class, your email address, and your results on the homework they assign and the Guided Sessions they run in class — nothing else from your
         PrepHub account: not your predicted score, not your other practice.
       </p>
       <div className="mt-6 max-w-sm">

@@ -485,7 +485,7 @@ export function AppShell({
             </SheetContent>
           </Sheet>
         </header>
-        <main id="main" tabIndex={-1} className="flex-1 outline-none">
+        <main id="main" tabIndex={-1} className="min-w-0 flex-1 outline-none">
           {children}
         </main>
       </div>
