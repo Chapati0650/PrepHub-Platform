@@ -83,7 +83,9 @@ export default async function AssignmentResultsPage({
         stats={[
           {
             label: "Finished",
-            value: `${summary.completed} of ${summary.roster}`,
+            // Out of the students it was set for: one who joined after it was due isn't owed it (review,
+            // 2026-11-09: "17 of 24" beside "not counting 1 who joined later").
+            value: `${summary.completed} of ${results.students.filter((s) => s.enrolled && (!s.joinedLater || s.status !== "NOT_STARTED")).length}`,
             hint:
               summary.leftCompleted > 0
                 ? `students who turned it in; ${summary.leftCompleted} more who have since left`
