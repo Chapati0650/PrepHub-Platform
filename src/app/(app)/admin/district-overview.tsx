@@ -4,6 +4,7 @@ import type { DistrictOverview, FigureRow } from "@/lib/admin/district-overview"
 import { StaffHeader, StaffNote, StaffPage, StaffSection, StatStrip } from "@/components/staff/staff-ui";
 import type { GrowthByStudyTime } from "@/lib/admin/growth-by-time";
 import { PrintButton } from "@/components/staff/print-button";
+import { shortCampusName } from "@/lib/admin/campus-names";
 import { DistrictCampusSwitcher } from "./school-switcher";
 import { GrowthByTimeSection } from "./growth-by-time";
 import { ReadinessSection } from "./readiness-section";
@@ -117,7 +118,7 @@ export function DistrictOverviewView({
                   <tr key={c.campusId}>
                     <th scope="row" className="px-4 py-3 font-medium">
                       <Link href={`/admin?school=${c.campusId}`} className="underline underline-offset-4">
-                        {c.campusName}
+                        {shortCampusName(c.campusName, overview.campuses.map((x) => x.campusName))}
                       </Link>
                     </th>
                     <td className="px-4 py-3 text-right tabular-nums">{c.registered.toLocaleString()}</td>

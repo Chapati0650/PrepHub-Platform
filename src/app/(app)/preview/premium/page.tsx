@@ -22,7 +22,8 @@ export default async function PremiumPreviewPage() {
   const assignment =
     role === "SCHOOL_ADMINISTRATOR"
       ? await prisma.administratorAssignment.findFirst({
-          where: { userId: session.user.id, removedAt: null, organization: { organizationType: "SCHOOL" } },
+          // A campus or a district assignment: a district administrator saw "Your School District".
+          where: { userId: session.user.id, removedAt: null },
           select: { organization: { select: { officialName: true, logoMediaId: true, parentDistrict: { select: { officialName: true, logoMediaId: true } } } } },
         })
       : null;

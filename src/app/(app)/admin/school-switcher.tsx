@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { shortCampusName } from "@/lib/admin/campus-names";
 
 /**
  * Shown only when the Owner is previewing the administrator area.
@@ -85,11 +86,11 @@ export function DistrictCampusSwitcher({
       <div className="mt-3 flex flex-wrap gap-2">
         {allowAll ? (
           <Link href="/admin" aria-current={currentSchoolId ? undefined : "page"} className={pill(!currentSchoolId)}>
-            All campuses
+            Whole district
           </Link>
         ) : (
           <Link href="/admin" className={pill(false)}>
-            District overview
+            Whole district
           </Link>
         )}
         {campuses.map((c) => (
@@ -99,7 +100,7 @@ export function DistrictCampusSwitcher({
             aria-current={c.id === currentSchoolId ? "page" : undefined}
             className={pill(c.id === currentSchoolId)}
           >
-            {c.name}
+            {shortCampusName(c.name, campuses.map((x) => x.name))}
           </Link>
         ))}
       </div>

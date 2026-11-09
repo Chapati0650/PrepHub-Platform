@@ -13,7 +13,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { StaffField, StatusChip } from "@/components/staff/staff-ui";
 
 const STATUS_LABELS: Record<string, string> = {
-  ACTIVE: "Active",
+  // "Has access", not "Active": beside "Not started" it read as a contradiction, and "Active this
+  // week" on the same page means practiced (review, 2026-11-09).
+  ACTIVE: "Has access",
   REMOVED: "Removed",
   GRADUATED: "Graduated",
 };
