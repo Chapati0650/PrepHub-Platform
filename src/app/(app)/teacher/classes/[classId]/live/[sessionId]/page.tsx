@@ -18,13 +18,18 @@ const pct = (v: number | null) => (v === null ? "—" : `${Math.round(v * 100)}%
 function Spread({ breakdown }: { breakdown: AnswerBreakdown }) {
   if (breakdown.kind === "entries") {
     return (
+      // Said in words, as Homework results say it: "9 entered 0.5 (right) · 1.5 4" read as one string of numbers.
       <span>
-        {breakdown.correctCount} entered {breakdown.correctAnswer} (right)
-        {breakdown.wrong.length > 0 && ` · ${breakdown.wrong.map((w) => `${w.value} ${w.count}`).join(" · ")}`}
+        {breakdown.correctCount} entered the right answer, {breakdown.correctAnswer}
+        {breakdown.wrong.length > 0 &&
+          `. Most common wrong answers: ${breakdown.wrong
+            .slice(0, 3)
+            .map((w) => `${w.value} (${w.count})`)
+            .join(", ")}`}
       </span>
     );
   }
-  return <span>{breakdown.choices.map((c) => `${c.label} ${c.count}${c.correct ? " (right)" : ""}`).join(" · ")}</span>;
+  return <span>{breakdown.choices.map((c) => `${c.label}: ${c.count}${c.correct ? " (right)" : ""}`).join(" · ")}</span>;
 }
 
 /**

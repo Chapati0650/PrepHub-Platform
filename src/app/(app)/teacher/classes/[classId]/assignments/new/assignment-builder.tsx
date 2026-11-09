@@ -753,7 +753,12 @@ export function AssignmentBuilder({
           {saving || submitted ? "Assigning…" : classCount > 1 ? `Assign to ${classCount} classes` : "Assign to class"}
         </Button>
         <p className="text-sm text-muted-foreground">
-          Students see it on their Homework page as soon as you assign it, and get an email saying it&apos;s there.
+          {/* Why the button is grey, in words (review, 2026-11-09: nothing said a title was needed). */}
+          {selected.length === 0
+            ? "Add at least one question to assign."
+            : !title.trim()
+              ? `${selected.length} question${selected.length === 1 ? "" : "s"} picked. Give the homework a title to assign it.`
+              : "Students see it on their Homework page as soon as you assign it, and get an email saying it's there."}
         </p>
         </div>
       </aside>
