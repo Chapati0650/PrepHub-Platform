@@ -2810,3 +2810,42 @@ model, which is already an item response model.
   Board's. The 80% band and the 0.15 floor are untested against real scores.
 - Demo generators write 2026.3-style columns (fixed ±50 band). Refresh the demos after deploying. The
   display changes at each student's next completed set; no migration, no backfill.
+
+## Houston ISD readiness pass (2026-11-09, branch loop-2026-11-09)
+
+Reviewed as Houston ISD's head of CCMR would see the demo (four reviewers, two rounds), then fixed.
+
+- **District and campus Overviews** (`src/app/(app)/admin/`):
+  - "In class, last 30 days" (`campusesGuidedTotals`, `campusesHomeworkTotals` in `lib/guided/queries.ts`).
+  - "Score growth by hours of practice" (`lib/admin/growth-by-time.ts`): predicted-score change by bands
+    of capped session hours, bands merged (`mergeBands`) until each holds 10+ students, so nothing is
+    withheld or subtractable. The district figure covers only campuses whose own average is shown.
+  - "College readiness" at district level: the sum over campuses whose whole TSI breakdown is shown
+    (`readinessShown`), plus a per-campus "Meet TSI now" column ("Withheld" / "Not enough yet").
+  - "Where students fall short, by skill" (`lib/admin/skill-gaps.ts`): students with a Diagnostic below
+    the Guided pick's TSI line per skill; the district covers campuses whose seven counts are all shown.
+  - "Print or save as PDF" (`components/staff/print-button.tsx`); app chrome is `print:hidden`.
+  - District admins read as such: Settings role, sidebar "Your district", "Campus" eyebrow,
+    "Whole district". Campus names drop a prefix every campus shares (`lib/admin/campus-names.ts`).
+- **Complementary suppression** (`protectPartition`, `protectBenchmarkGroups` in `lib/admin/impact.ts`):
+  when one group of 1-4 is withheld from a breakdown with a known total, the smallest other non-zero
+  group shows as "Withheld" too (type `CellCount`), and a hidden "Still below" hides one shortfall.
+- **Shared demo logins** (`lib/demo-guard.ts`): on an example.com login, deleting the account, leaving
+  a class, removing a student or teacher, archiving a class, a new class code, and deleting homework or
+  announcements return `DEMO_LOCKED_MESSAGE`; "log out all devices" only signs out this session.
+  Curriculum is gated for demo logins whatever is published, and lessons redirect.
+- **1v1 Rush pools** (`lib/rush/pool.ts`): random matching (live and recorded) keeps real students and
+  "sandbox" accounts (example.com, any non-student role) apart. Joining by code is unchanged.
+- **Guided Sessions**: reports count the class as it was (students who joined later aren't Absent and
+  aren't offered catch-up); "Check in with" also names students who got most of their own questions
+  wrong; "Show the question" on each class question; individual-practice reports drop vote and
+  confidence columns; individual practice has a projectable board (code, here, finished) and an "Open
+  the board" link; the console's big button is "Next step" until the last step of the worked example
+  and the explanation; "Follow-up to question N" replaces "One like question N". Teacher home cards show
+  the last session and "Start a Guided Session"; students' /live lists recent sessions.
+- **Homework**: "Due in N days" counts calendar days in Chicago (`describeDue`).
+- **Demo** (`scripts/demo-houston.ts`): `refresh` (rebuild as of today, keeping the password) and a
+  staleness line in `check`; pools skip "[Seed]"/e2e questions; school-day dates, end-of-day due times;
+  a past individual session; Maya steered from each set's re-estimate; ability spread and section tilt
+  like a large urban district (about 22% meet both TSI benchmarks); learning halved to match the
+  Houston flyer; program-sized enrollment; unique names.
