@@ -486,6 +486,16 @@ export function AppShell({
           </Sheet>
         </header>
         <main id="main" tabIndex={-1} className="min-w-0 flex-1 outline-none">
+          {/* An administrator trying the student experience is told so, on every student page (review,
+              2026-11-09: the admin's student home just said "Welcome, Alex"). */}
+          {isAdmin && !pathname.startsWith("/admin") && !pathname.startsWith("/settings") && (
+            <div className="border-b border-border bg-surface-tint px-4 py-2.5 text-sm sm:px-8 print:hidden">
+              You&apos;re trying PrepHub as a student. Nothing you do here counts toward your school&apos;s figures.{" "}
+              <Link href="/admin" className="font-medium underline underline-offset-4">
+                Back to your Overview
+              </Link>
+            </div>
+          )}
           {children}
         </main>
       </div>
