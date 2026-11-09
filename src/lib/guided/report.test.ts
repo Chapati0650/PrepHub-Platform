@@ -112,6 +112,22 @@ describe("buildReport", () => {
     expect(report().checkIn.map((s) => s.studentId)).toEqual(["luis"]);
   });
 
+  it("also names a student who got most of their own questions wrong, whatever the room did", () => {
+    const result = buildReport({
+      items,
+      responses: [r("q1", "sam", "b", "b"), r("q2", "sam", "b", "b", "b")],
+      ownSlots: [
+        { studentId: "sam", isCorrect: false, bonus: false },
+        { studentId: "sam", isCorrect: false, bonus: false },
+        { studentId: "sam", isCorrect: true, bonus: false },
+        { studentId: "sam", isCorrect: false, bonus: false },
+      ],
+      participants: [{ studentId: "sam", pace: null }],
+      roster,
+    });
+    expect(result.checkIn.map((s) => s.studentId)).toEqual(["sam"]);
+  });
+
   it("lists absent students and whether they caught up", () => {
     expect(report().absent).toEqual([{ student: { studentId: "kim", name: "Kim P." }, caughtUp: true }]);
   });

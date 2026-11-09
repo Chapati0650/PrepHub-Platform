@@ -53,7 +53,7 @@ export type SessionReport = {
   /** Average right on students' own questions (bonus excluded), among those who answered any. */
   ownAverage: number | null;
   ownTotal: number;
-  /** Missed a class question on their final vote and two or more of their own. */
+  /** Missed a class question on their final vote and two or more of their own, or most of their own. */
   checkIn: ReportStudent[];
   absent: { student: ReportStudent; caughtUp: boolean }[];
   pace: Record<GuidedPace, number>;
@@ -146,7 +146,10 @@ export function buildReport(params: {
       return r.firstAnswer !== null && finalCorrect === false;
     });
     const own = ownByStudent.get(student.studentId);
-    return missedClass && !!own && own.answered - own.right >= 2;
+    // Also anyone who got most of their own questions wrong, whatever happened with the room: a student
+    // with 0 of 4 alone was left off when they'd only missed the warm-up (review, 2026-11-09).
+    const struggledAlone = !!own && own.answered >= 3 && own.right <= Math.floor(own.answered / 4);
+    return (missedClass && !!own && own.answered - own.right >= 2) || struggledAlone;
   });
 
   const answerableIds = items.filter((i) => i.kind !== "EXAMPLE").map((i) => i.id);

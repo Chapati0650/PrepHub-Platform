@@ -157,7 +157,7 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
       <>
       <StaffSection
         title="Check in with"
-        description="Students who missed a class question on their final answer and two or more of their own. Worth a word after class."
+        description="Students who missed a class question on their final answer and two or more of their own, or got most of their own questions wrong. Worth a word after class."
       >
         {report.checkIn.length === 0 ? (
           <p className="rounded-2xl bg-surface-tint p-5 text-base text-muted-foreground">No one, by that measure.</p>
