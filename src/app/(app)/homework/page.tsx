@@ -159,6 +159,10 @@ export default async function HomeworkPage({ searchParams }: { searchParams: Pro
               <p className="mb-3 font-heading font-semibold">Join another class</p>
               <JoinClassForm />
             </div>
+            {/* The way back to past Guided Sessions, which /live lists (review, 2026-11-09: nothing linked there). */}
+            <Link href="/live" className="w-fit text-base font-medium underline underline-offset-4">
+              Your Guided Sessions in class
+            </Link>
             <p className="text-xs text-muted-foreground">{TEACHER_SEES}</p>
           </section>
         </>

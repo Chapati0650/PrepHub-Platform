@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { LogoMark } from "@/components/logo";
 import { LatexText } from "@/components/content/latex-text";
 import { QuestionStatement } from "@/components/content/question-statement";
@@ -113,13 +114,16 @@ function Body({ state, item, clock }: { state: SharedState; item: SharedItem | n
             {state.phase === "EXAMPLE" ? "Worked example" : `${item.label} · explanation`}
             {item.stepTotal > 0 && ` · step ${Math.min(state.step + 1, item.stepTotal)} of ${item.stepTotal}`}
           </p>
-          <BoardQuestion item={item} compact={state.phase === "EXPLAIN"} />
+          {/* Compact once the steps start, and the newest step scrolled into view: at 1920x1080 the sixth
+              step of an example ran off the bottom of the projector (review, 2026-11-09). */}
+          <BoardQuestion item={item} compact={state.phase === "EXPLAIN" || state.step > 0} />
           {item.steps && (
             <ol className="flex flex-col gap-3">
               {item.steps.map((s, i) => (
                 <li
                   key={i}
-                  className={`flex gap-5 rounded-2xl p-5 text-3xl leading-snug ${i === item.steps!.length - 1 ? "bg-primary/10 ring-2 ring-primary/50" : ""}`}
+                  id={i === item.steps!.length - 1 ? "board-current-step" : undefined}
+                  className={`flex scroll-mb-8 gap-5 rounded-2xl p-5 text-3xl leading-snug ${i === item.steps!.length - 1 ? "bg-primary/10 ring-2 ring-primary/50" : ""}`}
                 >
                   <span className="w-8 shrink-0 font-mono text-2xl text-muted-foreground">{i + 1}</span>
                   <span className="min-w-0">
@@ -131,6 +135,7 @@ function Body({ state, item, clock }: { state: SharedState; item: SharedItem | n
                   </span>
                 </li>
               ))}
+              <ScrollToCurrentStep step={item.steps.length} />
               {item.steps.length < item.stepTotal && (
                 <li className="pl-14 text-2xl text-muted-foreground">
                   {item.stepTotal - item.steps.length} more step{item.stepTotal - item.steps.length === 1 ? "" : "s"}…
@@ -363,4 +368,12 @@ function Reveal({ item }: { item: SharedItem }) {
       </div>
     </div>
   );
+}
+
+/** Keeps the step just shown on the projector in view as the example grows. */
+function ScrollToCurrentStep({ step }: { step: number }) {
+  useEffect(() => {
+    document.getElementById("board-current-step")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [step]);
+  return null;
 }

@@ -4,6 +4,7 @@ import { useState, type ComponentType } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { isDemoAccount } from "@/lib/demo-account";
 import {
   LayoutDashboard,
   PencilLine,
@@ -315,7 +316,10 @@ export function AppShell({
   // School Community is a school's page. A student without an ACTIVE
   // membership (the `provider` above) has no school to show, and the item
   // only led to a page saying so — most students, so most of the time.
-  const ownItems = provider ? STUDENT_ITEMS : STUDENT_ITEMS.filter((item) => item.href !== "/community");
+  // Demo logins can't open The Curriculum, so the item only led to an empty page (review, 2026-11-09).
+  const demo = isDemoAccount(user.email);
+  const withoutCurriculum = (items: NavItem[]) => (demo ? items.filter((item) => item.href !== "/curriculum") : items);
+  const ownItems = withoutCurriculum(provider ? STUDENT_ITEMS : STUDENT_ITEMS.filter((item) => item.href !== "/community"));
   const studentItems = showHomework ? [ownItems[0], HOMEWORK_ITEM, ...ownItems.slice(1)] : ownItems;
   const sections: NavSection[] = isOwner
     ? [{ items: OWNER_ITEMS }]
@@ -324,7 +328,7 @@ export function AppShell({
       : isAdmin
         ? [
             { label: districtAdmin ? "Your district" : "Your school", items: ADMIN_ITEMS },
-            { label: "Student experience", items: ADMIN_STUDENT_ITEMS, collapsible: true },
+            { label: "Student experience", items: withoutCurriculum(ADMIN_STUDENT_ITEMS), collapsible: true },
           ]
         : isStudentExperience
           ? [{ items: studentItems }]

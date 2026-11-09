@@ -46,7 +46,7 @@ export default async function CurriculumPage() {
       <div className="bg-surface-deep px-4 pt-10 pb-16 text-surface-deep-foreground sm:px-8 sm:pt-14 sm:pb-20">
         <div className="mx-auto max-w-5xl">
           <p className="text-caption font-semibold tracking-[0.12em] text-surface-deep-foreground/60 uppercase">
-            Video course · {course.stats.lessonCount} lesson{course.stats.lessonCount === 1 ? "" : "s"}
+            {demo ? "Video course" : <>Video course · {course.stats.lessonCount} lesson{course.stats.lessonCount === 1 ? "" : "s"}</>}
           </p>
           <h1 className="mt-3 text-display-sm text-balance text-surface-deep-foreground sm:text-display">
             The <Marker>Curriculum</Marker>
@@ -168,6 +168,7 @@ export default async function CurriculumPage() {
         <div className="flex flex-col gap-6 lg:sticky lg:top-8 lg:self-start">
           <TeacherCard />
 
+          {!demo && (
           <section className="rounded-2xl border border-border bg-card p-6">
             <h2 className="font-heading text-lg font-semibold tracking-tight">About this course</h2>
             <dl className="mt-4 flex flex-col divide-y divide-border text-sm">
@@ -177,6 +178,7 @@ export default async function CurriculumPage() {
               <Fact label="Language" value="English" />
             </dl>
           </section>
+          )}
 
           {!course.paidAccess && course.stats.lessonCount > 0 && (
             <section className="rounded-2xl bg-surface-tint p-6">
