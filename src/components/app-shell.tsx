@@ -282,7 +282,7 @@ export function AppShell({
     const projector = pathname.startsWith("/teacher/live/") && pathname.endsWith("/board");
     return (
       <div className="flex min-h-screen flex-col">
-        <header data-wt-cover="" className={`${projector ? "hidden " : ""}sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background/85 px-4 py-3 backdrop-blur-sm">
+        <header data-wt-cover="" className={`${projector ? "hidden " : ""}sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background/85 px-4 py-3 backdrop-blur-sm`}>
           {canExit ? (
             <Link
               href="/home"
