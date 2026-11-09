@@ -600,7 +600,9 @@ async function create() {
     const ability = clamp(normal(43 + CAMPUSES[ci].lift + (grade - 9) * 1.5, 24), 8, 85);
     // Sections differ by about 70 points either way (SAT sections correlate near 0.75), so some
     // students miss only Reading & Writing; with a tighter tilt no campus ever showed one.
-    const tilt = normal(0, 18);
+    // About one in eight leans clearly toward Math, as many English learners do (Reading & Writing a
+    // section behind), so "Reading & Writing only" is a real group, not 0 or 1 at every campus.
+    const tilt = chance(0.15) ? normal(-26, 8) : normal(0, 18);
     const roll = clamp(rand() - CAMPUSES[ci].quiet, 0, 0.999);
     const engagement = roll < 0.12 ? "never" : roll < 0.2 ? "started" : roll < 0.48 ? "light" : roll < 0.84 ? "regular" : "keen";
     const id = randomUUID();
@@ -703,7 +705,7 @@ async function create() {
     // "average gain -8". Halved on 2026-11-09 so the demo agrees with the Houston flyer's
     // research-based projection: students with 4+ hours (most of them 5-10 hours) land near +35-40,
     // about what College Board reports for 6-8 hours of practice beyond normal growth, not +60.
-    const learning = between(0.03, 0.35);
+    const learning = between(0.04, 0.45);
     for (let k = 0; k < sets; k++) {
       const setGain = learning + normal(0, 1.0);
       const setId = randomUUID();
