@@ -317,6 +317,15 @@ async function check() {
   }
   const published = await prisma.question.count({ where: { status: "PUBLISHED", currentPublishedRevisionId: { not: null } } });
   console.log(`Published questions: ${published}.`);
+  // Placeholder or test content anyone could be served (Practice Sets, the Daily Challenge, Guided
+  // Sessions draw on every published question, not only the demo's own pools).
+  const placeholders = await prisma.question.count({
+    where: {
+      status: "PUBLISHED",
+      currentPublishedRevision: { OR: [{ questionText: { startsWith: "[Seed]" } }, { questionText: { startsWith: "Family " } }] },
+    },
+  });
+  console.log(placeholders === 0 ? "No placeholder or test questions are published." : `${placeholders} placeholder or test questions are published: archive them before showing the demo.`);
   // The demo's dates are relative to the day it was built, so it goes stale: the open homework turns
   // overdue and Maya's last set drifts into the past. `refresh` rebuilds it as of today.
   const teacher = await prisma.user.findUnique({ where: { email: ACCOUNTS.teacher }, select: { id: true } });
