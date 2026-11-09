@@ -220,7 +220,7 @@ export function ConsoleView({ initial }: { initial: ConsoleState }) {
               </h2>
               <p className="text-sm text-muted-foreground">Exactly what students see right now. Read-only; updates by itself.</p>
             </div>
-            <div className="max-h-[30rem] overflow-y-auto p-4" tabIndex={0} aria-label="Preview of the students' screen">
+            <div className="max-h-[30rem] overflow-y-auto p-4 pb-6" tabIndex={0} aria-label="Preview of the students' screen">
               <StudentScreenPreview shared={state.student} />
             </div>
           </section>

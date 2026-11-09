@@ -691,7 +691,8 @@ export function AssignmentBuilder({
               {selected.map((q, i) => (
                 <li key={q.id} className="flex items-start gap-2 py-2.5 text-base">
                   <span className="w-6 shrink-0 font-heading font-semibold tabular-nums">{String(i + 1).padStart(2, "0")}</span>
-                  <span className="min-w-0 flex-1">
+                  {/* Clipped to its column: long math ran under the move buttons (review, 2026-11-09). */}
+                  <span className="min-w-0 flex-1 overflow-hidden">
                     <span className="block text-sm text-muted-foreground">
                       {CATEGORY_LABELS[q.category]} · {DIFFICULTY_LABELS[q.difficulty]}
                     </span>
