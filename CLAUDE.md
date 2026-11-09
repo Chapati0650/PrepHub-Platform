@@ -2879,3 +2879,13 @@ Reviewed as Houston ISD's head of CCMR would see the demo (four reviewers, two r
   - Class page homework "N of M done" uses each assignment's `expected` (who it was set for); student
     homework dates are Chicago dates; campus Overview has the same "In class" strip as the district.
   - Demo: a math-leaning subgroup (~15%) so "Reading & Writing only" is a real group.
+- **Round-4 changes:**
+  - Shared demo logins can take down an announcement sent in the last day (a visitor's test), not the
+    seeded ones, and a send with no end date ends tonight (`endTonightOnDemo`).
+  - District announcements are listed on the district page (`listDistrictAnnouncements`: same title,
+    message and minute on every campus) and removed everywhere at once (`removeDistrictAnnouncement`).
+  - Readiness has a `meetNow` cell (exact where derivable, null = "Fewer than 5" when itself small, else
+    withheld) used by the campus headline, the district table (with a share) and the CSV.
+  - Class page session list counts the roster as it was (`rosterThen`); the individual-practice CSV
+    drops teacher-led columns; Diagnostic results reopened later say "Continue practicing"; the board
+    hides the Exit/Log out bar and has Full screen; students see the example's last step.
