@@ -2830,7 +2830,7 @@ Reviewed as Houston ISD's head of CCMR would see the demo (four reviewers, two r
 - **Complementary suppression** (`protectPartition`, `protectBenchmarkGroups` in `lib/admin/impact.ts`):
   when one group of 1-4 is withheld from a breakdown with a known total, the smallest other non-zero
   group shows as "Withheld" too (type `CellCount`), and a hidden "Still below" hides one shortfall.
-- **Shared demo logins** (`lib/demo-guard.ts`): on an example.com login, deleting the account, leaving
+- **Shared demo logins** (`lib/demo-guard.ts`, `isSharedDemoLogin`: the five Houston logins and `@hisd-demo.example.com`, not every example.com address, so e2e accounts still work): deleting the account, leaving
   a class, removing a student or teacher, archiving a class, a new class code, and deleting homework or
   announcements return `DEMO_LOCKED_MESSAGE`; "log out all devices" only signs out this session.
   Curriculum is gated for demo logins whatever is published, and lessons redirect.

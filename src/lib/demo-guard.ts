@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { isDemoAccount } from "@/lib/demo-account";
+import { isSharedDemoLogin } from "@/lib/demo-account";
 
 /**
  * Shared demo logins (2026-11-09). Everyone a district sends the demo to signs in as the same five
@@ -13,5 +13,5 @@ export const DEMO_LOCKED_MESSAGE = "Not available on a shared demo login: it wou
 
 export async function isDemoSession(): Promise<boolean> {
   const session = await auth();
-  return isDemoAccount(session?.user?.email);
+  return isSharedDemoLogin(session?.user?.email);
 }
