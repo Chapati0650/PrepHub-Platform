@@ -168,3 +168,22 @@ export async function schoolGuidedTotals(schoolId: string, days: number, now: Da
   }, 0);
   return { sessions: sessions.length, students: students.size, minutes: Math.round(minutes) };
 }
+
+/**
+ * The sessions a student took part in recently, newest first, for the list on /live (review,
+ * 2026-11-09: a past session's recap opened only from the home page's latest card, so an earlier one
+ * couldn't be reached at all).
+ */
+export async function pastSessionsForStudent(studentId: string, now: Date = new Date(), days = 60) {
+  const sessions = await prisma.guidedSession.findMany({
+    where: {
+      status: "ENDED",
+      endedAt: { gte: new Date(now.getTime() - days * DAY_MS) },
+      OR: [{ participants: { some: { studentId } } }, { responses: { some: { studentId } } }],
+    },
+    orderBy: { endedAt: "desc" },
+    take: 10,
+    select: { id: true, category: true, perStudentSkills: true, endedAt: true, classroom: { select: { name: true } } },
+  });
+  return sessions.map((s) => ({ id: s.id, className: s.classroom.name, skill: sessionSkillLabel(s), endedAt: s.endedAt! }));
+}

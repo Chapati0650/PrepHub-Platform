@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { listOpenSessionsForStudent } from "@/lib/guided/queries";
+import { listOpenSessionsForStudent, pastSessionsForStudent, recentSessionsWithWork } from "@/lib/guided/queries";
+import { formatGoalDate } from "@/lib/community/goal";
 import { JoinCodeForm } from "./join-code-form";
 
 export const metadata = { title: "Guided Session" };
@@ -15,7 +16,12 @@ export default async function LivePage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login?next=/live");
   if (session.user.role !== "STUDENT") redirect("/home");
-  const open = await listOpenSessionsForStudent(session.user.id);
+  const [open, past, withWork] = await Promise.all([
+    listOpenSessionsForStudent(session.user.id),
+    pastSessionsForStudent(session.user.id),
+    recentSessionsWithWork(session.user.id),
+  ]);
+  const workFor = new Map(withWork.map((w) => [w.id, w]));
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 p-4 sm:p-8">
@@ -44,6 +50,35 @@ export default async function LivePage() {
             </li>
           ))}
         </ul>
+      )}
+
+      {past.length > 0 && (
+        <section aria-labelledby="past-heading" className="flex flex-col gap-3">
+          <h2 id="past-heading" className="text-xl">
+            Your recent sessions
+          </h2>
+          <ul className="divide-y divide-border rounded-2xl border border-border">
+            {past.map((s) => {
+              const work = workFor.get(s.id);
+              const owed = work ? work.toCatchUp + work.toRetry : 0;
+              return (
+                <li key={s.id}>
+                  <Link href={`/live/${s.id}`} className="flex flex-wrap items-center justify-between gap-3 p-4 transition-colors hover:bg-muted/40">
+                    <span className="min-w-0">
+                      <span className="block font-medium">{s.skill}</span>
+                      <span className="text-sm text-muted-foreground">
+                        {s.className} · {formatGoalDate(s.endedAt)}
+                      </span>
+                    </span>
+                    <span className="text-sm font-medium text-primary">
+                      {owed > 0 ? `${owed} to try again →` : "Review →"}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
 
       <section aria-labelledby="code-heading" className="flex flex-col gap-3">

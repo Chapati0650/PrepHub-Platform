@@ -134,7 +134,13 @@ export default async function ProgressPage() {
           {data.history.map((point, i) => (
             <li key={i} className="flex items-baseline justify-between gap-4 py-3 text-sm">
               <span className="min-w-0 truncate font-medium">
-                {point.label}
+                {point.href ? (
+                  <Link href={point.href} className="underline underline-offset-4">
+                    {point.label}
+                  </Link>
+                ) : (
+                  point.label
+                )}
                 {point.earlierMethod && <span className="ml-2 font-normal text-muted-foreground">earlier method</span>}
               </span>
               <span className="shrink-0 text-muted-foreground">{formatDate(point.date)}</span>

@@ -18,6 +18,8 @@ export type ProgressHistoryPoint = {
   point: number | null;
   /** Scored by an earlier engine than the latest entry, so never compared with it. */
   earlierMethod: boolean;
+  /** Where that Diagnostic's or set's results reopen (review, 2026-11-09: nothing linked to them). */
+  href: string | null;
 };
 
 export type ProgressData =
@@ -75,9 +77,9 @@ export async function getProgressData(studentId: string): Promise<ProgressData> 
     const earlierMethod = p.scoringEngineVersion !== latest.scoringEngineVersion;
     const { min, max, point } = predictionView(p);
     const range = { date: p.createdAt, min, max, point, earlierMethod };
-    if (p.sourceType === "DIAGNOSTIC") return { label: "Diagnostic", ...range };
+    if (p.sourceType === "DIAGNOSTIC") return { label: "Diagnostic", ...range, href: "/diagnostic/results" };
     const set = p.sourceSetId ? setById.get(p.sourceSetId) : undefined;
-    return { label: set ? `Set ${set.setNumber}` : "Set", ...range };
+    return { label: set ? `Set ${set.setNumber}` : "Set", ...range, href: set ? `/practice/results/${set.id}` : null };
   });
 
   // Where the student started, as the engine behind the latest prediction
