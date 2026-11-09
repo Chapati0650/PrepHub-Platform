@@ -131,7 +131,8 @@ function classTime(daysAgo: number, hour = 10): number {
 /** Back to Friday when `ts` falls on a weekend in Central time: classes and due dates are school days
  *  (review, 2026-11-09: a Guided Session dated Sunday, homework due on a Saturday). */
 function schoolDay(ts: number): number {
-  const dow = new Date(ts - 6 * HOUR).getUTCDay();
+  // The UTC calendar day, because that's the day afternoon() places a time on.
+  const dow = new Date(ts).getUTCDay();
   return dow === 6 ? ts - DAY : dow === 0 ? ts - 2 * DAY : ts;
 }
 

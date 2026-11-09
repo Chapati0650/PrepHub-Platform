@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { prisma } from "@/lib/prisma";
+import { sessionSkillLabel } from "@/lib/guided/modes";
 import { getTeacherContext, requireTeacherSession } from "@/lib/teacher/access";
 import { listClassrooms, type ClassroomSummary } from "@/lib/teacher/classrooms";
 import { formatJoinCode } from "@/lib/teacher/join-code";
@@ -40,7 +42,17 @@ export default async function TeacherHomePage() {
   }
 
   const classes = await listClassrooms(context);
-  const open = classes.filter((c) => !c.archived);
+  // Class order as a teacher's day runs: "3rd period" before "6th period".
+  const open = classes.filter((c) => !c.archived).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  // Each class's most recent Guided Session, for its card (review, 2026-11-09: the home page never
+  // mentioned Guided Sessions, so a teacher had to open a class to find them).
+  const ended = await prisma.guidedSession.findMany({
+    where: { classroomId: { in: open.map((c) => c.id) }, status: "ENDED" },
+    orderBy: { endedAt: "desc" },
+    select: { id: true, classroomId: true, category: true, perStudentSkills: true, endedAt: true, _count: { select: { participants: true } } },
+  });
+  const lastSession = new Map<string, (typeof ended)[number]>();
+  for (const g of ended) if (!lastSession.has(g.classroomId)) lastSession.set(g.classroomId, g);
   const archived = classes.filter((c) => c.archived);
 
   return (
@@ -48,7 +60,7 @@ export default async function TeacherHomePage() {
       <StaffHeader
         eyebrow={context.schoolName}
         title={`Your classes, ${context.firstName}`}
-        description="Make a class, give your students its code, then assign PrepHub questions as homework and see how each student did."
+        description="Make a class and give your students its code. Then run Guided Sessions in class, assign PrepHub questions as homework, and see how each student did."
       />
 
       {/* The name on every homework and email students get, so it's up
@@ -83,9 +95,20 @@ export default async function TeacherHomePage() {
       ) : (
         <StaffSection title={open.length === 1 ? "Your class" : `Your classes (${open.length})`}>
           <ul className="grid gap-5 md:grid-cols-2">
-            {open.map((c) => (
-              <ClassCard key={c.id} classroom={c} />
-            ))}
+            {open.map((c) => {
+              const g = lastSession.get(c.id);
+              return (
+                <ClassCard
+                  key={c.id}
+                  classroom={c}
+                  lastSession={
+                    g?.endedAt
+                      ? { href: `/teacher/classes/${c.id}/live/${g.id}`, skill: sessionSkillLabel(g), endedAt: g.endedAt, tookPart: g._count.participants }
+                      : null
+                  }
+                />
+              );
+            })}
           </ul>
         </StaffSection>
       )}
@@ -123,12 +146,18 @@ export default async function TeacherHomePage() {
   );
 }
 
-function ClassCard({ classroom: c }: { classroom: ClassroomSummary }) {
+function ClassCard({
+  classroom: c,
+  lastSession,
+}: {
+  classroom: ClassroomSummary;
+  lastSession: { href: string; skill: string; endedAt: Date; tookPart: number } | null;
+}) {
   return (
-    <li>
+    <li className="flex h-full flex-col overflow-hidden rounded-2xl border border-border">
       <Link
         href={`/teacher/classes/${c.id}`}
-        className="flex h-full flex-col gap-5 rounded-2xl border border-border p-5 transition-colors hover:border-foreground/30 hover:bg-muted/20 sm:p-6"
+        className="flex flex-1 flex-col gap-5 p-5 transition-colors hover:bg-muted/20 sm:p-6"
       >
         <span className="flex items-start justify-between gap-3">
           <span className="text-xl font-semibold">{c.name}</span>
@@ -182,6 +211,20 @@ function ClassCard({ classroom: c }: { classroom: ClassroomSummary }) {
           )}
         </span>
       </Link>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface-tint/60 px-5 py-3 text-base sm:px-6">
+        <span className="min-w-0 text-muted-foreground">
+          {lastSession ? (
+            <Link href={lastSession.href} className="underline underline-offset-4">
+              Last Guided Session · {lastSession.skill} · {formatGoalDate(lastSession.endedAt)} · {lastSession.tookPart} took part
+            </Link>
+          ) : (
+            "No Guided Sessions yet"
+          )}
+        </span>
+        <Link href={`/teacher/classes/${c.id}/live/new`} className="shrink-0 font-medium text-primary underline-offset-4 hover:underline">
+          Start a Guided Session →
+        </Link>
+      </div>
     </li>
   );
 }
