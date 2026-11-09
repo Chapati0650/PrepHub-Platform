@@ -4,8 +4,11 @@ import {
   MIN_STUDENTS_FOR_SCORE_FIGURES,
   measureCampusImpact,
   protectedCount,
+  type CampusImpact,
+  type CampusImpactReport,
   type ProtectedCount,
 } from "./impact";
+import { TSI_MATH_BENCHMARK, TSI_READING_WRITING_BENCHMARK } from "@/lib/score/ccmr";
 
 /**
  * The district administrator's overview (2026-11-08): district totals and one
@@ -28,6 +31,8 @@ export type RawCampusFigures = {
   measurableStudents: number;
   /** Sum of every measurable student's score change, so districts can weight by students. */
   totalScoreGain: number;
+  /** Raw TSI benchmark groups (see `CampusImpact`); only ever shown through `readinessShown`. */
+  benchmark: Omit<CampusImpact["benchmark"], "readingWritingBenchmark" | "mathBenchmark">;
 };
 
 export type FigureRow = {
@@ -42,13 +47,24 @@ export type FigureRow = {
   averageScoreGain: number | null;
 };
 
-export type CampusRow = FigureRow & { campusId: string; campusName: string };
+export type CampusRow = FigureRow & {
+  campusId: string;
+  campusName: string;
+  /**
+   * Students whose latest prediction meets both TSI benchmarks, of those measured; null unless the
+   * campus's whole readiness breakdown is shown (10+ measured and no group of 1-4), so it can't be
+   * combined with the campus page to recover a withheld group.
+   */
+  readiness: { meet: number; measured: number } | null;
+};
 
 export type DistrictOverview = {
   districtName: string;
   totals: FigureRow;
   /** Campuses each district figure leaves out because their own is withheld. */
-  excluded: { started: number; activeThisWeek: number; scoreGain: number };
+  excluded: { started: number; activeThisWeek: number; scoreGain: number; readiness: number };
+  /** The district's TSI breakdown over the campuses whose whole breakdown is shown; null below 10 measured. */
+  readiness: CampusImpactReport["benchmark"];
   campuses: CampusRow[];
 };
 
@@ -80,6 +96,38 @@ function toFigureRow(
  * total minus the visible campuses; `excluded` says how many campuses each
  * figure leaves out, for the page to state.
  */
+type RawBenchmark = RawCampusFigures["benchmark"];
+
+function measuredOf(b: RawBenchmark): number {
+  return b.crossed + b.held + b.slipped + b.below;
+}
+
+/** A campus's breakdown is fully shown: enough students measured and no group withheld. */
+export function readinessShown(b: RawBenchmark): boolean {
+  if (measuredOf(b) < MIN_STUDENTS_FOR_SCORE_FIGURES) return false;
+  const groups = [b.crossed, b.held, b.slipped, b.below, b.shortfall.MISSES_MATH_ONLY, b.shortfall.MISSES_READING_ONLY, b.shortfall.MISSES_BOTH];
+  return groups.every((n) => protectedCount(n) !== null);
+}
+
+function protectBenchmark(b: RawBenchmark): CampusImpactReport["benchmark"] {
+  const measured = measuredOf(b);
+  if (measured < MIN_STUDENTS_FOR_SCORE_FIGURES) return null;
+  return {
+    measured,
+    crossed: protectedCount(b.crossed),
+    held: protectedCount(b.held),
+    slipped: protectedCount(b.slipped),
+    below: protectedCount(b.below),
+    shortfall: {
+      MISSES_MATH_ONLY: protectedCount(b.shortfall.MISSES_MATH_ONLY),
+      MISSES_READING_ONLY: protectedCount(b.shortfall.MISSES_READING_ONLY),
+      MISSES_BOTH: protectedCount(b.shortfall.MISSES_BOTH),
+    },
+    readingWritingBenchmark: TSI_READING_WRITING_BENCHMARK,
+    mathBenchmark: TSI_MATH_BENCHMARK,
+  };
+}
+
 export function buildDistrictOverview(districtName: string, raw: RawCampusFigures[]): DistrictOverview {
   const sum = (pick: (r: RawCampusFigures) => number) => raw.reduce((n, r) => n + pick(r), 0);
   const shown = (pick: (r: RawCampusFigures) => number) => raw.filter((r) => protectedCount(pick(r)) !== null);
@@ -89,6 +137,24 @@ export function buildDistrictOverview(districtName: string, raw: RawCampusFigure
   const total = (rows: RawCampusFigures[], pick: (r: RawCampusFigures) => number) =>
     protectedCount(rows.reduce((n, r) => n + pick(r), 0));
   const gainStudents = gainShown.reduce((n, r) => n + r.measurableStudents, 0);
+  // Readiness sums whole campuses only: a campus with any group of 1-4 is left out entirely, so the
+  // district figure is a sum of breakdowns that are each shown in full on their campus pages.
+  const readyShown = raw.filter((r) => readinessShown(r.benchmark));
+  const readyWithData = raw.filter((r) => measuredOf(r.benchmark) > 0);
+  const districtBenchmark = readyShown.reduce<RawBenchmark>(
+    (acc, r) => ({
+      crossed: acc.crossed + r.benchmark.crossed,
+      held: acc.held + r.benchmark.held,
+      slipped: acc.slipped + r.benchmark.slipped,
+      below: acc.below + r.benchmark.below,
+      shortfall: {
+        MISSES_MATH_ONLY: acc.shortfall.MISSES_MATH_ONLY + r.benchmark.shortfall.MISSES_MATH_ONLY,
+        MISSES_READING_ONLY: acc.shortfall.MISSES_READING_ONLY + r.benchmark.shortfall.MISSES_READING_ONLY,
+        MISSES_BOTH: acc.shortfall.MISSES_BOTH + r.benchmark.shortfall.MISSES_BOTH,
+      },
+    }),
+    { crossed: 0, held: 0, slipped: 0, below: 0, shortfall: { MISSES_MATH_ONLY: 0, MISSES_READING_ONLY: 0, MISSES_BOTH: 0 } },
+  );
   return {
     districtName,
     totals: {
@@ -106,8 +172,17 @@ export function buildDistrictOverview(districtName: string, raw: RawCampusFigure
       started: raw.length - startedShown.length,
       activeThisWeek: raw.length - weekShown.length,
       scoreGain: raw.length - gainShown.length,
+      readiness: readyWithData.filter((r) => !readinessShown(r.benchmark)).length,
     },
-    campuses: raw.map((r) => ({ campusId: r.campusId, campusName: r.campusName, ...toFigureRow(r) })),
+    readiness: protectBenchmark(districtBenchmark),
+    campuses: raw.map((r) => ({
+      campusId: r.campusId,
+      campusName: r.campusName,
+      ...toFigureRow(r),
+      readiness: readinessShown(r.benchmark)
+        ? { meet: r.benchmark.crossed + r.benchmark.held, measured: measuredOf(r.benchmark) }
+        : null,
+    })),
   };
 }
 
@@ -128,6 +203,13 @@ async function rawFiguresForCampus(campus: { id: string; name: string }): Promis
     practiceSetsFinished: agg.stats.totalAdaptiveSessionsCompleted,
     measurableStudents: impact.measurableStudents,
     totalScoreGain: impact.averageScoreGain === null ? 0 : impact.averageScoreGain * impact.measurableStudents,
+    benchmark: {
+      crossed: impact.benchmark.crossed,
+      held: impact.benchmark.held,
+      slipped: impact.benchmark.slipped,
+      below: impact.benchmark.below,
+      shortfall: impact.benchmark.shortfall,
+    },
   };
 }
 

@@ -43,7 +43,7 @@ export function GrowthByTimeSection({
         </StaffNote>
       ) : (
         <>
-          <figure className="rounded-2xl border border-border p-5">
+          <figure className="break-inside-avoid rounded-2xl border border-border p-5">
             <figcaption className="sr-only">Average predicted score change by hours practiced</figcaption>
             <ul className="flex flex-col gap-4">
               {growth.bands.map((b) => {

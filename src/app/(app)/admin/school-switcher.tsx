@@ -19,7 +19,7 @@ export function OwnerSchoolSwitcher({
   currentSchoolId: string | null;
 }) {
   return (
-    <div className="rounded-xl border border-marker/60 bg-surface-tint p-4">
+    <div className="rounded-xl border border-marker/60 bg-surface-tint p-4 print:hidden">
       <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
         Owner preview · read-only
       </p>
@@ -77,7 +77,7 @@ export function DistrictCampusSwitcher({
       ? "rounded-full bg-primary px-3 py-1 text-sm font-medium text-primary-foreground"
       : "rounded-full border border-border px-3 py-1 text-sm hover:bg-muted";
   return (
-    <nav aria-label="Campus" className="rounded-xl border border-border bg-surface-tint p-4">
+    <nav aria-label="Campus" className="rounded-xl border border-border bg-surface-tint p-4 print:hidden">
       <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">{districtName}</p>
       <p className="mt-1 text-sm text-muted-foreground">
         {currentSchoolId ? "Viewing one campus. Choose another, or go back to the whole district." : "Choose a campus."}

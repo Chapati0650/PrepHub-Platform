@@ -3,8 +3,10 @@ import { MIN_GROUP_SIZE, MIN_STUDENTS_FOR_SCORE_FIGURES, type ProtectedCount } f
 import type { DistrictOverview, FigureRow } from "@/lib/admin/district-overview";
 import { StaffHeader, StaffNote, StaffPage, StaffSection, StatStrip } from "@/components/staff/staff-ui";
 import type { GrowthByStudyTime } from "@/lib/admin/growth-by-time";
+import { PrintButton } from "@/components/staff/print-button";
 import { DistrictCampusSwitcher } from "./school-switcher";
 import { GrowthByTimeSection } from "./growth-by-time";
+import { ReadinessSection } from "./readiness-section";
 
 function count(value: ProtectedCount): string {
   return value === null ? `Fewer than ${MIN_GROUP_SIZE}` : value.toLocaleString();
@@ -35,6 +37,7 @@ export function DistrictOverviewView({
         eyebrow="Your district"
         title={overview.districtName}
         description="How PrepHub is going across your district, and at each campus. These are totals: no student's scores are ever shown."
+        actions={<PrintButton />}
       />
 
       <StaffSection
@@ -81,12 +84,21 @@ export function DistrictOverviewView({
         />
       )}
 
+      <ReadinessSection
+        benchmark={overview.readiness}
+        note={
+          excluded.readiness > 0
+            ? `Across the campuses whose own breakdown is shown in full; leaves out ${excluded.readiness === 1 ? "1 campus" : `${excluded.readiness} campuses`} with a group too small to show.`
+            : undefined
+        }
+      />
+
       <StaffSection title="By campus" description="Open a campus to see its own overview, students, teachers, announcements and goal.">
         {overview.campuses.length === 0 ? (
           <StaffNote>No campuses are linked to this district yet. Email PrepHub to add them.</StaffNote>
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-border">
-            <table className="w-full min-w-[56rem] text-left text-base">
+          <div className="overflow-x-auto rounded-2xl border border-border print:overflow-visible">
+            <table className="w-full min-w-[56rem] text-left text-base print:min-w-0 print:text-sm">
               <caption className="sr-only">PrepHub activity by campus</caption>
               <thead className="bg-surface-tint text-sm">
                 <tr>
@@ -95,8 +107,8 @@ export function DistrictOverviewView({
                   <th scope="col" className="px-4 py-3 text-right font-semibold">Started practicing</th>
                   <th scope="col" className="px-4 py-3 text-right font-semibold">Active this week</th>
                   <th scope="col" className="px-4 py-3 text-right font-semibold">Questions answered</th>
-                  <th scope="col" className="px-4 py-3 text-right font-semibold">Practice Sets</th>
                   <th scope="col" className="px-4 py-3 text-right font-semibold">Average gain</th>
+                  <th scope="col" className="px-4 py-3 text-right font-semibold">Meet TSI now</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -111,8 +123,10 @@ export function DistrictOverviewView({
                     <td className="px-4 py-3 text-right tabular-nums">{count(c.started)}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{count(c.activeThisWeek)}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{c.questionsAnswered.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{c.practiceSetsFinished.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{gain(c)}</td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap tabular-nums">{gain(c)}</td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap tabular-nums">
+                      {c.readiness ? `${c.readiness.meet.toLocaleString()} of ${c.readiness.measured.toLocaleString()}` : "Not enough yet"}
+                    </td>
                   </tr>
                 ))}
               </tbody>

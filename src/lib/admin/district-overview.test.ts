@@ -12,6 +12,7 @@ function campus(over: Partial<RawCampusFigures> & { campusId: string }): RawCamp
     practiceSetsFinished: 200,
     measurableStudents: 40,
     totalScoreGain: 40 * 25,
+    benchmark: { crossed: 8, held: 12, slipped: 0, below: 20, shortfall: { MISSES_MATH_ONLY: 10, MISSES_READING_ONLY: 5, MISSES_BOTH: 5 } },
     ...over,
   };
 }
@@ -109,5 +110,26 @@ describe("buildDistrictOverview", () => {
     const o = buildDistrictOverview("D", []);
     expect(o.campuses).toEqual([]);
     expect(o.totals).toMatchObject({ registered: 0, started: 0, averageScoreGain: null });
+  });
+
+  it("rolls TSI readiness up from whole campuses only, so a withheld group can't be subtracted out", () => {
+    const o = buildDistrictOverview("D", [
+      campus({ campusId: "a" }),
+      // 3 crossed is withheld on its campus page, so the whole campus stays out of the district figure.
+      campus({ campusId: "b", benchmark: { crossed: 3, held: 10, slipped: 0, below: 12, shortfall: { MISSES_MATH_ONLY: 6, MISSES_READING_ONLY: 6, MISSES_BOTH: 0 } } }),
+      // Too few measured to show at all.
+      campus({ campusId: "c", benchmark: { crossed: 2, held: 2, slipped: 0, below: 3, shortfall: { MISSES_MATH_ONLY: 3, MISSES_READING_ONLY: 0, MISSES_BOTH: 0 } } }),
+      campus({ campusId: "d", benchmark: { crossed: 0, held: 0, slipped: 0, below: 0, shortfall: { MISSES_MATH_ONLY: 0, MISSES_READING_ONLY: 0, MISSES_BOTH: 0 } } }),
+    ]);
+    expect(o.readiness).toMatchObject({ measured: 40, crossed: 8, held: 12, below: 20, slipped: 0 });
+    expect(o.excluded.readiness).toBe(2); // b and c; d has nobody measured
+    expect(o.campuses.map((c) => c.readiness)).toEqual([{ meet: 20, measured: 40 }, null, null, null]);
+  });
+
+  it("has no district readiness until a whole campus can be shown", () => {
+    const o = buildDistrictOverview("D", [
+      campus({ campusId: "a", benchmark: { crossed: 1, held: 9, slipped: 0, below: 10, shortfall: { MISSES_MATH_ONLY: 5, MISSES_READING_ONLY: 5, MISSES_BOTH: 0 } } }),
+    ]);
+    expect(o.readiness).toBeNull();
   });
 });

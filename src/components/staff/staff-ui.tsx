@@ -116,7 +116,7 @@ export function StatStrip({ stats, columns = 4 }: { stats: StaffStat[]; columns?
   return (
     <dl
       className={cn(
-        "grid gap-px overflow-hidden rounded-2xl border border-border bg-border",
+        "grid gap-px overflow-hidden rounded-2xl border border-border bg-border break-inside-avoid",
         columns === 2 && "sm:grid-cols-2",
         columns === 3 && "sm:grid-cols-3",
         columns === 4 && "sm:grid-cols-2 lg:grid-cols-4",

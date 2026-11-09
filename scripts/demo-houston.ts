@@ -559,9 +559,14 @@ async function create() {
     const grade = pick([9, 10, 10, 11, 11, 11, 11, 12, 12]);
     const joinedAt = LAUNCH + (chance(0.7) ? between(0, 12) : between(12, 40)) * DAY;
     // On engine 2026.2's scale, where 50 is a typical PrepHub student (about
-    // 1010): this campus centres near 860 and spreads about 180 either way.
-    const ability = clamp(normal(38 + CAMPUSES[ci].lift + (grade - 9) * 1.5, 12), 8, 85);
-    const tilt = normal(0, 6);
+    // 1010). Since 2026-11-09 the district centres near 940 with a standard
+    // deviation of about 12 ability points (~95 points a section; normal()'s
+    // spread is twice its SD), so about 54% meet the Reading & Writing TSI
+    // benchmark, 22% Math and 22% both: a large urban district, where before
+    // (centre 860, SD 6) only 1% met Math and the district readiness panel
+    // read "0 met it".
+    const ability = clamp(normal(43 + CAMPUSES[ci].lift + (grade - 9) * 1.5, 24), 8, 85);
+    const tilt = normal(0, 10);
     const roll = clamp(rand() - CAMPUSES[ci].quiet, 0, 0.999);
     const engagement = roll < 0.12 ? "never" : roll < 0.2 ? "started" : roll < 0.48 ? "light" : roll < 0.84 ? "regular" : "keen";
     const id = randomUUID();
@@ -661,10 +666,12 @@ async function create() {
     // tens of points over a few weeks, not hundreds, and some students dip. A
     // district will check. Per-answer steps alone (right up, wrong down)
     // netted to zero at these students' accuracy, and the Overview read
-    // "average gain -8".
-    const learning = between(0.1, 0.9);
+    // "average gain -8". Halved on 2026-11-09 so the demo agrees with the Houston flyer's
+    // research-based projection: students with 4+ hours land near +35, about what College Board
+    // reports for 6-8 hours of practice beyond normal growth, not +60.
+    const learning = between(0.05, 0.5);
     for (let k = 0; k < sets; k++) {
-      const setGain = learning + normal(0, 1.2);
+      const setGain = learning + normal(0, 1.0);
       const setId = randomUUID();
       const created = t + DAY * 0.5 + (span * (k + rand() * 0.8)) / Math.max(sets, 1);
       if (created > NOW - 30 * MINUTE) break;

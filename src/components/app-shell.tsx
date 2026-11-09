@@ -426,7 +426,7 @@ export function AppShell({
         Skip to content
       </a>
       {/* Desktop sidebar — hidden below sm, where the mobile header below takes over */}
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground sm:flex">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground sm:flex print:!hidden">
         {sidebarBody}
       </aside>
 
@@ -459,7 +459,7 @@ export function AppShell({
             </Link>
           </div>
         )}
-        <header data-wt-cover="" className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background/85 px-4 py-3 backdrop-blur-sm sm:hidden">
+        <header data-wt-cover="" className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background/85 px-4 py-3 backdrop-blur-sm sm:hidden print:!hidden">
           {/* The mark is aria-hidden, so the link needs its own name. */}
           <Link href="/home" className="flex items-center" aria-label="PrepHub home">
             <LogoMark className="size-6 text-primary" />
