@@ -31,10 +31,12 @@ export default async function DiagnosticResultsPage() {
   if (!diagnostic) redirect("/diagnostic");
   if (diagnostic.status !== "COMPLETED") redirect("/diagnostic");
 
-  const [data, access, paid] = await Promise.all([
+  const [data, access, paid, setsDone] = await Promise.all([
     getDiagnosticResultsData(session.user.id),
     getAccessSummary(session.user.id),
     hasPaidAccess(session.user.id),
+    // Reopened later (from Progress), the next step isn't "your free practice set" (review, 2026-11-09).
+    prisma.practiceSet.count({ where: { studentId: session.user.id, status: "COMPLETED" } }),
   ]);
   const needsOnboarding = user.role === "STUDENT" && !user.onboardingCompletedAt;
   const verdict = diagnosticVerdict(data.mastery);
@@ -57,7 +59,7 @@ export default async function DiagnosticResultsPage() {
       data={{ ...data, continueHref: needsOnboarding ? "/onboarding" : "/practice" }}
       loadQuestionDetail={loadDiagnosticQuestionDetailAction}
       verdict={verdict}
-      continueLabel={needsOnboarding ? "Set your target score" : "Start your free practice set"}
+      continueLabel={needsOnboarding ? "Set your target score" : setsDone > 0 ? "Continue practicing" : paid ? "Start your first practice set" : "Start your free practice set"}
       extra={<ParentSummary text={summary} />}
       // An Administrator's /home is the admin area; this is their student dashboard.
       backHref={user.role === "SCHOOL_ADMINISTRATOR" ? "/home?view=student" : "/home"}
