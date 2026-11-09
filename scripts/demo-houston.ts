@@ -689,7 +689,11 @@ async function create() {
     });
     if (!finished) continue;
 
-    const diagnosticEntry = prediction(s.id, s.rw, s.math, null, new Date(t + MINUTE), null);
+    // A first Diagnostic underestimates some students (a new format, nerves): about three in ten read a
+    // little low the first time, and their first sets correct it. It is also how most real crossings of
+    // the TSI line happen in a first few weeks (review, 2026-11-09: "Crossed: fewer than 5" district-wide).
+    const firstDip = chance(0.3) ? between(0.5, 2.5) : 0;
+    const diagnosticEntry = prediction(s.id, s.rw - firstDip, s.math - firstDip, null, new Date(t + MINUTE), null);
     const first = diagnosticEntry.representativeMidpoint;
     predictions.push(diagnosticEntry);
     const sets = s.engagement === "light" ? int(0, 2) : s.engagement === "regular" ? int(2, 6) : int(6, 12);
@@ -705,7 +709,7 @@ async function create() {
     // "average gain -8". Halved on 2026-11-09 so the demo agrees with the Houston flyer's
     // research-based projection: students with 4+ hours (most of them 5-10 hours) land near +35-40,
     // about what College Board reports for 6-8 hours of practice beyond normal growth, not +60.
-    const learning = between(0.04, 0.45);
+    const learning = between(0.03, 0.4);
     for (let k = 0; k < sets; k++) {
       const setGain = learning + normal(0, 1.0);
       const setId = randomUUID();
