@@ -277,9 +277,12 @@ export function AppShell({
     // Log out now lives in this header for every focus route; Exit is hidden
     // on the one route where it can't work.
     const canExit = pathname !== "/onboarding";
+    // The projector board opens in its own tab and goes on the classroom wall: no Exit / Log out bar
+    // there (review, 2026-11-09). The teacher closes the tab.
+    const projector = pathname.startsWith("/teacher/live/") && pathname.endsWith("/board");
     return (
       <div className="flex min-h-screen flex-col">
-        <header data-wt-cover="" className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background/85 px-4 py-3 backdrop-blur-sm">
+        <header data-wt-cover="" className={`${projector ? "hidden " : ""}sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background/85 px-4 py-3 backdrop-blur-sm">
           {canExit ? (
             <Link
               href="/home"

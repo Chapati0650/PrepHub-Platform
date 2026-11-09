@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { LogoMark } from "@/components/logo";
 import { LatexText } from "@/components/content/latex-text";
 import { QuestionStatement } from "@/components/content/question-statement";
@@ -33,6 +33,7 @@ export function BoardView({ stateKey, initial }: { stateKey: string; initial: Sh
         <span className="flex-1" />
         {state.paused && <span className="rounded-full bg-amber-100 px-4 py-1 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">Screens paused</span>}
         {offline && <span className="text-base">Reconnecting…</span>}
+        <FullScreenButton />
         {clock !== null && state.phase !== "OWN" && (
           <span className="rounded-full border-2 border-border px-5 py-1 font-mono text-3xl tabular-nums text-foreground">
             {clock === 0 ? "Time's up" : formatClock(clock)}
@@ -376,4 +377,24 @@ function ScrollToCurrentStep({ step }: { step: number }) {
     document.getElementById("board-current-step")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [step]);
   return null;
+}
+
+/** One click to fill the projector; hidden once the board is full screen. */
+function FullScreenButton() {
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const onChange = () => setFull(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  if (full) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => void document.documentElement.requestFullscreen?.().catch(() => {})}
+      className="rounded-full border border-border px-4 py-1 text-base text-muted-foreground hover:bg-muted"
+    >
+      Full screen
+    </button>
+  );
 }
