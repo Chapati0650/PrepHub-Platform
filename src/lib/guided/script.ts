@@ -323,7 +323,9 @@ export function scriptFor(i: ScriptInput): TeacherScript {
         ...empty,
         title: "Wrap up",
         doThis: [
-          "Read the takeaways below out loud and tell the class when the next session is.",
+          i.takeaways.length > 0
+            ? "Read the takeaways below out loud and tell the class when the next session is."
+            : "Tell the class what you practiced today and when the next session is.",
           "Press \"End the session\". You will then see how each student did.",
         ],
         say: ["That's the session. Look at your results on your screen, and tap how the pace felt for you."],

@@ -6,6 +6,8 @@ import { CATCH_UP_DAYS } from "./config";
 import { sessionSkillLabel } from "./modes";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** How long an un-ended session keeps showing students a Join card (2026-11-09). */
+const OPEN_SESSION_JOINABLE_MS = 8 * 60 * 60 * 1000;
 
 export type OpenSessionLink = { id: string; className: string; teacherName: string; joined: boolean };
 
@@ -14,6 +16,8 @@ export async function listOpenSessionsForStudent(studentId: string): Promise<Ope
   const sessions = await prisma.guidedSession.findMany({
     where: {
       status: "OPEN",
+      // A session nobody ended (the teacher closed the tab) stops offering "Join" after a school day.
+      createdAt: { gte: new Date(Date.now() - OPEN_SESSION_JOINABLE_MS) },
       classroom: { archivedAt: null, enrollments: { some: { studentId, removedAt: null } } },
     },
     orderBy: { createdAt: "desc" },

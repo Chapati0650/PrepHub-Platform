@@ -65,7 +65,7 @@ function BreakdownLine({ breakdown }: { breakdown: AnswerBreakdown }) {
         ))}
         {breakdown.commonWrong && (
           <span className="text-sm text-muted-foreground">
-            Most who missed it chose {breakdown.commonWrong}.
+            Most common wrong answer: {breakdown.commonWrong}.
           </span>
         )}
       </p>

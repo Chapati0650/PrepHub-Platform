@@ -42,9 +42,9 @@ export function GrowthByTimeSection({
         <StaffNote>
           {measured >= 2 * MIN_STUDENTS_FOR_SCORE_FIGURES ? (
             <>
-              The {measured.toLocaleString()} students at {scope} who can be compared have practiced for similar amounts of
-              time so far, so there is only one group of at least {MIN_STUDENTS_FOR_SCORE_FIGURES} to show. This fills in as
-              practice time spreads out.
+              The {measured.toLocaleString()} students at {scope} who can be compared can&apos;t yet be split by hours practiced
+              into groups of at least {MIN_STUDENTS_FOR_SCORE_FIGURES}, so there is only one group, the average above. This fills
+              in as more students practice.
             </>
           ) : (
             <>
@@ -82,7 +82,7 @@ export function GrowthByTimeSection({
             </ul>
           </figure>
           <StaffNote>
-            Covers all {growth.measured.toLocaleString()} students with a first and a latest prediction. Hours count every
+            Covers the {growth.measured.toLocaleString()} students with a first and a latest prediction. Hours count every
             finished session of any kind. Predictions are PrepHub estimates, not official College Board results, and
             students who practice more may differ in other ways, so this shows an association, not a guarantee.
           </StaffNote>

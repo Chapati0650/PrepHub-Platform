@@ -110,7 +110,7 @@ export default async function ClassroomPage({
       {sessions.length > 0 && (
         <StaffSection
           title="Guided Sessions"
-          description="Live, whole-class sessions you ran from the front. Open one for what the room did and who to check in with."
+          description="Sessions you ran in class, teacher-led or individual practice. Open one for how each student did and who to check in with."
         >
           <ul className="divide-y divide-border rounded-2xl border border-border">
             {sessions.map((s) => (
@@ -121,7 +121,9 @@ export default async function ClassroomPage({
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block text-lg font-medium">{s.categoryLabel}</span>
-                    <span className="text-base text-muted-foreground">{formatGoalDate(s.createdAt)}</span>
+                    <span className="text-base text-muted-foreground">
+                      {s.mode === "INDIVIDUAL" ? "Individual practice" : "Teacher-led"} · {formatGoalDate(s.createdAt)}
+                    </span>
                   </span>
                   <span className="text-base tabular-nums">
                     {s.joined} of {studentCount} took part

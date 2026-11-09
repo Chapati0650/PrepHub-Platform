@@ -288,7 +288,7 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
       {guided.sessions > 0 && (
         <StaffSection
           title="Guided Sessions"
-          description="Live, whole-class sessions your teachers ran from the front, in the last 30 days. Totals only; teachers see their own class's results."
+          description="Sessions your teachers ran in class in the last 30 days, teacher-led or individual practice. Totals only; teachers see their own class's results."
         >
           <StatStrip
             columns={3}

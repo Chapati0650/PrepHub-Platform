@@ -501,7 +501,9 @@ export function AppShell({
       </div>
       {/* Never on a focus-mode route (that branch returns above), so it can't
           land on top of a question; it waits for the next ordinary page. */}
-      {celebration && markCelebrated && <PremiumUnlocked {...celebration} onSeen={markCelebrated} />}
+      {/* Not over a live Guided Session: a student joining their first one got a full-screen dialog whose
+          button took them to the Diagnostic, out of class (review, 2026-11-09). It waits for the next page. */}
+      {celebration && markCelebrated && !pathname.startsWith("/live") && <PremiumUnlocked {...celebration} onSeen={markCelebrated} />}
     </div>
   );
 }

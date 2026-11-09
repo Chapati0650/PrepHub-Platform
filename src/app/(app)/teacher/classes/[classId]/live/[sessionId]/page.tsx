@@ -155,7 +155,7 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
                 </span>
                 {q.first.kind === "choices" && q.first.commonWrong && (
                   <span className="mt-1 block">
-                    <StatusChip tone="warn">Most who missed it chose {q.first.commonWrong}</StatusChip>
+                    <StatusChip tone="warn">Most common wrong answer: {q.first.commonWrong}</StatusChip>
                   </span>
                 )}
                 <GuidedQuestionPreview sessionId={sessionId} itemId={q.itemId} />
@@ -166,11 +166,13 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
       </StaffSection>
       )}
 
-      {!individual && (
-      <>
       <StaffSection
         title="Check in with"
-        description="Students who missed a class question on their final answer and two or more of their own, or got most of their own questions wrong. Worth a word after class."
+        description={
+          individual
+            ? "Students who got most of their questions wrong. Worth a word after class."
+            : "Students who missed a class question on their final answer and two or more of their own, or got most of their own questions wrong. Worth a word after class."
+        }
       >
         {report.checkIn.length === 0 ? (
           <p className="rounded-2xl bg-surface-tint p-5 text-base text-muted-foreground">No one, by that measure.</p>
@@ -185,6 +187,8 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
         )}
       </StaffSection>
 
+      {!individual && (
+      <>
       <StaffSection
         title="Absent"
         description="Students in the class who didn't take part. Each has a catch-up on their PrepHub home page for two weeks: the same questions, at their own pace, with the explanations."
