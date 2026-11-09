@@ -2849,3 +2849,8 @@ Reviewed as Houston ISD's head of CCMR would see the demo (four reviewers, two r
   a past individual session; Maya steered from each set's re-estimate; ability spread and section tilt
   like a large urban district (about 22% meet both TSI benchmarks); learning halved to match the
   Houston flyer; program-sized enrollment; unique names.
+- **Dev-server caveat seen in this pass:** after a long session of edits (and a `next build` beside a running
+  `next dev`), Turbopack served stale server code: a demo-guarded action ran unguarded until its file was
+  recompiled, and the Guided export route answered with the HTML 404 page until its `route.ts` was touched.
+  Production builds were fine (the route is in the build output). Restart `next dev`, or touch the file,
+  before trusting a surprising result; e2e on a fresh server can hit the same thing.
