@@ -149,7 +149,7 @@ export default async function ClassroomPage({
           <ul className="divide-y divide-border rounded-2xl border border-border">
             {detail.assignments.map((a) => {
               const due = dueStatus(a, now);
-              const share = studentCount > 0 ? Math.round((a.completed / studentCount) * 100) : 0;
+              const share = a.expected > 0 ? Math.round((a.completed / a.expected) * 100) : 0;
               return (
                 <li key={a.id}>
                   <Link
@@ -169,7 +169,7 @@ export default async function ClassroomPage({
                     <span className="flex w-full flex-col gap-1.5 md:w-56">
                       <span className="flex justify-between text-base tabular-nums">
                         <span>
-                          <span className="font-semibold">{a.completed}</span> of {studentCount} done
+                          <span className="font-semibold">{a.completed}</span> of {a.expected} done
                         </span>
                         {a.inProgress > 0 && <span className="text-muted-foreground">{a.inProgress} started</span>}
                       </span>

@@ -264,6 +264,11 @@ export type ClassroomDetail = {
     questionCount: number;
     completed: number;
     inProgress: number;
+    /**
+     * Students on the roster it was set for: everyone except those who joined after it was due and haven't
+     * started it, as the homework's own page counts them (review, 2026-11-09: "16 of 24" here, "16 of 23" there).
+     */
+    expected: number;
     /** Mean percent correct over finished submissions; null until one exists. */
     averagePercent: number | null;
   }[];
@@ -378,6 +383,11 @@ export async function getClassroomDetail(context: TeacherContext, classroomId: s
         mode: a.mode,
         createdAt: a.createdAt,
         questionCount: a._count.questions,
+        expected: enrollments.filter(
+          (e) =>
+            e.removedAt === null &&
+            (!joinedAfterDeadline(e.joinedAt, a) || sessions.some((x) => x.assignmentId === a.id && x.studentId === e.student.id)),
+        ).length,
         completed: stats?.completed ?? 0,
         inProgress: stats?.inProgress ?? 0,
         averagePercent:

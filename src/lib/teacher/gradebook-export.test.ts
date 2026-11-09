@@ -16,6 +16,7 @@ const assignment = (id: string, title: string, created: string, due: string | nu
   questionCount,
   completed: 0,
   inProgress: 0,
+  expected: 0,
   averagePercent: null,
 });
 
