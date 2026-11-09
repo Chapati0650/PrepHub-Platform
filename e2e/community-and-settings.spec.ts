@@ -84,7 +84,9 @@ test.describe("School Community (PRD-009) and Profile & Settings (PRD-010)", () 
     await studentPage.goto("/settings");
     // The membership is new, so the once-only "your school covers Premium"
     // moment opens first; closing it is the student's first click.
-    await studentPage.getByRole("button", { name: "Start practicing" }).click();
+    // Escape, not its button: for a student without a Diagnostic the button goes there (2026-11-09).
+    await expect(studentPage.getByRole("button", { name: /Start practicing|Begin your Diagnostic/ })).toBeVisible();
+    await studentPage.keyboard.press("Escape");
     await expect(studentPage.getByRole("dialog")).not.toBeVisible();
     await expect(studentPage.getByText("Verified school")).toBeVisible();
     // Scoped to the profile: the sidebar's "Provided by" row names the school too.

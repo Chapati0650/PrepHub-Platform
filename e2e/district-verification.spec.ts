@@ -63,7 +63,11 @@ test.describe("district verification (PRD-002)", () => {
     // The shell is refreshed with the new membership, so the one-time Premium
     // celebration opens over the success page; dismissing it is a student's
     // first step.
-    await page.getByRole("button", { name: "Start practicing" }).click();
+    // This student has no Diagnostic yet, so the button reads "Begin your Diagnostic" and goes there;
+    // Escape dismisses it in place (2026-11-09).
+    await expect(page.getByRole("button", { name: "Begin your Diagnostic" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).not.toBeVisible();
 
     await page.getByRole("link", { name: "Go to Dashboard" }).click();
     await expect(page).toHaveURL(/\/home$/);

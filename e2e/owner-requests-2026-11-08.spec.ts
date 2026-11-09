@@ -215,8 +215,8 @@ test.describe("Owner requests of 2026-11-08", () => {
     await expect(tp).toHaveURL(new RegExp(`/teacher/classes/${cls.id}/live/${sessionId}$`), { timeout: 30_000 });
 
     await expect(tp.getByRole("heading", { name: "Each student", exact: true })).toBeVisible();
-    // The student's own answer is counted: "R of 1 right", then "N dealt".
-    await expect(tp.getByRole("row", { name: /Lovelace/ }).first()).toContainText(/[01] of 1 right\s*\d+ dealt/);
+    // The student's own answer is counted: "R of 1 right", then how many weren't reached.
+    await expect(tp.getByRole("row", { name: /Lovelace/ }).first()).toContainText(/[01] of 1 right\s*\d+ not reached/);
     await shot(tp, "report-each-student.png", true);
     await tp.getByRole("button", { name: /^Questions/ }).first().click();
     await expect(tp.locator("tr[id^=drill-] table").first()).toBeVisible();
@@ -255,7 +255,7 @@ test.describe("Owner requests of 2026-11-08", () => {
     await tp.getByRole("dialog").getByRole("button", { name: "End the session" }).click();
     await expect(tp).toHaveURL(new RegExp(`/teacher/classes/${cls.id}/live/${sessionId}$`), { timeout: 30_000 });
     await expect(tp.getByRole("heading", { name: "Each student", exact: true })).toBeVisible();
-    await expect(tp.getByRole("row", { name: /Hopper/ })).toContainText(/\d of 1 right\s*10 dealt/);
+    await expect(tp.getByRole("row", { name: /Hopper/ })).toContainText(/\d of 1 right\s*9 not reached/);
     await expect(tp.getByRole("row", { name: /Turing/ })).toBeVisible();
   });
 
