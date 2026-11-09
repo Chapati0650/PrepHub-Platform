@@ -77,11 +77,11 @@ export type CampusImpactReport = {
   benchmark: {
     /** How many students the four groups below cover. */
     measured: number;
-    crossed: ProtectedCount;
-    held: ProtectedCount;
-    slipped: ProtectedCount;
-    below: ProtectedCount;
-    shortfall: Record<BelowBenchmarkShape, ProtectedCount>;
+    crossed: CellCount;
+    held: CellCount;
+    slipped: CellCount;
+    below: CellCount;
+    shortfall: Record<BelowBenchmarkShape, CellCount>;
     readingWritingBenchmark: number;
     mathBenchmark: number;
   } | null;
@@ -92,6 +92,58 @@ export type CampusImpactReport = {
 
 export function protectedCount(count: number): ProtectedCount {
   return count > 0 && count < MIN_GROUP_SIZE ? null : count;
+}
+
+/**
+ * A count in a breakdown whose total is known: a number, null for a group of 1 to MIN_GROUP_SIZE - 1
+ * ("Fewer than 5"), or "withheld" for a larger group hidden only so the small one can't be worked out.
+ */
+export type CellCount = number | null | "withheld";
+
+/**
+ * Complementary suppression (review, 2026-11-09). When exactly one group of a breakdown is withheld
+ * and the total is known, it is the total minus the others ("Students improved 39 of 44 ... Still
+ * below 42": Already met it, shown as "Fewer than 5", was 2). So the smallest other non-zero group is
+ * withheld with it. Zeros stay shown: they say nothing about anyone. `avoid` names cells to complement
+ * only as a last resort.
+ */
+export function protectPartition(raw: number[], avoid: number[] = []): CellCount[] {
+  const out: CellCount[] = raw.map(protectedCount);
+  if (out.filter((c) => c === null).length !== 1) return out;
+  const candidates = raw.map((n, i) => i).filter((i) => out[i] !== null && raw[i] > 0);
+  const preferred = candidates.filter((i) => !avoid.includes(i));
+  const pool = preferred.length > 0 ? preferred : candidates;
+  if (pool.length === 0) return out;
+  const pick = pool.reduce((a, b) => (raw[b] < raw[a] ? b : a));
+  out[pick] = "withheld";
+  return out;
+}
+
+type RawGroups = Pick<CampusImpact["benchmark"], "crossed" | "held" | "slipped" | "below" | "shortfall">;
+
+/**
+ * The TSI breakdown's two partitions: the four groups add up to the students measured, and the three
+ * shortfalls add up to "Still below". When "Still below" is itself hidden, the shortfalls must not
+ * add back up to it, so one of them is hidden too.
+ */
+export function protectBenchmarkGroups(b: RawGroups) {
+  const [crossed, held, slipped, below] = protectPartition([b.crossed, b.held, b.slipped, b.below], [3]);
+  const shortRaw = [b.shortfall.MISSES_MATH_ONLY, b.shortfall.MISSES_READING_ONLY, b.shortfall.MISSES_BOTH];
+  let short = protectPartition(shortRaw);
+  if (typeof below !== "number" && short.every((c) => typeof c === "number")) {
+    const nonzero = shortRaw.map((n, i) => i).filter((i) => shortRaw[i] > 0);
+    if (nonzero.length > 0) {
+      const pick = nonzero.reduce((a, c) => (shortRaw[c] < shortRaw[a] ? c : a));
+      short = short.map((c, i) => (i === pick ? "withheld" : c));
+    }
+  }
+  return {
+    crossed,
+    held,
+    slipped,
+    below,
+    shortfall: { MISSES_MATH_ONLY: short[0], MISSES_READING_ONLY: short[1], MISSES_BOTH: short[2] } as Record<BelowBenchmarkShape, CellCount>,
+  };
 }
 
 /** Pure: the raw campus figures with everything that could single a student out withheld. */
@@ -112,15 +164,7 @@ export function protectCampusImpact(raw: CampusImpact): CampusImpactReport {
     benchmark: enough(measured)
       ? {
           measured,
-          crossed: protectedCount(b.crossed),
-          held: protectedCount(b.held),
-          slipped: protectedCount(b.slipped),
-          below: protectedCount(b.below),
-          shortfall: {
-            MISSES_MATH_ONLY: protectedCount(b.shortfall.MISSES_MATH_ONLY),
-            MISSES_READING_ONLY: protectedCount(b.shortfall.MISSES_READING_ONLY),
-            MISSES_BOTH: protectedCount(b.shortfall.MISSES_BOTH),
-          },
+          ...protectBenchmarkGroups(b),
           readingWritingBenchmark: b.readingWritingBenchmark,
           mathBenchmark: b.mathBenchmark,
         }

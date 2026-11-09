@@ -4,6 +4,7 @@ import {
   MIN_STUDENTS_FOR_SCORE_FIGURES,
   measureCampusImpact,
   protectedCount,
+  protectBenchmarkGroups,
   type CampusImpact,
   type CampusImpactReport,
   type ProtectedCount,
@@ -114,15 +115,7 @@ function protectBenchmark(b: RawBenchmark): CampusImpactReport["benchmark"] {
   if (measured < MIN_STUDENTS_FOR_SCORE_FIGURES) return null;
   return {
     measured,
-    crossed: protectedCount(b.crossed),
-    held: protectedCount(b.held),
-    slipped: protectedCount(b.slipped),
-    below: protectedCount(b.below),
-    shortfall: {
-      MISSES_MATH_ONLY: protectedCount(b.shortfall.MISSES_MATH_ONLY),
-      MISSES_READING_ONLY: protectedCount(b.shortfall.MISSES_READING_ONLY),
-      MISSES_BOTH: protectedCount(b.shortfall.MISSES_BOTH),
-    },
+    ...protectBenchmarkGroups(b),
     readingWritingBenchmark: TSI_READING_WRITING_BENCHMARK,
     mathBenchmark: TSI_MATH_BENCHMARK,
   };

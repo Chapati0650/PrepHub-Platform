@@ -346,7 +346,8 @@ describe("getCampusImpact (what an administrator sees)", () => {
     const impact = await getCampusImpact("school-1");
 
     expect(impact.scoreGrowth).toEqual({ studentsImproved: 8, averageScoreGain: 70, biggestScoreGain: 100 });
-    expect(impact.benchmark).toMatchObject({ measured: 10, crossed: 8, held: 0, slipped: null, below: 0 });
+    // "Crossed" is withheld too: otherwise the 2 who fell back are 10 minus 8 (complementary suppression).
+    expect(impact.benchmark).toMatchObject({ measured: 10, crossed: "withheld", held: 0, slipped: null, below: 0 });
   });
 
   it("withholds a small count of students who improved", () => {
@@ -372,5 +373,26 @@ describe("getCampusImpact (what an administrator sees)", () => {
     expect(report.scoreGrowth?.studentsImproved).toBeNull();
     // Nobody placed against the benchmark: the section is withheld, not shown as zeros.
     expect(report.benchmark).toBeNull();
+  });
+});
+
+describe("complementary suppression (2026-11-09)", () => {
+  it("hides one more group when a single small group could be worked out from the total", async () => {
+    const { protectPartition } = await import("./impact");
+    expect(protectPartition([0, 2, 0, 42], [3])).toEqual([0, null, 0, "withheld"]);
+    expect(protectPartition([10, 3, 0, 31], [3])).toEqual(["withheld", null, 0, 31]);
+    // Two small groups already hide each other; nothing small, nothing hidden.
+    expect(protectPartition([2, 3, 10, 30])).toEqual([null, null, 10, 30]);
+    expect(protectPartition([8, 12, 0, 30])).toEqual([8, 12, 0, 30]);
+  });
+
+  it("keeps the shortfalls from adding back up to a hidden 'Still below'", async () => {
+    const { protectBenchmarkGroups } = await import("./impact");
+    // Central, as the review found it: Already met it (2) was the total minus the rest.
+    const g = protectBenchmarkGroups({ crossed: 0, held: 2, slipped: 0, below: 42, shortfall: { MISSES_MATH_ONLY: 26, MISSES_READING_ONLY: 0, MISSES_BOTH: 16 } });
+    expect(g.held).toBeNull();
+    expect(g.below).toBe("withheld");
+    expect(Object.values(g.shortfall).filter((c) => typeof c !== "number").length).toBe(1);
+    expect(g.shortfall.MISSES_READING_ONLY).toBe(0);
   });
 });

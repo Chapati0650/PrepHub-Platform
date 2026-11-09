@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { MIN_GROUP_SIZE, MIN_STUDENTS_FOR_SCORE_FIGURES, type CampusImpactReport, type ProtectedCount } from "@/lib/admin/impact";
+import { MIN_GROUP_SIZE, MIN_STUDENTS_FOR_SCORE_FIGURES, type CampusImpactReport, type CellCount } from "@/lib/admin/impact";
 import { StaffNote, StaffSection } from "@/components/staff/staff-ui";
 
 const READINESS_GROUPS = [
@@ -9,8 +9,10 @@ const READINESS_GROUPS = [
   { key: "slipped", label: "Fell back", detail: "met it at first, below it now", swatch: "bg-destructive/70" },
 ] as const;
 
-function groupSize(count: ProtectedCount): string {
-  return count === null ? `Fewer than ${MIN_GROUP_SIZE}` : count.toLocaleString();
+function groupSize(count: CellCount): string {
+  if (count === null) return `Fewer than ${MIN_GROUP_SIZE}`;
+  if (count === "withheld") return "Withheld";
+  return count.toLocaleString();
 }
 
 function plural(n: number, one: string, many = `${one}s`): string {
@@ -48,7 +50,7 @@ export function ReadinessSection({
     );
   }
   const groups = READINESS_GROUPS.map((g) => ({ ...g, count: benchmark[g.key] }));
-  const anyWithheld = groups.some((g) => g.count === null);
+  const anyWithheld = groups.some((g) => typeof g.count !== "number");
 
   return (
     <StaffSection
@@ -64,7 +66,9 @@ export function ReadinessSection({
         {!anyWithheld && (
           <div className="flex h-4 w-full overflow-hidden rounded-full bg-foreground/5" aria-hidden>
             {groups.map((g) =>
-              g.count ? <span key={g.key} className={g.swatch} style={{ width: `${(g.count / benchmark.measured) * 100}%` }} /> : null,
+              typeof g.count === "number" && g.count > 0 ? (
+                <span key={g.key} className={g.swatch} style={{ width: `${(g.count / benchmark.measured) * 100}%` }} />
+              ) : null,
             )}
           </div>
         )}
@@ -85,7 +89,12 @@ export function ReadinessSection({
           <div className="border-t border-border pt-4">
             <p className="text-base font-medium">
               Of the{" "}
-              {benchmark.below === null ? `fewer than ${MIN_GROUP_SIZE} students` : plural(benchmark.below, "student")} still
+              {benchmark.below === null
+                ? `fewer than ${MIN_GROUP_SIZE} students`
+                : benchmark.below === "withheld"
+                  ? "students"
+                  : plural(benchmark.below, "student")}{" "}
+              still
               below, they need:
             </p>
             <ul className="mt-2 divide-y divide-border text-base">
@@ -101,18 +110,19 @@ export function ReadinessSection({
       </div>
       <p className="text-sm text-muted-foreground">
         Based on PrepHub Score Predictions, which are estimates, not official College Board results or an official CCMR
-        determination. Any group of fewer than {MIN_GROUP_SIZE} students is shown that way rather than as a number.
+        determination. A group of 1 to {MIN_GROUP_SIZE - 1} students shows as &ldquo;Fewer than {MIN_GROUP_SIZE}&rdquo;, and where the
+        others would give it away, one more group shows as &ldquo;Withheld&rdquo;.
       </p>
     </StaffSection>
   );
 }
 
-function ShortfallRow({ label, count }: { label: string; count: ProtectedCount }) {
+function ShortfallRow({ label, count }: { label: string; count: CellCount }) {
   return (
     <li className="flex items-center justify-between gap-4 py-2">
       <span>{label}</span>
       <span className="font-medium tabular-nums">
-        {count === null ? `Fewer than ${MIN_GROUP_SIZE}` : plural(count, "student")}
+        {count === null ? `Fewer than ${MIN_GROUP_SIZE}` : count === "withheld" ? "Withheld" : plural(count, "student")}
       </span>
     </li>
   );
