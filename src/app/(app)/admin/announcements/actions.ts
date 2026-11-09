@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdminSchoolContext, requireAdminWriteContext, schoolField } from "@/lib/admin/school-context";
-import { publishAnnouncement, removeAnnouncement } from "@/lib/announcements";
+import { publishAnnouncement, removeAnnouncement, removeDistrictAnnouncement } from "@/lib/announcements";
 import { AdminError } from "@/lib/admin/errors";
 import { createAnnouncementSchema } from "@/lib/validation/admin";
 import { logServerError } from "@/lib/logger";
@@ -110,6 +110,21 @@ export async function removeAnnouncementAction(_prev: ActionState, formData: For
     const id = formData.get("announcementId");
     const a = typeof id === "string" ? await prisma.announcement.findUnique({ where: { id }, select: { publishedAt: true } }) : null;
     if (!a?.publishedAt || a.publishedAt.getTime() < Date.now() - DAY_MS) return { error: DEMO_LOCKED_MESSAGE };
+  }
+  if (schoolField(formData) === WHOLE_DISTRICT) {
+    const { district, viewingAsOwner } = await requireAdminSchoolContext(undefined);
+    if (!district || viewingAsOwner) return { error: "Only a district administrator can take this down." };
+    const id = formData.get("announcementId");
+    if (typeof id !== "string" || !id) return { error: "Missing announcement id." };
+    try {
+      await removeDistrictAnnouncement(district.campuses.map((c) => c.id), id);
+    } catch (err) {
+      if (err instanceof AdminError) return { error: err.message };
+      throw err;
+    }
+    revalidatePath("/admin/announcements");
+    revalidatePath("/home");
+    return { success: true };
   }
   const context = await requireAdminWriteContext(schoolField(formData));
   if ("error" in context) return context;

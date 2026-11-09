@@ -57,9 +57,7 @@ export function AnnouncementsPanel({
         <CreateAnnouncementForm schoolName={schoolName} recipients={recipients} today={today} campusId={campusId} />
       )}
 
-      {/* Sent to the whole district, an announcement lives on each campus's page; there's no list here. */}
-      {campusId !== "district" && (
-        <>
+      {/* District mode lists what was sent to every campus; taking one down takes it down everywhere. */}
 
       <section aria-labelledby="active-announcements-heading" className="flex flex-col gap-4">
         <h2 id="active-announcements-heading" className="text-xl">
@@ -89,8 +87,6 @@ export function AnnouncementsPanel({
             ))}
           </ul>
         </section>
-      )}
-        </>
       )}
     </div>
   );

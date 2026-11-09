@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { DistrictCampusSwitcher } from "../school-switcher";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { OwnerSchoolSwitcher } from "../school-switcher";
-import { listAnnouncements } from "@/lib/announcements";
+import { listAnnouncements, listDistrictAnnouncements } from "@/lib/announcements";
 import { localDateInputValue } from "@/lib/community/local-day";
 import { StaffHeader, StaffPage, StaffUnavailable } from "@/components/staff/staff-ui";
 import { AnnouncementsPanel } from "./announcements-panel";
@@ -27,10 +27,10 @@ export default async function AnnouncementsPage({ searchParams }: { searchParams
         <StaffHeader
           eyebrow="Your district"
           title="Announcements to every campus"
-          description={`Send one message to every student at all ${district.campuses.length} campuses. It appears at the top of their PrepHub home page and is emailed to them once. Each campus's own announcements, and taking one down, are on that campus's page: choose it above.`}
+          description={`Send one message to every student at all ${district.campuses.length} campuses. It appears at the top of their PrepHub home page and is emailed to them once. What you send here is listed below, and removing it takes it down on every campus. Each campus's own announcements are on its page: choose it above.`}
         />
         <AnnouncementsPanel
-          announcements={[]}
+          announcements={await listDistrictAnnouncements(district.campuses.map((c) => c.id))}
           schoolName={district.name}
           recipients={recipients}
           readOnly={false}

@@ -123,6 +123,46 @@ export async function publishAnnouncement(
 // "View previous announcements") but stops appearing to students and no
 // longer counts as active. Scoped to `schoolId` so an admin can never remove
 // another school's announcement, even by guessing an id.
+/**
+ * Announcements a district administrator sent to every campus at once (2026-11-09): the same title and
+ * message, published within the same minute, on every one of `campusIds`. Listed on the district's
+ * Announcements page as one, with the first campus's row standing for all of them.
+ */
+export async function listDistrictAnnouncements(campusIds: string[]): Promise<AnnouncementEntry[]> {
+  if (campusIds.length === 0) return [];
+  const rows = await prisma.announcement.findMany({
+    where: { organizationId: { in: campusIds } },
+    orderBy: { publishedAt: "desc" },
+  });
+  const groups = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const key = districtKey(r);
+    groups.set(key, [...(groups.get(key) ?? []), r]);
+  }
+  return [...groups.values()]
+    .filter((g) => new Set(g.map((r) => r.organizationId)).size === campusIds.length)
+    .map((g) => toEntry(g[0]));
+}
+
+function districtKey(r: { title: string; message: string; publishedAt: Date | null }): string {
+  return `${r.title}\u0000${r.message}\u0000${r.publishedAt ? Math.floor(r.publishedAt.getTime() / 60_000) : ""}`;
+}
+
+/** Takes a district-wide announcement down on every one of `campusIds`, given any one of its rows. */
+export async function removeDistrictAnnouncement(campusIds: string[], announcementId: string): Promise<void> {
+  const row = await prisma.announcement.findUnique({ where: { id: announcementId } });
+  if (!row || !campusIds.includes(row.organizationId)) {
+    throw new AdminError("ANNOUNCEMENT_NOT_FOUND", "Announcement not found in this district.");
+  }
+  const siblings = await prisma.announcement.findMany({
+    where: { organizationId: { in: campusIds }, title: row.title, message: row.message, removedAt: null },
+    select: { id: true, title: true, message: true, publishedAt: true },
+  });
+  const key = districtKey(row);
+  const ids = siblings.filter((s) => districtKey(s) === key).map((s) => s.id);
+  await prisma.announcement.updateMany({ where: { id: { in: ids } }, data: { removedAt: new Date() } });
+}
+
 export async function removeAnnouncement(schoolId: string, announcementId: string): Promise<void> {
   const announcement = await prisma.announcement.findUnique({ where: { id: announcementId } });
   if (!announcement || announcement.organizationId !== schoolId) {
