@@ -93,16 +93,22 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
 
       <StaffSection
         title="Each student"
-        description="One row per student in the class. First try is right on the first answer, before any talking. Final is right on the last answer given in the session. Open a row to see every question. Only you can see this."
+        description={
+          individual
+            ? "One row per student in the class: how many of their own questions they answered and got right, and how long they worked. Open a row to see every question. Only you can see this."
+            : "One row per student in the class. First try is right on the first answer, before any talking. Final is right on the last answer given in the session. Open a row to see every question. Only you can see this."
+        }
       >
-        <StatStrip
-          stats={[
-            { label: "First try right", value: pct(summary.avgFirstTryPct), hint: "average across students here" },
-            { label: "Final right", value: pct(summary.avgFinalPct), hint: "average across students here" },
-            { label: "Sure but wrong", value: String(summary.sureButWrong), hint: "students often sure of a wrong answer" },
-            { label: "Typical time", value: typical, hint: "time on task, the middle student" },
-          ]}
-        />
+        {!individual && (
+          <StatStrip
+            stats={[
+              { label: "First try right", value: pct(summary.avgFirstTryPct), hint: "average across students here" },
+              { label: "Final right", value: pct(summary.avgFinalPct), hint: "average across students here" },
+              { label: "Sure but wrong", value: String(summary.sureButWrong), hint: "students often sure of a wrong answer" },
+              { label: "Typical time", value: typical, hint: "time on task, the middle student" },
+            ]}
+          />
+        )}
         <div className="flex flex-wrap gap-3">
           <a
             href={`/teacher/classes/${classId}/live/${sessionId}/export`}
@@ -117,7 +123,7 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
             Download every answer (CSV)
           </a>
         </div>
-        <StudentResults rows={page.students} />
+        <StudentResults rows={page.students} individual={individual} />
       </StaffSection>
 
       {!individual && (

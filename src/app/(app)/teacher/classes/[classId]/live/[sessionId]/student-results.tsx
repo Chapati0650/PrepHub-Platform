@@ -139,7 +139,19 @@ function Drill({ rows, name }: { rows: DrillRow[]; name: string }) {
  * saw: their answer(s), whether it was right, and how sure they said they
  * were. Sorting is a view over data already on the page.
  */
-export function StudentResults({ rows }: { rows: StudentRow[] }) {
+/** Individual practice has no class questions, votes or confidence ratings, so those columns go (review, 2026-11-09). */
+const CLASS_ONLY: SortKey[] = ["firstTryPct", "finalPct", "confidence"];
+
+export function StudentResults({
+  rows,
+  individual = false,
+}: {
+  rows: StudentRow[];
+  individual?: boolean;
+}) {
+  const columns = individual
+    ? COLUMNS.filter((c) => !CLASS_ONLY.includes(c.key))
+    : COLUMNS;
   const [key, setKey] = useState<SortKey>("name");
   const [direction, setDirection] = useState<SortDirection>("asc");
   const [open, setOpen] = useState<string | null>(null);
@@ -173,7 +185,7 @@ export function StudentResults({ rows }: { rows: StudentRow[] }) {
         </caption>
         <thead className="border-b border-border text-sm text-muted-foreground">
           <tr>
-            {COLUMNS.map((c) => (
+            {columns.map((c) => (
               <th
                 key={c.key}
                 scope="col"
@@ -224,34 +236,42 @@ export function StudentResults({ rows }: { rows: StudentRow[] }) {
                   <td className="p-3 tabular-nums">
                     {r.attended ? r.answered : "—"}
                   </td>
-                  <td className="p-3 tabular-nums">
-                    {r.attended ? pct(r.firstTryPct) : "—"}
-                  </td>
-                  <td className="p-3 tabular-nums">
-                    {r.attended ? pct(r.finalPct) : "—"}
-                  </td>
-                  <td className="p-3">
-                    {r.attended ? (
-                      <>
-                        {CONFIDENCE_PATTERN_LABELS[r.confidencePattern]}
-                        {r.confidencePattern !== "NONE" && (
-                          <span className="block text-sm text-muted-foreground">
-                            {r.confidence.sure} sure · {r.confidence.thinkSo}{" "}
-                            think so · {r.confidence.guessing} guessing
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
+                  {!individual && (
+                    <>
+                      <td className="p-3 tabular-nums">
+                        {r.attended ? pct(r.firstTryPct) : "—"}
+                      </td>
+                      <td className="p-3 tabular-nums">
+                        {r.attended ? pct(r.finalPct) : "—"}
+                      </td>
+                    </>
+                  )}
+                  {!individual && (
+                    <td className="p-3">
+                      {r.attended ? (
+                        <>
+                          {CONFIDENCE_PATTERN_LABELS[r.confidencePattern]}
+                          {r.confidencePattern !== "NONE" && (
+                            <span className="block text-sm text-muted-foreground">
+                              {r.confidence.sure} sure · {r.confidence.thinkSo}{" "}
+                              think so · {r.confidence.guessing} guessing
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  )}
                   <td className="p-3 tabular-nums">
                     {r.attended && r.own.total > 0 ? (
                       <>
                         {r.own.right} of {r.own.answered} right
-                        <span className="block text-sm text-muted-foreground">
-                          {r.own.total} dealt
-                        </span>
+                        {r.own.answered < r.own.total && (
+                          <span className="block text-sm text-muted-foreground">
+                            {r.own.total - r.own.answered} not reached
+                          </span>
+                        )}
                       </>
                     ) : (
                       "—"
@@ -278,7 +298,7 @@ export function StudentResults({ rows }: { rows: StudentRow[] }) {
                     id={`drill-${r.studentId}`}
                     className="bg-surface-tint/50"
                   >
-                    <td colSpan={COLUMNS.length + 1} className="p-3">
+                    <td colSpan={columns.length + 1} className="p-3">
                       <Drill rows={r.drill} name={r.name} />
                     </td>
                   </tr>
