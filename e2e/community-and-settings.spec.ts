@@ -33,6 +33,8 @@ test.describe("School Community (PRD-009) and Profile & Settings (PRD-010)", () 
     // /home sends them to it.)
     await page.getByLabel("First name").fill("Updated Name");
     await page.getByRole("button", { name: "Save name" }).click();
+    // Wait for the save itself before reloading: a reload straight after the click could cut it off.
+    await expect(page.getByText("Name saved")).toBeVisible({ timeout: 15_000 });
     await page.reload();
     await expect(page.getByLabel("First name")).toHaveValue("Updated Name");
 

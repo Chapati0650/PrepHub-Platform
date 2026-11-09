@@ -35,7 +35,8 @@ export async function signUpNewStudent(
   await page.getByRole("checkbox", { name: "I confirm I am 13 years of age or older" }).click();
   await page.getByRole("button", { name: "Create account" }).click();
 
-  await expect(page).toHaveURL(/\/onboarding$/);
+  // Creating the account and compiling /onboarding can take more than 5 s on a busy dev server.
+  await expect(page).toHaveURL(/\/onboarding$/, { timeout: 30_000 });
   await page.getByRole("button", { name: `${grade} Grade` }).click();
   await page.getByRole("button", { name: "Continue" }).click(); // Grade
 
