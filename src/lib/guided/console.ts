@@ -407,16 +407,28 @@ export async function listClassSessions(classroomId: string) {
       perStudentSkills: true,
       createdAt: true,
       endedAt: true,
-      _count: { select: { participants: true } },
+      participants: { select: { studentId: true } },
     },
   });
-  return sessions.map((s) => ({
-    id: s.id,
-    status: s.status,
-    categoryLabel: sessionSkillLabel(s),
-    mode: s.mode,
-    createdAt: s.createdAt,
-    endedAt: s.endedAt,
-    joined: s._count.participants,
-  }));
+  // The class as it was at each session, as its report counts it: students who joined after it ended
+  // aren't part of it (review, 2026-11-09: "21 of 24" here beside "21 of 23" on the report).
+  const enrollments = await prisma.classroomEnrollment.findMany({
+    where: { classroomId, removedAt: null },
+    select: { studentId: true, joinedAt: true },
+  });
+  const now = new Date();
+  return sessions.map((s) => {
+    const tookPart = new Set(s.participants.map((p) => p.studentId));
+    const cutoff = (s.endedAt ?? now).getTime();
+    return {
+      id: s.id,
+      status: s.status,
+      categoryLabel: sessionSkillLabel(s),
+      mode: s.mode,
+      createdAt: s.createdAt,
+      endedAt: s.endedAt,
+      joined: tookPart.size,
+      rosterThen: enrollments.filter((e) => e.joinedAt.getTime() <= cutoff || tookPart.has(e.studentId)).length,
+    };
+  });
 }

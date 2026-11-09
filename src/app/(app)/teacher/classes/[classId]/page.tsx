@@ -126,7 +126,7 @@ export default async function ClassroomPage({
                     </span>
                   </span>
                   <span className="text-base tabular-nums">
-                    {s.joined} of {studentCount} took part
+                    {s.joined} of {s.rosterThen} took part
                   </span>
                   {s.status === "OPEN" ? <StatusChip tone="good">Running now</StatusChip> : <StatusChip tone="muted">Ended</StatusChip>}
                 </Link>
