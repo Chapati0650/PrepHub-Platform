@@ -9,6 +9,8 @@ import { logServerError } from "@/lib/logger";
 import { SCHOOLS_CONTACT_EMAIL } from "@/components/marketing/site-chrome";
 import { DEMO_LOCKED_MESSAGE, isDemoSession } from "@/lib/demo-guard";
 import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
+import { localDateInputValue } from "@/lib/community/local-day";
 
 export type ActionState = { error?: string; success?: boolean };
 
@@ -16,10 +18,23 @@ function formEntries(formData: FormData) {
   return Object.fromEntries(formData.entries());
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * On a shared demo login, an announcement sent with no end date ends tonight, so a visitor's test
+ * doesn't greet everyone who tries the demo after them.
+ */
+async function endTonightOnDemo(formData: FormData): Promise<void> {
+  const given = formData.get("expiresAt");
+  if ((typeof given === "string" && given.trim()) || !(await isDemoSession())) return;
+  formData.set("expiresAt", localDateInputValue(new Date()));
+}
+
 /** The `school` field value that sends one announcement to every campus of the district (2026-11-09). */
 const WHOLE_DISTRICT = "district";
 
 export async function publishAnnouncementAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  await endTonightOnDemo(formData);
   if (schoolField(formData) === WHOLE_DISTRICT) return publishToDistrict(formData);
   const context = await requireAdminWriteContext(schoolField(formData));
   if ("error" in context) return context;
@@ -89,7 +104,13 @@ async function publishToDistrict(formData: FormData): Promise<ActionState> {
 }
 
 export async function removeAnnouncementAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
+  if (await isDemoSession()) {
+    // A visitor can take down what they just sent (review, 2026-11-09: test sends were stuck on every
+    // demo student's home page), but not the demo's own announcements.
+    const id = formData.get("announcementId");
+    const a = typeof id === "string" ? await prisma.announcement.findUnique({ where: { id }, select: { publishedAt: true } }) : null;
+    if (!a?.publishedAt || a.publishedAt.getTime() < Date.now() - DAY_MS) return { error: DEMO_LOCKED_MESSAGE };
+  }
   const context = await requireAdminWriteContext(schoolField(formData));
   if ("error" in context) return context;
   const { schoolId } = context;
