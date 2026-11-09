@@ -4,6 +4,7 @@ import { CATEGORY_LABELS } from "@/lib/content/labels";
 import { normalizeJoinCode } from "@/lib/teacher/join-code";
 import { teacherName } from "@/lib/teacher/names";
 import { CATCH_UP_DAYS } from "./config";
+import { sessionSkillLabel } from "./modes";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -88,6 +89,7 @@ export async function recentSessionsWithWork(studentId: string, now: Date = new 
     select: {
       id: true,
       category: true,
+      perStudentSkills: true,
       endedAt: true,
       classroom: { select: { name: true, enrollments: { where: { studentId, removedAt: null }, select: { joinedAt: true } } } },
       participants: { where: { studentId }, select: { id: true } },
@@ -114,7 +116,7 @@ export async function recentSessionsWithWork(studentId: string, now: Date = new 
       return {
         id: s.id,
         className: s.classroom.name,
-        categoryLabel: CATEGORY_LABELS[s.category],
+        categoryLabel: sessionSkillLabel(s),
         endedAt: s.endedAt!,
         joined: s.participants.length > 0,
         toCatchUp: s.items.filter((i) => !answered.has(i.id)).length,

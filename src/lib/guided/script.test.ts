@@ -62,10 +62,12 @@ describe("scriptFor: the lobby, plan and example", () => {
     expect(first.readAloud[0].lines).toEqual(["Subtract 3 from both sides."]);
     expect(first.readAloud[0].heading).toBe("Read step 1 of 3 aloud");
     expect(first.say.length).toBe(1);
+    // Until the last step the big button is "Next step", so pressing it can't skip the walkthrough.
+    expect(labels(first)).toEqual(["Next step", "Back a step", "Skip to question 1"]);
     const second = scriptFor(input({ phase: "EXAMPLE", kind: "EXAMPLE", step: 2 }));
     expect(second.readAloud[0].lines).toEqual(["So $x = 4$."]);
     expect(second.say).toEqual([]);
-    expect(labels(second)).toEqual(["Start question 1", "Next step", "Back a step"]);
+    expect(labels(second)).toEqual(["Start question 1", "Back a step"]);
   });
 
   it("clamps a step past the end, and copes with an example that has no steps", () => {
@@ -163,7 +165,10 @@ describe("scriptFor: explaining", () => {
     const s = scriptFor(input({ phase: "EXPLAIN", step: 0, firstRight: 0.2 }));
     expect(s.say[0]).toContain("one step at a time");
     expect(s.readAloud.map((b) => b.heading)).toEqual(["Why C is tempting but wrong (read this aloud)", "Read step 1 of 3 aloud"]);
-    expect(s.primary).toEqual({ label: "Try one like it", command: { type: "TWIN" } });
+    expect(s.primary?.label).toBe("Next step");
+    expect(s.secondary.map((a) => a.label)).toContain("Try one like it");
+    const last = scriptFor(input({ phase: "EXPLAIN", step: 2, firstRight: 0.2 }));
+    expect(last.primary).toEqual({ label: "Try one like it", command: { type: "TWIN" } });
   });
 
   it("closes with the takeaway on the last step", () => {
@@ -193,7 +198,7 @@ describe("outOfTen", () => {
   it("rounds to a count out of ten and handles the ends", () => {
     expect(outOfTen(0.52)).toBe("about 5 out of 10 students");
     expect(outOfTen(0.02)).toBe("almost no students");
-    expect(outOfTen(0.97)).toBe("almost every student");
+    expect(outOfTen(0.97)).toBe("almost all students");
   });
 });
 

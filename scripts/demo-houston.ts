@@ -59,6 +59,7 @@ import { expectedProbability } from "../src/lib/adaptive/ability";
 import { questionRating } from "../src/lib/adaptive/config";
 import { sampleDifficulty } from "../src/lib/adaptive/difficulty";
 import { generateJoinCode } from "../src/lib/teacher/join-code";
+import { countAnswers } from "../src/lib/school/student-activity";
 
 const DISTRICT_NAME = "Houston ISD (Demo)";
 /**
@@ -69,11 +70,11 @@ const DISTRICT_NAME = "Houston ISD (Demo)";
  * quiet one, and a small one whose small groups are withheld.
  */
 const CAMPUSES = [
-  { name: "Houston ISD Demo \u2013 Central High School", students: 70, enrollment: 1450, quiet: 0, lift: 0 },
-  { name: "Houston ISD Demo \u2013 Northside High School", students: 55, enrollment: 1180, quiet: -0.12, lift: 4 },
-  { name: "Houston ISD Demo \u2013 Bayou High School", students: 40, enrollment: 980, quiet: 0.12, lift: -3 },
-  { name: "Houston ISD Demo \u2013 Heights Academy", students: 25, enrollment: 520, quiet: 0.25, lift: -5 },
-  { name: "Houston ISD Demo \u2013 Eastside Early College", students: 10, enrollment: 240, quiet: 0.4, lift: 1 },
+  { name: "Houston ISD Demo \u2013 Central High School", students: 70, enrollment: 96, quiet: 0, lift: 0 },
+  { name: "Houston ISD Demo \u2013 Northside High School", students: 55, enrollment: 74, quiet: -0.12, lift: 4 },
+  { name: "Houston ISD Demo \u2013 Bayou High School", students: 40, enrollment: 57, quiet: 0.12, lift: -3 },
+  { name: "Houston ISD Demo \u2013 Heights Academy", students: 25, enrollment: 36, quiet: 0.25, lift: -5 },
+  { name: "Houston ISD Demo \u2013 Eastside Early College", students: 10, enrollment: 14, quiet: 0.4, lift: 1 },
 ] as const;
 const CAMPUS_TEACHERS = [
   [["Marcus", "Mr. Bell", "m.bell", "Algebra II \u00b7 SAT Math"], ["Priya", "Dr. Raman", "p.raman", "English III \u00b7 SAT Reading"]],
@@ -125,7 +126,13 @@ function afternoon(dayStart: number, hour = between(15.5, 21)): number {
 }
 /** A class-period time on a school day. */
 function classTime(daysAgo: number, hour = 10): number {
-  return afternoon(NOW - daysAgo * DAY, hour);
+  return afternoon(schoolDay(NOW - daysAgo * DAY), hour);
+}
+/** Back to Friday when `ts` falls on a weekend in Central time: classes and due dates are school days
+ *  (review, 2026-11-09: a Guided Session dated Sunday, homework due on a Saturday). */
+function schoolDay(ts: number): number {
+  const dow = new Date(ts - 6 * HOUR).getUTCDay();
+  return dow === 6 ? ts - DAY : dow === 0 ? ts - 2 * DAY : ts;
 }
 
 const FIRST_NAMES = [
@@ -558,11 +565,18 @@ async function create() {
   const students: Student[] = [];
   const users = [];
   const memberships = [];
+  const takenNames = new Set<string>();
   const campusOfStudent = CAMPUSES.flatMap((c, ci) => Array.from({ length: c.students }, () => ci));
   for (let n = 0; n < STUDENT_COUNT; n++) {
     const ci = campusOfStudent[n];
-    const firstName = pick(FIRST_NAMES);
-    const lastName = pick(LAST_NAMES);
+    // No two fictional students share a full name (two Andrea Robinsons on one campus read as generated).
+    let firstName = pick(FIRST_NAMES);
+    let lastName = pick(LAST_NAMES);
+    while (takenNames.has(`${firstName} ${lastName}`)) {
+      firstName = pick(FIRST_NAMES);
+      lastName = pick(LAST_NAMES);
+    }
+    takenNames.add(`${firstName} ${lastName}`);
     const email = `${firstName.toLowerCase()}.${lastName.toLowerCase()}${n + 1}@${FICTION_DOMAIN}`;
     const grade = pick([9, 10, 10, 11, 11, 11, 11, 12, 12]);
     const joinedAt = LAUNCH + (chance(0.7) ? between(0, 12) : between(12, 40)) * DAY;
@@ -574,7 +588,9 @@ async function create() {
     // (centre 860, SD 6) only 1% met Math and the district readiness panel
     // read "0 met it".
     const ability = clamp(normal(43 + CAMPUSES[ci].lift + (grade - 9) * 1.5, 24), 8, 85);
-    const tilt = normal(0, 10);
+    // Sections differ by about 70 points either way (SAT sections correlate near 0.75), so some
+    // students miss only Reading & Writing; with a tighter tilt no campus ever showed one.
+    const tilt = normal(0, 18);
     const roll = clamp(rand() - CAMPUSES[ci].quiet, 0, 0.999);
     const engagement = roll < 0.12 ? "never" : roll < 0.2 ? "started" : roll < 0.48 ? "light" : roll < 0.84 ? "regular" : "keen";
     const id = randomUUID();
@@ -871,11 +887,16 @@ async function create() {
   await addGuidedSession({ classroomId: third.id, teacherId: teacher.id, roster: thirdRoster, category: "ADVANCED_MATH", daysAgo: 12, pools, twin: true, extraTimeIds: [roster3[3].id, roster3[11].id] });
   await addGuidedSession({ classroomId: third.id, teacherId: teacher.id, roster: thirdRoster, category: "GRAMMAR", daysAgo: 5, pools, extraTimeIds: [roster3[3].id, roster3[11].id] });
   await addGuidedSession({ classroomId: sixth.id, teacherId: teacher.id, roster: roster6.map((s) => ({ id: s.id, skills: s.skills })), category: "ALGEBRA", daysAgo: 8, pools, extraTimeIds: [roster6[5].id] });
+  // The second mode the district asked about, so its report can be shown without running one live.
+  await addIndividualSession({ classroomId: sixth.id, teacherId: teacher.id, roster: roster6.map((s) => ({ id: s.id, skills: s.skills, ability: s.ability })), daysAgo: 2, pools });
   void otherClasses;
 
   // ---- Community goal and announcements
   const goalStart = new Date(NOW - 21 * DAY);
-  const answeredSince = await prisma.finalizedAttempt.count({ where: { finalizedAt: { gte: goalStart }, student: { studentMembership: { schoolId: school.id } } } });
+  // Counted the way the Community page counts (every kind of answer), so the goal reads about 62%
+  // done; counting Practice Set answers alone left it at 4,945 of 5,000 (review, 2026-11-09).
+  const memberIds = (await prisma.studentMembership.findMany({ where: { schoolId: school.id, status: "ACTIVE" }, select: { studentId: true } })).map((m) => m.studentId);
+  const answeredSince = await countAnswers(memberIds, goalStart);
   const target = Math.max(1000, Math.round(answeredSince / 0.62 / 500) * 500);
   await prisma.organization.update({
     where: { id: school.id },
@@ -994,7 +1015,13 @@ async function buildMaya(studentId: string, joinedAt: number, pools: Pools) {
   // "1130-1200 to 1050-1120"), since her level sits near a range boundary.
   const start = await prisma.categoryState.findMany({ where: { studentId }, select: { category: true, ability: true } });
   const startOf = Object.fromEntries(start.map((c) => [c.category, c.ability])) as Record<QuestionCategory, number>;
+  const owed: Partial<Record<QuestionCategory, number>> = {};
   for (let k = 1; k <= 4; k++) {
+    // Each set aims a step above where the last completed set left her: completing a set re-estimates
+    // every skill from her whole history, and aiming at a fixed start + k pulled her back down after
+    // that re-estimate (930, 1000, 950, 970, 960).
+    const now = await prisma.categoryState.findMany({ where: { studentId }, select: { category: true, ability: true } });
+    const base = k === 1 ? startOf : (Object.fromEntries(now.map((c) => [c.category, c.ability])) as Record<QuestionCategory, number>);
     const set = await generatePracticeSet(studentId);
     const setSlots = await prisma.blueprintSlot.findMany({ where: { practiceSetId: set.id }, orderBy: { position: "asc" } });
     for (const slot of setSlots) {
@@ -1002,9 +1029,16 @@ async function buildMaya(studentId: string, joinedAt: number, pools: Pools) {
         where: { studentId_category: { studentId, category: slot.resolvedCategory } },
         select: { ability: true },
       });
-      const perSet = slot.resolvedCategory === "ADVANCED_MATH" ? 1 : slot.resolvedCategory === "GEOMETRY_TRIGONOMETRY" ? 1.5 : 2.5;
-      const below = state.ability < startOf[slot.resolvedCategory] + perSet * k;
-      const right = k <= 2 && chance(0.1) ? !below : below;
+      // Answer as a student at this set's target level would, on average: each question's chance at
+      // the target is added to what she "owes" the skill, and she answers right once that reaches a
+      // half. The whole-history estimate a completed set recomputes then settles near the target,
+      // where steering on the running estimate overshot (930, 1100, 910, 1050: review, 2026-11-09).
+      void state;
+      const perSet = slot.resolvedCategory === "ADVANCED_MATH" ? 1.5 : slot.resolvedCategory === "GEOMETRY_TRIGONOMETRY" ? 2 : 3;
+      const target = base[slot.resolvedCategory] + perSet;
+      const owes = (owed[slot.resolvedCategory] ?? 0) + chanceRight(target, slot.resolvedCategory, slot.resolvedDifficulty);
+      const right = owes >= 0.5;
+      owed[slot.resolvedCategory] = right ? owes - 1 : owes;
       await finalizeAnswer({ studentId, blueprintSlotId: slot.id, answer: await answerOf(slot.questionRevisionId, right), isBlank: false });
     }
     // The product's own completion: the set, its prediction, and the next set
@@ -1027,8 +1061,9 @@ async function buildMaya(studentId: string, joinedAt: number, pools: Pools) {
   await prisma.diagnosticSession.update({ where: { id: diag.id }, data: { startedAt: new Date(diagStart), completedAt: new Date(t) } });
   await prisma.predictionHistoryEntry.updateMany({ where: { studentId, sourceType: "DIAGNOSTIC" }, data: { createdAt: new Date(t + 20_000) } });
 
-  // Set 1 thirty days ago, then every week or so, set 4 two days ago.
-  const days = [30, 22, 13, 2];
+  // Set 1 thirty days ago, then every week or so, set 4 yesterday (so her streak isn't 0 on the day
+  // the demo is built).
+  const days = [30, 21, 12, 1];
   const sets = await prisma.practiceSet.findMany({ where: { studentId }, orderBy: { setNumber: "asc" } });
   let previousDone = t + 20_000;
   for (const set of sets) {
@@ -1065,10 +1100,12 @@ async function addHomework(
 ) {
   for (let i = 0; i < plans.length; i++) {
     const plan = plans[i];
-    const createdAt = NOW - (plans.length - i) * between(6, 9) * DAY;
+    const createdAt = schoolDay(NOW - (plans.length - i) * between(6, 9) * DAY);
     const open = i === plans.length - 1;
     // Due 9-12 days out, so a demo stays current for a week after it is built (`check` says when to refresh).
-    const dueAt = open ? afternoon(NOW + int(9, 12) * DAY, 23.9) : createdAt + 7 * DAY;
+    // Due at the end of a school day, as the product sets it: a past one at 3pm made students who
+    // finished that evening "Late" on the due date.
+    const dueAt = afternoon(schoolDay(open ? NOW + int(9, 12) * DAY : createdAt + 7 * DAY), 23.98);
     const used = new Set<string>();
     const questions = Array.from({ length: int(8, 10) }, (_, position) => {
       // A teacher's mix: mostly Easy and Medium, a Hard one or two to stretch.
@@ -1145,6 +1182,86 @@ async function addHomework(
  * a worked example, three class questions (the second talked over and voted
  * again; optionally "one like" the third), four own questions each, pace votes.
  */
+/**
+ * A past individual-practice session (mode INDIVIDUAL, each student's three weakest skills): no class
+ * questions, ten own questions per student who came, answered alone with feedback, as
+ * lib/guided/practice.ts deals them.
+ */
+async function addIndividualSession(params: {
+  classroomId: string;
+  teacherId: string;
+  roster: { id: string; skills: Partial<Record<QuestionCategory, number>>; ability: number }[];
+  daysAgo: number;
+  pools: Pools;
+}) {
+  const { classroomId, teacherId, roster, daysAgo, pools } = params;
+  const start = classTime(daysAgo, 13.5 + between(0, 0.3));
+  const end = start + 24 * MINUTE;
+  const count = 10;
+  const session = await prisma.guidedSession.create({
+    data: {
+      classroomId,
+      teacherId,
+      category: "ALGEBRA",
+      joinCode: generateJoinCode(),
+      stateKey: randomBytes(18).toString("base64url"),
+      status: "ENDED",
+      phase: "OWN",
+      mode: "INDIVIDUAL",
+      perStudentSkills: true,
+      version: 12,
+      ownQuestionCount: count,
+      ownSeconds: 1200,
+      startedAt: new Date(start),
+      endedAt: new Date(end),
+      phaseStartedAt: new Date(start),
+      createdAt: new Date(start - 3 * MINUTE),
+    },
+  });
+  const participants = [];
+  const ownSlots = [];
+  for (const s of roster) {
+    if (!chance(0.85)) continue;
+    const joined = start + between(0.5, 4) * MINUTE;
+    const weakest = (Object.keys(s.skills) as QuestionCategory[]).sort((a, b) => (s.skills[a] ?? 50) - (s.skills[b] ?? 50)).slice(0, 3);
+    const skills = weakest.length ? weakest : (["ALGEBRA"] as QuestionCategory[]);
+    const used = new Set<string>();
+    const answered = chance(0.8) ? count : int(5, count - 1);
+    let at = joined;
+    for (let position = 0; position < count; position++) {
+      const category = skills[position % skills.length];
+      const level = s.skills[category] ?? s.ability;
+      const rev = pools.question(category, sampleDifficulty(level, category, rand), used);
+      used.add(rev.questionId);
+      const done = position < answered;
+      at += between(1, 2.2) * MINUTE;
+      const right = done && chance(chanceRight(level + 2, category, rev.difficulty));
+      ownSlots.push({
+        sessionId: session.id,
+        studentId: s.id,
+        position,
+        questionId: rev.questionId,
+        questionRevisionId: rev.revisionId,
+        difficulty: rev.difficulty,
+        answer: done ? answerFor(rev, right) : null,
+        isCorrect: done ? right : null,
+        answeredAt: done ? new Date(Math.min(at, end - MINUTE)) : null,
+      });
+    }
+    participants.push({
+      sessionId: session.id,
+      studentId: s.id,
+      joinedAt: new Date(joined),
+      lastSeenAt: new Date(Math.min(at, end)),
+      extraTime: "NONE" as ExtraTime,
+      pace: null,
+      ownFinishedAt: answered === count ? new Date(Math.min(at, end - MINUTE)) : null,
+    });
+  }
+  await prisma.guidedParticipant.createMany({ data: participants });
+  await chunked(ownSlots, (b) => prisma.guidedOwnSlot.createMany({ data: b }));
+}
+
 async function addGuidedSession(params: {
   classroomId: string;
   teacherId: string;

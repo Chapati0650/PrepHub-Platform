@@ -65,7 +65,7 @@ const MORE_TIME: ScriptAction = { label: "+30 seconds", command: { type: "ADD_TI
 export function outOfTen(share: number): string {
   const n = Math.round(share * 10);
   if (n <= 0) return "almost no students";
-  if (n >= 10) return "almost every student";
+  if (n >= 10) return "almost all students"; // plural: "So far almost all students have it right"
   return `about ${n} out of 10 students`;
 }
 
@@ -118,6 +118,7 @@ export function scriptFor(i: ScriptInput): TeacherScript {
         doThis: [
           "Tell students to open their laptops, go to prephubtp.com/live and type the code shown on this screen. Students in your class can also press Join on their PrepHub home page.",
           "Students who are in will see a practice question. Wait until most of the class shows as here under \"The room\".",
+          "Pressing \"Start the session\" shows the practice question's answer on every screen, so wait until most students have answered it.",
         ],
         say: ["Welcome, everyone. Please open your laptop, go to prephubtp.com/live and type the code on the board. When you're in, start on the question on your screen."],
         primary: { label: "Start the session", command: { type: "NEXT" } },
@@ -145,8 +146,12 @@ export function scriptFor(i: ScriptInput): TeacherScript {
             : ["This example has no written steps. Read the question out loud and ask the class how they would start, then continue."],
         say: i.step === 0 ? ["Let's look at one example together first. Just follow along. You don't need to answer anything yet."] : [],
         readAloud: compact([stepBlock(i)]),
-        primary: { label: "Start question 1", command: { type: "NEXT" } },
-        secondary: [NEXT, BACK],
+        // The big button walks the steps and only becomes "Start question 1" on the last one: a teacher
+        // who doesn't know the SAT presses the big button, and it used to skip the walkthrough the
+        // script asks for (review, 2026-11-09). Skipping stays possible, as a small button.
+        ...(i.steps.length === 0 || i.step >= i.steps.length - 1
+          ? { primary: { label: "Start question 1", command: { type: "NEXT" } }, secondary: i.steps.length > 0 ? [BACK] : [] }
+          : { primary: NEXT, secondary: [BACK, { label: "Skip to question 1", command: { type: "NEXT" } }] }),
       };
     case "THINK": {
       const s = i.suggestion;
@@ -183,7 +188,7 @@ export function scriptFor(i: ScriptInput): TeacherScript {
           ...base,
           title: "Most students missed it: show the answer, then go through it",
           doThis: [
-            `So far only ${share} have it right. That is too few for students to help each other, so you will go through it together.`,
+            `So far ${share.startsWith("almost") ? share : `only ${share}`} have it right. That is too few for students to help each other, so you will go through it together.`,
             "Press \"Show the answer\", then \"Explain it\". This screen will give you the words to read.",
           ],
           say: ["This was a tough one, and that's fine. Let's look at the answer and work through it together."],
@@ -289,8 +294,14 @@ export function scriptFor(i: ScriptInput): TeacherScript {
           stepBlock(i),
           last && i.takeaway ? { heading: "Finish with this rule (read it aloud)", lines: [i.takeaway] } : null,
         ]),
-        primary: low ? { label: "Try one like it", command: { type: "TWIN" } } : afterLast,
-        secondary: [NEXT, BACK, low ? afterLast : { label: "One like it", command: { type: "TWIN" } }],
+        // As in the example: "Next step" until the last step, then what comes after.
+        ...(() => {
+          const after = low ? { label: "Try one like it", command: { type: "TWIN" } as const } : afterLast;
+          const other = low ? afterLast : { label: "One like it", command: { type: "TWIN" } as const };
+          return last || i.steps.length === 0
+            ? { primary: after, secondary: [BACK, other] }
+            : { primary: NEXT, secondary: [BACK, after, other] };
+        })(),
       };
     }
     case "OWN":
