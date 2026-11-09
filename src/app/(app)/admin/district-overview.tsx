@@ -8,6 +8,8 @@ import { shortCampusName } from "@/lib/admin/campus-names";
 import { DistrictCampusSwitcher } from "./school-switcher";
 import { GrowthByTimeSection } from "./growth-by-time";
 import { ReadinessSection } from "./readiness-section";
+import { SkillGapsSection } from "./skill-gaps-section";
+import type { SkillGaps } from "@/lib/admin/skill-gaps";
 
 function count(value: ProtectedCount): string {
   return value === null ? `Fewer than ${MIN_GROUP_SIZE}` : value.toLocaleString();
@@ -23,9 +25,11 @@ export function DistrictOverviewView({
   overview,
   campuses,
   growth,
+  skills,
 }: {
   overview: DistrictOverview;
   campuses: { id: string; name: string }[];
+  skills: { gaps: SkillGaps; left: number };
   /** Over the campuses whose own score figure is shown (see page.tsx). */
   growth: GrowthByStudyTime | null;
 }) {
@@ -94,6 +98,17 @@ export function DistrictOverviewView({
             : undefined
         }
       />
+
+      {totals.started !== 0 && (
+        <SkillGapsSection
+          gaps={skills.gaps}
+          note={
+            skills.left > 0
+              ? `Across the campuses whose seven counts are all shown; leaves out ${skills.left === 1 ? "1 campus" : `${skills.left} campuses`} with a group too small to show.`
+              : undefined
+          }
+        />
+      )}
 
       <StaffSection title="By campus" description="Open a campus to see its own overview, students, teachers, announcements and goal.">
         {overview.campuses.length === 0 ? (

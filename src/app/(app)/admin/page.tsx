@@ -28,6 +28,8 @@ import { getDistrictOverview } from "@/lib/admin/district-overview";
 import { getGrowthByStudyTime } from "@/lib/admin/growth-by-time";
 import { GrowthByTimeSection } from "./growth-by-time";
 import { ReadinessSection } from "./readiness-section";
+import { SkillGapsSection } from "./skill-gaps-section";
+import { getDistrictSkillGaps, getSkillGaps } from "@/lib/admin/skill-gaps";
 import { PrintButton } from "@/components/staff/print-button";
 
 export const metadata = { title: "Overview" };
@@ -98,21 +100,22 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
     const overview = await getDistrictOverview(district.name, district.campuses);
     // Only campuses whose own score figure is shown, like the district's average gain.
     const shown = overview.campuses.filter((c) => c.averageScoreGain !== null).map((c) => c.campusId);
-    const growth = await getGrowthByStudyTime(shown);
-    return <DistrictOverviewView overview={overview} campuses={district.campuses} growth={growth} />;
+    const [growth, skills] = await Promise.all([getGrowthByStudyTime(shown), getDistrictSkillGaps(district.campuses.map((c) => c.id))]);
+    return <DistrictOverviewView overview={overview} campuses={district.campuses} growth={growth} skills={skills} />;
   }
 
   if (!schoolId) return <StaffUnavailable title="The Overview isn't available for this account." />;
 
   // The student counts come from the Students page's own summary, so the two
   // pages can never disagree about how many have started or are active.
-  const [data, impact, setup, students, guided, growthByTime] = await Promise.all([
+  const [data, impact, setup, students, guided, growthByTime, skillGaps] = await Promise.all([
     getAdminOverviewData(schoolId),
     getCampusImpact(schoolId),
     getAdminSetupProgress(schoolId),
     getStudentDirectorySummary(schoolId),
     schoolGuidedTotals(schoolId, 30),
     getGrowthByStudyTime([schoolId]),
+    getSkillGaps(schoolId),
   ]);
 
   const { enrollment, stats } = data;
@@ -272,6 +275,8 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
       {growth && <GrowthByTimeSection growth={growthByTime} measured={impact.measurableStudents} scope={district ? "this campus" : "your school"} />}
 
       <ReadinessSection benchmark={impact.benchmark} measured={impact.measurableStudents} />
+
+      {impact.measurableStudents > 0 && <SkillGapsSection gaps={skillGaps} />}
 
       {guided.sessions > 0 && (
         <StaffSection
