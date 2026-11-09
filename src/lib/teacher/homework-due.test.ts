@@ -14,9 +14,13 @@ describe("describeDue", () => {
     expect(describeDue(at(-1), NOW, { setBeforeJoining: true })).toMatchObject({ tone: "later" });
   });
   it("says today, tomorrow, in N days, then a date", () => {
+    // NOW is Sunday Nov 8, 09:00 in Chicago.
     expect(describeDue(at(5), NOW)).toEqual({ text: "Due today", tone: "soon" });
-    expect(describeDue(at(24), NOW)).toEqual({ text: "Due today", tone: "soon" });
+    expect(describeDue(at(14.9), NOW)).toEqual({ text: "Due today", tone: "soon" }); // 23:54 tonight
+    expect(describeDue(at(24), NOW)).toEqual({ text: "Due tomorrow", tone: "soon" });
     expect(describeDue(at(30), NOW)).toEqual({ text: "Due tomorrow", tone: "soon" });
+    // Tuesday 23:59 from Sunday morning is two calendar days, not three 24-hour windows.
+    expect(describeDue(at(24 * 2 + 14.98), NOW).text).toMatch(/^Due in 2 days · /);
     expect(describeDue(at(24 * 4 - 2), NOW).text).toMatch(/^Due in 4 days · /);
     expect(describeDue(at(24 * 7), NOW).text).toMatch(/^Due in 7 days · /);
     const far = describeDue(at(24 * 20), NOW);

@@ -30,7 +30,7 @@ import { GrowthByTimeSection } from "./growth-by-time";
 import { ReadinessSection } from "./readiness-section";
 import { PrintButton } from "@/components/staff/print-button";
 
-export const metadata = { title: "School overview" };
+export const metadata = { title: "Overview" };
 
 const ACCESS_STATE_LABELS: Record<SchoolAccessState, string> = {
   ACTIVE: "Active",
@@ -66,6 +66,15 @@ function groupSize(count: ProtectedCount): string {
 
 function formatGain(points: number): string {
   return points > 0 ? `+${points}` : String(points);
+}
+
+/** "45 min", "2 hr 30 min", "12 hr": rounding to whole hours showed one 30-minute session as "1 hr". */
+function formatClassTime(totalMinutes: number): string {
+  const m = Math.round(totalMinutes);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return h >= 10 || rest === 0 ? `${Math.round(m / 60).toLocaleString()} hr` : `${h} hr ${rest} min`;
 }
 
 function plural(n: number, one: string, many = `${one}s`): string {
@@ -122,9 +131,9 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
       )}
 
       <StaffHeader
-        eyebrow="Your school"
+        eyebrow={district ? "Campus" : "Your school"}
         title={data.schoolName}
-        description="How PrepHub is going at your school. The numbers update as students practice. You see your whole school's totals here; no student's scores are ever shown."
+        description={`How PrepHub is going at ${district ? "this campus" : "your school"}. The numbers update as students practice. You see ${district ? "the campus's" : "your whole school's"} totals here; no student's scores are ever shown.`}
         actions={<PrintButton />}
       />
 
@@ -260,9 +269,9 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
         )}
       </StaffSection>
 
-      {growth && <GrowthByTimeSection growth={growthByTime} scope="your school" />}
+      {growth && <GrowthByTimeSection growth={growthByTime} measured={impact.measurableStudents} scope={district ? "this campus" : "your school"} />}
 
-      <ReadinessSection benchmark={impact.benchmark} />
+      <ReadinessSection benchmark={impact.benchmark} measured={impact.measurableStudents} />
 
       {guided.sessions > 0 && (
         <StaffSection
@@ -274,7 +283,7 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
             stats={[
               { label: "Sessions run", value: guided.sessions.toLocaleString() },
               { label: "Students who took part", value: guided.students.toLocaleString(), hint: "each counted once" },
-              { label: "Class time", value: `${Math.round(guided.minutes / 60).toLocaleString()} hr`, hint: "from Start to the end" },
+              { label: "Class time", value: formatClassTime(guided.minutes), hint: "from Start to the end" },
             ]}
           />
         </StaffSection>

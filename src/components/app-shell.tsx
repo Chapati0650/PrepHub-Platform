@@ -232,9 +232,12 @@ export function AppShell({
   celebration,
   markCelebrated,
   showHomework = false,
+  districtAdmin = false,
   logoutAction,
   children,
 }: {
+  /** An administrator over a whole district: the admin group reads "Your district". */
+  districtAdmin?: boolean;
   role: string;
   user: { name: string; email: string };
   /** Student without paid access: shows the sidebar Upgrade row and the launch-pricing banner. */
@@ -314,7 +317,7 @@ export function AppShell({
       ? [{ items: TEACHER_ITEMS }]
       : isAdmin
         ? [
-            { label: "Your school", items: ADMIN_ITEMS },
+            { label: districtAdmin ? "Your district" : "Your school", items: ADMIN_ITEMS },
             { label: "Student experience", items: ADMIN_STUDENT_ITEMS, collapsible: true },
           ]
         : isStudentExperience

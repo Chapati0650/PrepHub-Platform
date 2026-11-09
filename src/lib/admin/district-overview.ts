@@ -55,7 +55,7 @@ export type CampusRow = FigureRow & {
    * campus's whole readiness breakdown is shown (10+ measured and no group of 1-4), so it can't be
    * combined with the campus page to recover a withheld group.
    */
-  readiness: { meet: number; measured: number } | null;
+  readiness: { meet: number; measured: number } | { withheld: true } | null;
 };
 
 export type DistrictOverview = {
@@ -181,7 +181,9 @@ export function buildDistrictOverview(districtName: string, raw: RawCampusFigure
       ...toFigureRow(r),
       readiness: readinessShown(r.benchmark)
         ? { meet: r.benchmark.crossed + r.benchmark.held, measured: measuredOf(r.benchmark) }
-        : null,
+        : measuredOf(r.benchmark) >= MIN_STUDENTS_FOR_SCORE_FIGURES
+          ? { withheld: true as const }
+          : null,
     })),
   };
 }

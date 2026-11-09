@@ -89,7 +89,7 @@ export async function recentSessionsWithWork(studentId: string, now: Date = new 
       id: true,
       category: true,
       endedAt: true,
-      classroom: { select: { name: true } },
+      classroom: { select: { name: true, enrollments: { where: { studentId, removedAt: null }, select: { joinedAt: true } } } },
       participants: { where: { studentId }, select: { id: true } },
       items: {
         where: {
@@ -108,6 +108,7 @@ export async function recentSessionsWithWork(studentId: string, now: Date = new 
     },
   });
   return sessions
+    .filter(wasInClassFor)
     .map((s) => {
       const answered = new Set(s.responses.map((r) => r.itemId));
       return {
@@ -121,6 +122,18 @@ export async function recentSessionsWithWork(studentId: string, now: Date = new 
       };
     })
     .filter((s) => s.toCatchUp > 0 || s.toRetry > 0);
+}
+
+/**
+ * A session the student can owe work for: they took part, or they were already in the class when it
+ * ended. One held before they joined the class is not one they "missed" (review, 2026-11-09: a new
+ * student was told "Catch up: 4 questions from the session you missed" for a session from before
+ * they signed up); Homework already treats work from before a student joined the same way.
+ */
+function wasInClassFor(s: { endedAt: Date | null; participants: unknown[]; classroom: { enrollments: { joinedAt: Date }[] } }): boolean {
+  if (s.participants.length > 0) return true;
+  const joinedAt = s.classroom.enrollments[0]?.joinedAt;
+  return !!joinedAt && !!s.endedAt && joinedAt.getTime() <= s.endedAt.getTime();
 }
 
 /** Students in a class with an extended-time accommodation, for the teacher's class page. */

@@ -75,6 +75,7 @@ export function DistrictOverviewView({
       {totals.averageScoreGain !== null && (
         <GrowthByTimeSection
           growth={growth}
+          measured={totals.measurableStudents}
           scope="your district"
           excludedNote={
             excluded.scoreGain > 0
@@ -125,13 +126,25 @@ export function DistrictOverviewView({
                     <td className="px-4 py-3 text-right tabular-nums">{c.questionsAnswered.toLocaleString()}</td>
                     <td className="px-4 py-3 text-right whitespace-nowrap tabular-nums">{gain(c)}</td>
                     <td className="px-4 py-3 text-right whitespace-nowrap tabular-nums">
-                      {c.readiness ? `${c.readiness.meet.toLocaleString()} of ${c.readiness.measured.toLocaleString()}` : "Not enough yet"}
+                      {!c.readiness
+                        ? "Not enough yet"
+                        : "withheld" in c.readiness
+                          ? "Withheld"
+                          : `${c.readiness.meet.toLocaleString()} of ${c.readiness.measured.toLocaleString()}`}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+        )}
+        {overview.campuses.length > 0 && (
+          <p className="text-sm text-muted-foreground">
+            <strong className="font-medium text-foreground">Not enough yet</strong>: fewer than {MIN_STUDENTS_FOR_SCORE_FIGURES} students
+            at the campus can be compared so far. <strong className="font-medium text-foreground">Withheld</strong>: the campus has a
+            group of 1 to {MIN_GROUP_SIZE - 1} students in its readiness breakdown, so its total isn&apos;t shown here; the campus&apos;s
+            own page shows the rest. Meet TSI now counts students whose latest prediction meets both benchmarks.
+          </p>
         )}
       </StaffSection>
     </StaffPage>

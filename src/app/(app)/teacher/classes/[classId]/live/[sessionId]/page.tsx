@@ -75,7 +75,11 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
 
       <StatStrip
         stats={[
-          { label: "Took part", value: `${report.joined} of ${page.rosterSize}`, hint: "students in the class" },
+          {
+            label: "Took part",
+            value: `${report.joined} of ${page.rosterSize}`,
+            hint: page.joinedLater > 0 ? `students in the class then · ${page.joinedLater} joined later` : "students in the class",
+          },
           {
             label: "On their own",
             value: report.ownAverage === null ? "—" : `${Number.isInteger(report.ownAverage) ? report.ownAverage : report.ownAverage.toFixed(1)} of ${report.ownTotal}`,
@@ -92,10 +96,10 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
       >
         <StatStrip
           stats={[
-            { label: "Here", value: `${summary.attended} of ${page.rosterSize}`, hint: `${summary.absent} absent` },
             { label: "First try right", value: pct(summary.avgFirstTryPct), hint: "average across students here" },
             { label: "Final right", value: pct(summary.avgFinalPct), hint: "average across students here" },
-            { label: "Typical time", value: typical, hint: `${summary.sureButWrong} sure but wrong` },
+            { label: "Sure but wrong", value: String(summary.sureButWrong), hint: "students often sure of a wrong answer" },
+            { label: "Typical time", value: typical, hint: "time on task, the middle student" },
           ]}
         />
         <div className="flex flex-wrap gap-3">

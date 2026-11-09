@@ -30,7 +30,12 @@ export default async function CurriculumPage() {
   if (!canUseStudentExperience(session.user.role)) redirect("/home");
 
   const demo = isDemoAccount(session.user.email);
-  const course = await getCurriculumOverview(session.user.id);
+  const fetched = await getCurriculumOverview(session.user.id);
+  // A demo login sees the gate whatever is published: the empty course, so no lesson, count or
+  // "Start course" shows (review, 2026-11-09: test lessons showed through when modules existed).
+  const course = demo
+    ? { ...fetched, modules: [], nextLessonId: null, stats: { ...fetched.stats, moduleCount: 0, lessonCount: 0, completedCount: 0, totalDurationSeconds: 0 } }
+    : fetched;
   const started = course.stats.completedCount > 0;
   const finished = course.stats.lessonCount > 0 && course.stats.completedCount === course.stats.lessonCount;
 
@@ -81,7 +86,9 @@ export default async function CurriculumPage() {
               <div>
                 <p className="font-medium">{finished ? "You've finished the course." : started ? "Pick up where you left off." : "Ready to start?"}</p>
                 <p className="mt-0.5 text-sm text-muted-foreground">
-                  {course.stats.lessonCount === 0
+                  {demo
+                    ? "Access not provided with demo account."
+                    : course.stats.lessonCount === 0
                     ? "Lessons are being added."
                     : finished
                       ? "Every lesson is marked complete. Rewatch any of them below."

@@ -123,7 +123,7 @@ describe("buildDistrictOverview", () => {
     ]);
     expect(o.readiness).toMatchObject({ measured: 40, crossed: 8, held: 12, below: 20, slipped: 0 });
     expect(o.excluded.readiness).toBe(2); // b and c; d has nobody measured
-    expect(o.campuses.map((c) => c.readiness)).toEqual([{ meet: 20, measured: 40 }, null, null, null]);
+    expect(o.campuses.map((c) => c.readiness)).toEqual([{ meet: 20, measured: 40 }, { withheld: true }, null, null]);
   });
 
   it("has no district readiness until a whole campus can be shown", () => {

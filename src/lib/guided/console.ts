@@ -291,6 +291,8 @@ export async function getTeacherView(context: TeacherContext, sessionId: string,
 export type ReportPage = {
   sessionId: string;
   classroomId: string;
+  /** Students now in the class who joined after the session and so aren't in its roster. */
+  joinedLater: number;
   className: string;
   categoryLabel: string;
   status: GuidedSessionStatus;
@@ -312,14 +314,20 @@ export async function getSessionReport(context: TeacherContext, sessionId: strin
   const [enrollments, participants, responses, ownSlots] = await Promise.all([
     prisma.classroomEnrollment.findMany({
       where: { classroomId: session.classroomId, removedAt: null },
-      select: { studentId: true, lastName: true, student: { select: { firstName: true } } },
+      select: { studentId: true, lastName: true, joinedAt: true, student: { select: { firstName: true } } },
     }),
     prisma.guidedParticipant.findMany({ where: { sessionId }, select: { studentId: true, pace: true, joinedAt: true } }),
     prisma.guidedResponse.findMany({ where: { sessionId } }),
     prisma.guidedOwnSlot.findMany({ where: { sessionId }, include: { question: { select: { category: true } } } }),
   ]);
   const infos = await loadRevisions([...session.items.map((i) => i.questionRevisionId), ...ownSlots.map((s) => s.questionRevisionId)]);
-  const roster = enrollments
+  // The class as it was: a student who joined after the session ended wasn't absent from it (review,
+  // 2026-11-09). Anyone who took part or answered stays, whenever they joined.
+  const cutoff = session.endedAt ?? new Date();
+  const tookPart = new Set([...participants.map((p) => p.studentId), ...responses.map((r) => r.studentId)]);
+  const joinedLater = enrollments.filter((e) => e.joinedAt.getTime() > cutoff.getTime() && !tookPart.has(e.studentId));
+  const enrolledThen = enrollments.filter((e) => !joinedLater.includes(e));
+  const roster = enrolledThen
     .map((e) => ({ ...e, firstName: e.student.firstName }))
     .sort(compareRosterNames)
     .map((e) => ({ studentId: e.studentId, name: studentRosterName(e) }));
@@ -375,7 +383,8 @@ export async function getSessionReport(context: TeacherContext, sessionId: strin
     createdAt: session.createdAt,
     startedAt: session.startedAt,
     endedAt: session.endedAt,
-    rosterSize: enrollments.length,
+    rosterSize: enrolledThen.length,
+    joinedLater: joinedLater.length,
     report,
     mode: session.mode,
     students,

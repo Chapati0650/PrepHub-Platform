@@ -11,8 +11,10 @@ import type { OrganizationBranding } from "@/lib/branding/resolve";
 export function SidebarCoBrand({ branding }: { branding: OrganizationBranding }) {
   return (
     <div className="flex items-center gap-2.5 px-2" data-testid="co-brand">
+      {/* "×" beside a logo reads as a partnership mark; on its own it looked like a close button
+          (review, 2026-11-09), so a name with no logo reads "with Houston ISD". */}
       <span aria-hidden className="text-sm text-sidebar-foreground/50">
-        &times;
+        {branding.logoMediaId ? <>&times;</> : "with"}
       </span>
       {branding.logoMediaId && (
         <span

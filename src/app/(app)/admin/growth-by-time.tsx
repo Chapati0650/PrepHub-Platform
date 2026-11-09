@@ -15,10 +15,13 @@ function signed(points: number): string {
  */
 export function GrowthByTimeSection({
   growth,
+  measured,
   scope,
   excludedNote,
 }: {
   growth: GrowthByStudyTime | null;
+  /** Students with a first and a latest prediction, to say why there are no bands yet. */
+  measured: number;
   /** "your school" or "your district". */
   scope: string;
   /** Appended to the description when a district figure leaves campuses out. */
@@ -37,9 +40,19 @@ export function GrowthByTimeSection({
     >
       {!growth ? (
         <StaffNote>
-          Appears once at least {2 * MIN_STUDENTS_FOR_SCORE_FIGURES} students at {scope} can be compared, so that every
-          group shown holds at least {MIN_STUDENTS_FOR_SCORE_FIGURES} students and no one student&apos;s score can be
-          picked out.
+          {measured >= 2 * MIN_STUDENTS_FOR_SCORE_FIGURES ? (
+            <>
+              The {measured.toLocaleString()} students at {scope} who can be compared have practiced for similar amounts of
+              time so far, so there is only one group of at least {MIN_STUDENTS_FOR_SCORE_FIGURES} to show. This fills in as
+              practice time spreads out.
+            </>
+          ) : (
+            <>
+              Appears once at least {2 * MIN_STUDENTS_FOR_SCORE_FIGURES} students at {scope} can be compared (so far,{" "}
+              {measured.toLocaleString()}), so that every group shown holds at least {MIN_STUDENTS_FOR_SCORE_FIGURES} students
+              and no one student&apos;s score can be picked out.
+            </>
+          )}
         </StaffNote>
       ) : (
         <>

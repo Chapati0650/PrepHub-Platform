@@ -183,9 +183,17 @@ async function loadPools() {
       id: true,
       category: true,
       difficulty: true,
-      currentPublishedRevision: { select: { id: true, acceptedAnswers: true, answerChoices: { select: { id: true, isCorrect: true } } } },
+      currentPublishedRevision: { select: { id: true, questionText: true, acceptedAnswers: true, answerChoices: { select: { id: true, isCorrect: true } } } },
     },
   });
+  // Never build the demo on placeholder or test content: prisma/seed.ts's "[Seed] … which choice is
+  // correct?" questions and e2e fixtures ("Family A 1793…") are PUBLISHED on a local database, and a
+  // teacher opening a homework question would see "Choice 1 … Choice 4" (review, 2026-11-09).
+  const placeholder = (text: string) => text.startsWith("[Seed]") || /^(Family [A-Z]|E2E|e2e)\b/.test(text) || /\b\d{12,}\b/.test(text);
+  const real = rows.filter((q) => !placeholder(q.currentPublishedRevision!.questionText));
+  if (real.length < rows.length) console.log(`  Skipping ${rows.length - real.length} placeholder or test questions.`);
+  rows.length = 0;
+  rows.push(...real);
   const byKey = new Map<string, Revision[]>();
   const byCategory = new Map<QuestionCategory, Revision[]>();
   for (const q of rows) {

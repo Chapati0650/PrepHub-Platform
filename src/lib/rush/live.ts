@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { isSandboxStudent, samePoolCreator } from "./pool";
 import type { ClubSection, Prisma, RushLiveStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { expectedProbability } from "@/lib/adaptive/ability";
@@ -129,12 +130,15 @@ export async function joinLiveRoom(studentId: string, challengeId: string): Prom
 // Random, live: take the oldest lobby in this section whose creator is
 // still polling; otherwise open one and wait.
 export async function startLiveRandom(studentId: string, section: ClubSection): Promise<{ challengeId: string; matched: boolean }> {
+  // Real students meet only real students; demo and staff accounts only each other (lib/rush/pool.ts).
+  const sandbox = await isSandboxStudent(studentId);
   const lobbies = await prisma.rushChallenge.findMany({
     where: {
       live: true,
       liveStatus: "WAITING",
       mode: "RANDOM",
       creatorId: { not: studentId },
+      creator: samePoolCreator(sandbox),
       set: { section },
       runs: { some: { lastSeenAt: { gt: new Date(Date.now() - LIVE_LOBBY_STALE_MS) } } },
     },

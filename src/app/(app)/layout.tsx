@@ -75,6 +75,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       : null,
   ]);
   const showUpgrade = role === "STUDENT" && !paid && !oneStepFromSchoolAccess;
+  // A district-wide administrator's sidebar says "Your district", not "Your school".
+  const districtAdmin =
+    role === "SCHOOL_ADMINISTRATOR" &&
+    Boolean(await prisma.administratorAssignment.findFirst({ where: { userId: session.user.id, scope: "DISTRICT", removedAt: null }, select: { id: true } }));
 
   // The school providing this student's access, for the sidebar. Free: it
   // comes from the same cached context the entitlement decision already read,
@@ -112,6 +116,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       celebration={celebration}
       markCelebrated={markPremiumCelebratedAction}
       showHomework={role === "STUDENT" || Boolean(classEnrollment)}
+      districtAdmin={districtAdmin}
       logoutAction={logoutAction}
     >
       {children}

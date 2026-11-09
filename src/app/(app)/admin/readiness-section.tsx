@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { MIN_GROUP_SIZE, type CampusImpactReport, type ProtectedCount } from "@/lib/admin/impact";
-import { StaffSection } from "@/components/staff/staff-ui";
+import { MIN_GROUP_SIZE, MIN_STUDENTS_FOR_SCORE_FIGURES, type CampusImpactReport, type ProtectedCount } from "@/lib/admin/impact";
+import { StaffNote, StaffSection } from "@/components/staff/staff-ui";
 
 const READINESS_GROUPS = [
   { key: "crossed", label: "Crossed the benchmark", detail: "were below it at first, meet it now", swatch: "bg-achievement" },
@@ -26,8 +26,27 @@ function plural(n: number, one: string, many = `${one}s`): string {
  * Any group under five is withheld ("Fewer than 5"), and then so is the bar:
  * a segment's width is its count.
  */
-export function ReadinessSection({ benchmark, note }: { benchmark: CampusImpactReport["benchmark"]; note?: ReactNode }) {
-  if (!benchmark) return null;
+export function ReadinessSection({
+  benchmark,
+  note,
+  measured,
+}: {
+  benchmark: CampusImpactReport["benchmark"];
+  note?: ReactNode;
+  /** When given and there's no breakdown yet, say why instead of leaving the section out. */
+  measured?: number;
+}) {
+  if (!benchmark) {
+    if (!measured) return null;
+    return (
+      <StaffSection title="College readiness">
+        <StaffNote>
+          How many students meet the Texas Success Initiative benchmark appears once {MIN_STUDENTS_FOR_SCORE_FIGURES} students
+          can be compared. So far, {measured.toLocaleString()} {measured === 1 ? "has" : "have"}.
+        </StaffNote>
+      </StaffSection>
+    );
+  }
   const groups = READINESS_GROUPS.map((g) => ({ ...g, count: benchmark[g.key] }));
   const anyWithheld = groups.some((g) => g.count === null);
 

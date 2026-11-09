@@ -1,4 +1,5 @@
 import { Prisma, type ClubSection, type RushMode } from "@/generated/prisma/client";
+import { isSandboxStudent, samePoolSql } from "./pool";
 import { prisma } from "@/lib/prisma";
 import { isAnswerCorrect } from "@/lib/adaptive/grading";
 import { getStudentQuestionContent, type StudentQuestionContent } from "@/lib/session/question-content";
@@ -47,6 +48,8 @@ export async function startRush(
 // That's a benign outcome (the results page ranks everyone in it) and at
 // this product's scale not worth a row lock.
 export async function startRandomRush(studentId: string, params: { section: ClubSection }): Promise<{ runId: string; challengeId: string; matched: boolean }> {
+  // Real students race only real students' runs; demo and staff accounts only each other's (lib/rush/pool.ts).
+  const sandbox = await isSandboxStudent(studentId);
   return prisma.$transaction(async (tx) => {
     // "Exactly one run, and it's finished" is a GROUP BY ... HAVING, which
     // Prisma's where can't express. It used to fetch the oldest twenty
@@ -59,9 +62,11 @@ export async function startRandomRush(studentId: string, params: { section: Club
         FROM "rush_challenges" c
         JOIN "rush_sets" s ON s."id" = c."setId"
         JOIN "rush_runs" r ON r."challengeId" = c."id"
+        JOIN "users" u ON u."id" = c."creatorId"
        WHERE c."mode" = 'RANDOM'
          AND c."live" = false
          AND c."creatorId" <> ${studentId}
+         AND ${samePoolSql("u", sandbox)}
          AND s."section" = ${params.section}::"ClubSection"
        GROUP BY c."id", c."createdAt"
       HAVING COUNT(*) = 1 AND bool_and(r."status" = 'COMPLETED') AND bool_and(r."studentId" <> ${studentId})

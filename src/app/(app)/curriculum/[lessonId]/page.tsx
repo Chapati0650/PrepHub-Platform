@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, ArrowRight, Check, Lock } from "lucide-react";
 import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
+import { isDemoAccount } from "@/lib/demo-account";
 import { getLessonForStudent, getCurriculumOverview } from "@/lib/curriculum/queries";
 import { youTubeEmbedUrl } from "@/lib/curriculum/youtube";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,8 @@ export default async function LessonPage({ params }: { params: Promise<{ lessonI
   const session = await auth();
   if (!session?.user?.id) redirect("/home");
   if (!canUseStudentExperience(session.user.role)) redirect("/home");
+  // Demo logins can't open lessons, even by a direct link (see the course page).
+  if (isDemoAccount(session.user.email)) redirect("/curriculum");
   const studentId = session.user.id;
 
   const { lessonId } = await params;

@@ -97,6 +97,11 @@ export default async function SettingsPage() {
   const showStudentSections = canUseStudentExperience(role);
   const userId = session?.user.id;
 
+  // A district-wide administrator is labelled as one (review, 2026-11-09: "School Administrator").
+  const districtAdmin =
+    isAdmin && userId
+      ? Boolean(await prisma.administratorAssignment.findFirst({ where: { userId, scope: "DISTRICT", removedAt: null }, select: { id: true } }))
+      : false;
   const [user, membership, accessSummary, dashboard] = await Promise.all([
     userId
       ? prisma.user.findUnique({
@@ -132,7 +137,9 @@ export default async function SettingsPage() {
     isStudent && userId ? getAccessSummary(userId) : null,
     // The profile card's stat tiles. Same source as the dashboard, so the two
     // can never disagree about a streak or a total.
-    showStudentSections && userId ? getDashboardData(userId) : null,
+    // Streak, predicted score and strongest category are a student's; an administrator trying the
+    // student experience has none worth showing here (review, 2026-11-09).
+    isStudent && userId ? getDashboardData(userId) : null,
   ]);
 
   // "Strongest category" is the reference's "Favorite subject" slot, filled
@@ -155,7 +162,7 @@ export default async function SettingsPage() {
 
   const sections: SettingsSectionLink[] = [
     { id: "profile", label: "Profile" },
-    ...(showStudentSections && user
+    ...(isStudent && user
       ? [
           { id: "goal", label: "Academic Goal" },
           { id: "notifications", label: "Notifications" },
@@ -214,7 +221,7 @@ export default async function SettingsPage() {
                     <dl className="mt-4 flex flex-col divide-y divide-border border-y border-border text-sm">
                       <Row label="Email">{user?.email}</Row>
                       {user?.createdAt && <Row label="Joined">{formatJoined(user.createdAt)}</Row>}
-                      <Row label="Role">{ROLE_LABEL[role] ?? role}</Row>
+                      <Row label="Role">{districtAdmin ? "District Administrator" : (ROLE_LABEL[role] ?? role)}</Row>
                       {isStudent && (
                         <Row label="Target score">
                           {user?.targetScore ?? <span className="text-muted-foreground">Not set</span>}
@@ -256,7 +263,7 @@ export default async function SettingsPage() {
             </div>
           </Section>
 
-          {showStudentSections && user && (
+          {isStudent && user && (
             <>
               {/* Academic Goal */}
               <Section id="goal" title="Academic Goal" description="Set a target SAT score to track your progress toward it.">
