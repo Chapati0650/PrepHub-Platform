@@ -116,7 +116,7 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
 
   // The student counts come from the Students page's own summary, so the two
   // pages can never disagree about how many have started or are active.
-  const [data, impact, setup, students, guided, growthByTime, skillGaps] = await Promise.all([
+  const [data, impact, setup, students, guided, growthByTime, skillGaps, homework] = await Promise.all([
     getAdminOverviewData(schoolId),
     getCampusImpact(schoolId),
     getAdminSetupProgress(schoolId),
@@ -124,6 +124,7 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
     schoolGuidedTotals(schoolId, 30),
     getGrowthByStudyTime([schoolId]),
     getSkillGaps(schoolId),
+    campusesHomeworkTotals([schoolId], 30),
   ]);
 
   const { enrollment, stats } = data;
@@ -295,17 +296,18 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
 
       {impact.measurableStudents > 0 && <SkillGapsSection gaps={skillGaps} />}
 
-      {guided.sessions > 0 && (
+      {(guided.sessions > 0 || homework.assigned > 0) && (
+        // The same "In class" view as the district's, homework included (review, 2026-11-09).
         <StaffSection
-          title="Guided Sessions"
-          description="Sessions your teachers ran in class in the last 30 days, teacher-led or individual practice. Totals only; teachers see their own class's results."
+          title="In class, last 30 days"
+          description="Guided Sessions your teachers ran (teacher-led or individual practice) and homework they set. Totals only; teachers see their own class's results."
         >
           <StatStrip
-            columns={3}
             stats={[
-              { label: "Sessions run", value: guided.sessions.toLocaleString() },
+              { label: "Guided Sessions run", value: guided.sessions.toLocaleString(), hint: `${formatClassTime(guided.minutes)} of class time` },
               { label: "Students who took part", value: guided.students.toLocaleString(), hint: "each counted once" },
-              { label: "Class time", value: formatClassTime(guided.minutes), hint: "from Start to the end" },
+              { label: "Homework set", value: homework.assigned.toLocaleString(), hint: "assignments, by any teacher" },
+              { label: "Homework finished", value: homework.finished.toLocaleString(), hint: "by students, all assignments" },
             ]}
           />
         </StaffSection>
