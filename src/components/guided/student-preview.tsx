@@ -59,7 +59,9 @@ export function StudentScreenPreview({ shared }: { shared: SharedState | null })
             <EyesUp title={t.eyesUp} body={t.eyesUpExample} />
             <p className="font-mono text-xs tracking-wider text-muted-foreground uppercase">{t.exampleTitle}</p>
             <LatexText text={item.content.questionText} className="text-base" />
-            {item.steps && item.steps.length > 1 && <StepsList steps={item.steps} upTo={item.steps.length - 2} />}
+            {item.steps && (item.steps.length > 1 || item.steps.length === item.stepTotal) && (
+              <StepsList steps={item.steps} upTo={item.steps.length === item.stepTotal ? item.steps.length - 1 : item.steps.length - 2} />
+            )}
           </div>
         ) : null;
         break;
