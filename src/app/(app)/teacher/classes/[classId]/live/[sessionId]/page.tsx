@@ -171,8 +171,8 @@ export default async function GuidedReportPage({ params }: { params: Promise<{ c
         title="Check in with"
         description={
           individual
-            ? "Students who got most of their questions wrong. Worth a word after class."
-            : "Students who missed a class question on their final answer and two or more of their own, or got most of their own questions wrong. Worth a word after class."
+            ? "Students who got fewer than 4 in 10 of their questions right. Worth a word after class."
+            : "Students who missed a class question most of the room got right and two or more of their own, or got fewer than 4 in 10 of their own questions right. Worth a word after class."
         }
       >
         {report.checkIn.length === 0 ? (

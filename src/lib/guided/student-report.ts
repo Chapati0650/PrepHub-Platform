@@ -125,7 +125,8 @@ const pct = (right: number, of: number): number | null => (of > 0 ? right / of :
 export function confidencePattern(counts: ConfidenceCounts): ConfidencePattern {
   const rated = counts.sure + counts.thinkSo + counts.guessing;
   if (rated < STUDENT_REPORT.minConfidenceRatings) return "NONE";
-  if (counts.sureWrong / rated >= STUDENT_REPORT.sureWrongShare) return "SURE_BUT_WRONG";
+  // Two or more confident misses, not one (review, 2026-11-09: one "sure" miss in three ratings read as a pattern).
+  if (counts.sureWrong >= 2 && counts.sureWrong / rated >= STUDENT_REPORT.sureWrongShare) return "SURE_BUT_WRONG";
   if (counts.unsureRight / rated >= STUDENT_REPORT.unsureRightShare) return "RIGHT_BUT_UNSURE";
   return "WELL_CALIBRATED";
 }

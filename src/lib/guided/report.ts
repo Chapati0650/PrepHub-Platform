@@ -1,6 +1,9 @@
 import type { GuidedItemKind, GuidedPace } from "@/generated/prisma/client";
 import { answerBreakdown, correctLabel, type AnswerBreakdown, type AssignedQuestionKey } from "@/lib/teacher/answer-stats";
 
+/** "Check in with" anyone who got fewer than this share of their own questions right (4 in 10). */
+export const CHECK_IN_ALONE_BELOW = 0.4;
+
 /**
  * What a session showed, for the teacher afterwards. Pure.
  *
@@ -53,7 +56,10 @@ export type SessionReport = {
   /** Average right on students' own questions (bonus excluded), among those who answered any. */
   ownAverage: number | null;
   ownTotal: number;
-  /** Missed a class question on their final vote and two or more of their own, or most of their own. */
+  /**
+   * Missed a class question most of the room got right (final vote) and two or more of their own, or got
+   * under CHECK_IN_ALONE_BELOW of their own right.
+   */
   checkIn: ReportStudent[];
   absent: { student: ReportStudent; caughtUp: boolean }[];
   pace: Record<GuidedPace, number>;
@@ -138,17 +144,26 @@ export function buildReport(params: {
 
   const classItemIds = new Set(items.filter((i) => i.kind === "CLASS" || i.kind === "TWIN").map((i) => i.id));
   const talkedIds = new Set(items.filter((i) => i.talked).map((i) => i.id));
+  const finalRight = (r: (typeof live)[number]) => (talkedIds.has(r.itemId) && r.secondAnswer !== null ? r.secondCorrect : r.firstCorrect);
+  // Only a class question most of the room got right says something about one student: when 17 of 21
+  // missed Question 3, "Check in with" listed most of the class (review, 2026-11-09).
+  const mostGotRight = new Set(
+    [...classItemIds].filter((id) => {
+      const answered = live.filter((r) => r.itemId === id && r.firstAnswer !== null);
+      return answered.length > 0 && answered.filter((r) => finalRight(r) === true).length / answered.length >= 0.5;
+    }),
+  );
   const checkIn = roster.filter((student) => {
     if (!joinedIds.has(student.studentId)) return false;
     const missedClass = live.some((r) => {
-      if (r.studentId !== student.studentId || !classItemIds.has(r.itemId)) return false;
+      if (r.studentId !== student.studentId || !mostGotRight.has(r.itemId)) return false;
       const finalCorrect = talkedIds.has(r.itemId) && r.secondAnswer !== null ? r.secondCorrect : r.firstCorrect;
       return r.firstAnswer !== null && finalCorrect === false;
     });
     const own = ownByStudent.get(student.studentId);
     // Also anyone who got most of their own questions wrong, whatever happened with the room: a student
     // with 0 of 4 alone was left off when they'd only missed the warm-up (review, 2026-11-09).
-    const struggledAlone = !!own && own.answered >= 3 && own.right <= Math.floor(own.answered / 4);
+    const struggledAlone = !!own && own.answered >= 3 && own.right / own.answered < CHECK_IN_ALONE_BELOW;
     return (missedClass && !!own && own.answered - own.right >= 2) || struggledAlone;
   });
 
