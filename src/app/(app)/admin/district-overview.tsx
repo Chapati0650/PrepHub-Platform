@@ -127,7 +127,16 @@ export function DistrictOverviewView({
         />
       )}
 
-      <StaffSection title="By campus" description="Open a campus to see its own overview, students, teachers, announcements and goal.">
+      <StaffSection
+        title="By campus"
+        description="Open a campus to see its own overview, students, teachers, announcements and goal."
+        action={
+          // The table as a spreadsheet, for the district's own reports (2026-11-09).
+          <a href="/admin/district/export" className="text-base font-medium underline underline-offset-4 print:hidden">
+            Download as a spreadsheet
+          </a>
+        }
+      >
         {overview.campuses.length === 0 ? (
           <StaffNote>No campuses are linked to this district yet. Email PrepHub to add them.</StaffNote>
         ) : (

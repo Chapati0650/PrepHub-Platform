@@ -384,6 +384,8 @@ describe("complementary suppression (2026-11-09)", () => {
     // Two small groups already hide each other; nothing small, nothing hidden.
     expect(protectPartition([2, 3, 10, 30])).toEqual([null, null, 10, 30]);
     expect(protectPartition([8, 12, 0, 30])).toEqual([8, 12, 0, 30]);
+    // Two small groups that add up to fewer than five are a small group again: one more is hidden.
+    expect(protectPartition([1, 3, 0, 20], [3])).toEqual([null, null, 0, "withheld"]);
   });
 
   it("keeps the shortfalls from adding back up to a hidden 'Still below'", async () => {

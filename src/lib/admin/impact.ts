@@ -114,13 +114,23 @@ export function protectPartition(raw: number[], avoid: number[] = []): CellCount
 /** The same rule over cells already decided (a district's, where a cell can be hidden for other reasons). */
 export function complementCells(raw: number[], cells: CellCount[], avoid: number[] = []): CellCount[] {
   const out = [...cells];
-  if (out.filter((c) => typeof c !== "number").length !== 1) return out;
-  const candidates = raw.map((n, i) => i).filter((i) => typeof out[i] === "number" && raw[i] > 0);
-  const preferred = candidates.filter((i) => !avoid.includes(i));
-  const pool = preferred.length > 0 ? preferred : candidates;
-  if (pool.length === 0) return out;
-  const pick = pool.reduce((a, b) => (raw[b] < raw[a] ? b : a));
-  out[pick] = "withheld";
+  const hidden = () => out.map((c, i) => i).filter((i) => typeof out[i] !== "number");
+  // Hide one more while what's hidden could be worked out too narrowly: a single hidden group is the
+  // total minus the rest, and two hidden groups that add up to 1-4 ("4 meet the benchmark" when 1 and 3
+  // were hidden) are a small group again (review, 2026-11-09).
+  const exposed = () => {
+    const h = hidden();
+    const sum = h.reduce((n, i) => n + raw[i], 0);
+    return h.length === 1 || (h.length > 1 && sum > 0 && sum < MIN_GROUP_SIZE);
+  };
+  while (exposed()) {
+    const candidates = raw.map((n, i) => i).filter((i) => typeof out[i] === "number" && raw[i] > 0);
+    const preferred = candidates.filter((i) => !avoid.includes(i));
+    const pool = preferred.length > 0 ? preferred : candidates;
+    if (pool.length === 0) break;
+    const pick = pool.reduce((a, b) => (raw[b] < raw[a] ? b : a));
+    out[pick] = "withheld";
+  }
   return out;
 }
 
