@@ -371,7 +371,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
               Fixed category order (PRD-004), not weakest-first: the ordinal
               is a stable reference for "your Grammar row", and the bar and
               percentage already say which ones need work. */}
-          <Panel title="Strengths & Weaknesses" action={{ href: "/progress", label: "Weakest skills" }}>
+          <Panel title="Strengths & Weaknesses" action={{ href: "/progress", label: "See your weakest →" }}>
             <ol className="divide-y divide-border">
               {ALL_CATEGORIES.map((category, i) => {
                 const entry = data.mastery.find((m) => m.category === category);

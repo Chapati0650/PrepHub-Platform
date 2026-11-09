@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { ONBOARDING_SCORE_RANGES } from "@/lib/onboarding/target-score-options";
+import { ONBOARDING_SCORE_RANGES, TSI_TOTAL } from "@/lib/onboarding/target-score-options";
 
 // The goal-score step, built as an ascending bar chart the student moves
 // along rather than a grid of small text buttons.
@@ -93,6 +93,11 @@ export function GoalScorePicker({
           <p className="mt-1 font-heading text-display-sm font-semibold tracking-tight tabular-nums sm:text-display">
             {selected ? `${selected.scoreMin}–${selected.scoreMax}` : "—"}
           </p>
+          {selected && selected.scoreMin <= TSI_TOTAL && TSI_TOTAL <= selected.scoreMax && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              Includes {TSI_TOTAL}: 480 in Reading &amp; Writing and 530 in Math meet Texas&apos;s college-ready benchmark.
+            </p>
+          )}
         </div>
 
         {/* Arrows as well as direct bar clicks: nudging one band at a time is
