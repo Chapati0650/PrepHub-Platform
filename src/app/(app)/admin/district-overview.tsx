@@ -3,6 +3,7 @@ import type { DistrictOverview, FigureRow } from "@/lib/admin/district-overview"
 import { StaffHeader, StaffNote, StaffPage, StaffSection, StatStrip } from "@/components/staff/staff-ui";
 import type { GrowthByStudyTime } from "@/lib/admin/growth-by-time";
 import { PrintButton } from "@/components/staff/print-button";
+import { formatLongLocalDate } from "@/lib/community/local-day";
 import { shortCampusName } from "@/lib/admin/campus-names";
 import { DistrictCampusSwitcher } from "./school-switcher";
 import { CampusTable } from "./campus-table";
@@ -44,7 +45,7 @@ export function DistrictOverviewView({
         eyebrow="Your district"
         title={overview.districtName}
         description="How PrepHub is going across your district, and at each campus. These are totals: no student's scores are ever shown."
-        actions={<PrintButton />}
+        actions={<PrintButton asOf={formatLongLocalDate(new Date())} />}
       />
 
       <StaffSection

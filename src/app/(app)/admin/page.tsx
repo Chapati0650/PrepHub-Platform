@@ -30,6 +30,7 @@ import { ReadinessSection } from "./readiness-section";
 import { SkillGapsSection } from "./skill-gaps-section";
 import { getDistrictSkillGaps, getSkillGaps } from "@/lib/admin/skill-gaps";
 import { PrintButton } from "@/components/staff/print-button";
+import { formatLongLocalDate } from "@/lib/community/local-day";
 
 export const metadata = { title: "Overview" };
 
@@ -144,7 +145,7 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
         eyebrow={district ? "Campus" : "Your school"}
         title={data.schoolName}
         description={`How PrepHub is going at ${district ? "this campus" : "your school"}. The numbers update as students practice. You see ${district ? "the campus's" : "your whole school's"} totals here; no student's scores are ever shown.`}
-        actions={<PrintButton />}
+        actions={<PrintButton asOf={formatLongLocalDate(new Date())} />}
       />
 
       {!setupDone && (

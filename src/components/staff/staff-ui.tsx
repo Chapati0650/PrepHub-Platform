@@ -86,7 +86,7 @@ export function StaffSection({
   const headingId = id ? `${id}-heading` : undefined;
   return (
     <section id={id} aria-labelledby={headingId} className="flex scroll-mt-8 flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex break-after-avoid flex-wrap items-end justify-between gap-3">
         <div className="max-w-2xl">
           <h2 id={headingId} className="text-xl">
             {title}
