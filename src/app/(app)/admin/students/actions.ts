@@ -7,6 +7,7 @@ import { AdminError } from "@/lib/admin/errors";
 import { updateStudentInfoSchema } from "@/lib/validation/admin";
 import { RosterError } from "@/lib/owner/roster";
 import { inviteScopeForSchool, sendRosterInvitations } from "@/lib/owner/roster-invites";
+import { DEMO_LOCKED_MESSAGE, isDemoSession } from "@/lib/demo-guard";
 
 export type ActionState = { error?: string; success?: boolean };
 
@@ -15,6 +16,7 @@ function formEntries(formData: FormData) {
 }
 
 export async function updateStudentInfoAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   const context = await requireAdminWriteContext(schoolField(formData));
   if ("error" in context) return context;
   const { schoolId } = context;

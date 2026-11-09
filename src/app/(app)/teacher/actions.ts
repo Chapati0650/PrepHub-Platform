@@ -62,6 +62,7 @@ export async function createClassroomAction(_prev: TeacherActionState, formData:
 }
 
 export async function renameClassroomAction(_prev: TeacherActionState, formData: FormData): Promise<TeacherActionState> {
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   const context = await requireTeacherAction();
   const classroomId = String(formData.get("classroomId") ?? "");
   try {
@@ -98,6 +99,7 @@ export async function removeStudentAction(classroomId: string, studentId: string
 }
 
 export async function setTeacherDisplayNameAction(_prev: TeacherActionState, formData: FormData): Promise<TeacherActionState> {
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   const context = await requireTeacherAction();
   try {
     await setTeacherDisplayName(context, String(formData.get("displayName") ?? ""));
@@ -223,6 +225,7 @@ export async function createAssignmentAction(
 }
 
 export async function updateAssignmentAction(_prev: TeacherActionState, formData: FormData): Promise<TeacherActionState> {
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   const context = await requireTeacherAction();
   const assignmentId = String(formData.get("assignmentId") ?? "");
   const dueAt = dueFrom(formData.get("dueOn"));
@@ -286,8 +289,9 @@ export async function remindUnfinishedAction(assignmentId: string): Promise<Teac
   }
 }
 
-export async function setAssignmentClosedAction(assignmentId: string, closed: boolean): Promise<void> {
+export async function setAssignmentClosedAction(assignmentId: string, closed: boolean): Promise<{ error: string } | void> {
   const context = await requireTeacherAction();
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   await setAssignmentClosed(context, assignmentId, closed);
   revalidatePath("/teacher", "layout");
   revalidatePath("/homework");

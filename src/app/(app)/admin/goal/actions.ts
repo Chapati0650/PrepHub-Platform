@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdminWriteContext, schoolField } from "@/lib/admin/school-context";
 import { GoalError, parseGoalForm, saveCommunityGoal } from "@/lib/community/goal";
 import type { GoalEditorState } from "@/components/community/goal-editor";
+import { DEMO_LOCKED_MESSAGE, isDemoSession } from "@/lib/demo-guard";
 
 /**
  * An Administrator sets their own school's goal and prize (2026-10-24) — the
@@ -13,6 +14,7 @@ import type { GoalEditorState } from "@/components/community/goal-editor";
  * this page is read-only, as with every admin write.
  */
 export async function saveSchoolGoalAction(_prev: GoalEditorState, formData: FormData): Promise<GoalEditorState> {
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   const context = await requireAdminWriteContext(schoolField(formData));
   if ("error" in context) return { error: context.error };
 

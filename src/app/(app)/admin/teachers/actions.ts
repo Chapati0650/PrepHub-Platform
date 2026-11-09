@@ -21,6 +21,7 @@ async function adminSchool(school?: string | null): Promise<{ schoolId: string }
 }
 
 export async function inviteTeacherAction(_prev: TeacherPanelState, formData: FormData): Promise<TeacherPanelState> {
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   const school = await adminSchool(schoolField(formData));
   if ("error" in school) return { error: school.error };
   try {
@@ -54,6 +55,7 @@ function inviteMessage(created: boolean, restoredClasses: number): string {
 }
 
 export async function resendTeacherInviteAction(userId: string, campus?: string): Promise<TeacherPanelState> {
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   const school = await adminSchool(campus);
   if ("error" in school) return { error: school.error };
   try {

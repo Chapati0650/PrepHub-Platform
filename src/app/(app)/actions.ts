@@ -55,6 +55,7 @@ export async function deleteAccountAction(
 // PRD-010 §"academic goal" / PRD-007 §9, PRD-008 §6: the target SAT score
 // used by Target Score Progress, editable any time from Settings.
 export async function updateTargetScoreAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   const session = await auth();
   if (!session?.user) redirect("/login");
   if (!canUseStudentExperience(session.user.role)) redirect("/login");
@@ -83,6 +84,7 @@ export async function updateTargetScoreAction(_prev: ActionState, formData: Form
 // PRD-010 §5 — only the first name is editable; everything else on the
 // Profile section (graduation year, verified school, email) is read-only.
 export async function updateFirstNameAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  if (await isDemoSession()) return { error: DEMO_LOCKED_MESSAGE };
   const session = await auth();
   if (!session?.user.id) redirect("/login");
 
