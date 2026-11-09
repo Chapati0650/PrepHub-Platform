@@ -2854,3 +2854,17 @@ Reviewed as Houston ISD's head of CCMR would see the demo (four reviewers, two r
   recompiled, and the Guided export route answered with the HTML 404 page until its `route.ts` was touched.
   Production builds were fine (the route is in the build output). Restart `next dev`, or touch the file,
   before trusting a surprising result; e2e on a fresh server can hit the same thing.
+- **Round-2 changes (same night):**
+  - District readiness and skill gaps now total every campus with 10+ measured (`districtBenchmark`,
+    `combineSkillGaps`): a district group is "Withheld" only where exactly one campus hides it, then the
+    one-more-group rule. `complementCells` also hides one more while the hidden groups sum to 1-4.
+    "Meet TSI now" per campus (`campusMeetNow`) shows wherever the campus page already gives it away; the
+    campus readiness card leads with "N of M students meet both benchmarks now". District activity counts
+    are exact (campus pages and Students lists show them).
+  - `/admin/district/export`: the campus table as CSV (district admins only). The campus table sorts
+    (`campus-table.tsx`); the campus switcher becomes a list above 8 campuses. Printouts are dated.
+  - Demo guard also covers edits a visitor would leave behind (class/teacher names, homework edits,
+    student info, school goal, a student's name/target, closing homework) and teacher invitations.
+  - Guided: no Premium celebration over /live; un-ended sessions stop offering Join after 8 hours
+    (`OPEN_SESSION_JOINABLE_MS`); the board keeps the newest example step in view; "Most common wrong
+    answer"; "Check in with" for individual practice; session lists tag Teacher-led / Individual.
