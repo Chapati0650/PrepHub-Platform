@@ -692,9 +692,9 @@ async function create() {
     // district will check. Per-answer steps alone (right up, wrong down)
     // netted to zero at these students' accuracy, and the Overview read
     // "average gain -8". Halved on 2026-11-09 so the demo agrees with the Houston flyer's
-    // research-based projection: students with 4+ hours land near +35, about what College Board
-    // reports for 6-8 hours of practice beyond normal growth, not +60.
-    const learning = between(0.05, 0.5);
+    // research-based projection: students with 4+ hours (most of them 5-10 hours) land near +35-40,
+    // about what College Board reports for 6-8 hours of practice beyond normal growth, not +60.
+    const learning = between(0.03, 0.35);
     for (let k = 0; k < sets; k++) {
       const setGain = learning + normal(0, 1.0);
       const setId = randomUUID();
