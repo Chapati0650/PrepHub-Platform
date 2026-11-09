@@ -70,7 +70,8 @@ test.describe("Diagnostic + Practice loop (PRD-012, PRD-005, PRD-006, PRD-007)",
     await expect(page).toHaveURL(/\/diagnostic\/results$/, { timeout: 20_000 });
     await expect(page.getByRole("heading", { name: "Diagnostic Complete" })).toBeVisible();
     await expect(page.getByText("Your Initial PrepHub Score Prediction")).toBeVisible();
-    await expect(page.getByText(/^\d{3,4}–\d{3,4}$/)).toBeVisible();
+    // Scoring 2026.3 shows one score with its band ("Likely range 800–1060"), not a bare range.
+    await expect(page.getByText(/^Likely range \d{3,4}–\d{3,4}$/).first()).toBeVisible();
 
     // The results carry the one-sentence analysis.
     await expect(page.getByText(/losing the most points|close to even/)).toBeVisible();
