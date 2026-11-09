@@ -17,7 +17,8 @@ export async function GET() {
 
   const count = (v: number | null) => (v === null ? `Fewer than ${MIN_GROUP_SIZE}` : String(v));
   const gain = (r: FigureRow) => (r.averageScoreGain === null ? "Not enough yet" : String(r.averageScoreGain));
-  const tsi = (c: CampusRow) => (!c.readiness ? "Not enough yet" : "withheld" in c.readiness ? "Withheld" : String(c.readiness.meet));
+  const tsi = (c: CampusRow) =>
+    !c.readiness ? "Not enough yet" : "withheld" in c.readiness ? "Withheld" : c.readiness.meet === null ? `Fewer than ${MIN_GROUP_SIZE}` : String(c.readiness.meet);
   const tsiOf = (c: CampusRow) => (!c.readiness || "withheld" in c.readiness ? "" : String(c.readiness.measured));
 
   const rows: string[][] = [
@@ -41,11 +42,13 @@ export async function GET() {
       String(overview.totals.questionsAnswered),
       String(overview.totals.practiceSetsFinished),
       gain(overview.totals),
-      overview.readiness && typeof overview.readiness.below === "number" && typeof overview.readiness.slipped === "number"
-        ? String(overview.readiness.measured - overview.readiness.below - overview.readiness.slipped)
-        : overview.readiness
+      !overview.readiness
+        ? "Not enough yet"
+        : overview.readiness.meetNow === "withheld"
           ? "Withheld"
-          : "Not enough yet",
+          : overview.readiness.meetNow === null
+            ? `Fewer than ${MIN_GROUP_SIZE}`
+            : String(overview.readiness.meetNow),
       overview.readiness ? String(overview.readiness.measured) : "",
     ],
   ];

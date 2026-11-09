@@ -150,7 +150,13 @@ export function DistrictOverviewView({
               activeThisWeek: c.activeThisWeek,
               questionsAnswered: c.questionsAnswered,
               averageGain: c.averageScoreGain,
-              tsi: !c.readiness ? "NOT_ENOUGH" : "withheld" in c.readiness ? "WITHHELD" : c.readiness,
+              tsi: !c.readiness
+                ? "NOT_ENOUGH"
+                : "withheld" in c.readiness
+                  ? "WITHHELD"
+                  : c.readiness.meet === null
+                    ? "SMALL"
+                    : { meet: c.readiness.meet, measured: c.readiness.measured },
             }))}
           />
         )}

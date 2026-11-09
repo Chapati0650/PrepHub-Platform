@@ -81,6 +81,8 @@ export type CampusImpactReport = {
     held: CellCount;
     slipped: CellCount;
     below: CellCount;
+    /** Students meeting both benchmarks now (crossed + held), protected as a cell of its own. */
+    meetNow: CellCount;
     shortfall: Record<BelowBenchmarkShape, CellCount>;
     readingWritingBenchmark: number;
     mathBenchmark: number;
@@ -160,11 +162,17 @@ export function benchmarkCells(b: RawGroups, start: { groups: CellCount[]; short
       short = short.map((c, i) => (i === pick ? "withheld" : c));
     }
   }
+  // How many meet both benchmarks now: exact where the page already gives it away (measured minus
+  // "Still below" minus "Fell back"), "Fewer than 5" where it is itself a small group, else withheld.
+  const meetRaw = b.crossed + b.held;
+  const meetNow: CellCount =
+    typeof below === "number" && typeof slipped === "number" ? meetRaw : meetRaw === 0 ? 0 : meetRaw < MIN_GROUP_SIZE ? null : "withheld";
   return {
     crossed,
     held,
     slipped,
     below,
+    meetNow,
     shortfall: { MISSES_MATH_ONLY: short[0], MISSES_READING_ONLY: short[1], MISSES_BOTH: short[2] } as Record<BelowBenchmarkShape, CellCount>,
   };
 }

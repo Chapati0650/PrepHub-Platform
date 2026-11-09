@@ -398,3 +398,14 @@ describe("complementary suppression (2026-11-09)", () => {
     expect(g.shortfall.MISSES_READING_ONLY).toBe(0);
   });
 });
+
+describe("meet-now cell (2026-11-09)", () => {
+  it("is exact when the page gives it away, 'Fewer than 5' when itself small, else withheld", async () => {
+    const { protectBenchmarkGroups } = await import("./impact");
+    const sf = { MISSES_MATH_ONLY: 10, MISSES_READING_ONLY: 5, MISSES_BOTH: 5 };
+    expect(protectBenchmarkGroups({ crossed: 6, held: 14, slipped: 0, below: 20, shortfall: sf }).meetNow).toBe(20);
+    // Crossed 0 shown, Already met 3 hidden: "Still below" is withheld with it, so meet is "Fewer than 5".
+    expect(protectBenchmarkGroups({ crossed: 0, held: 3, slipped: 0, below: 20, shortfall: sf }).meetNow).toBeNull();
+    expect(protectBenchmarkGroups({ crossed: 0, held: 0, slipped: 0, below: 20, shortfall: sf }).meetNow).toBe(0);
+  });
+});

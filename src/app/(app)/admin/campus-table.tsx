@@ -13,7 +13,7 @@ export type CampusTableRow = {
   questionsAnswered: number;
   averageGain: number | null;
   /** Share meeting TSI (for sorting) with its words, or a status. */
-  tsi: { meet: number; measured: number } | "WITHHELD" | "NOT_ENOUGH";
+  tsi: { meet: number; measured: number } | "WITHHELD" | "NOT_ENOUGH" | "SMALL";
 };
 
 type Key =
@@ -82,7 +82,9 @@ export function CampusTable({
       ? "Not enough yet"
       : t === "WITHHELD"
         ? "Withheld"
-        : `${t.meet.toLocaleString()} of ${t.measured.toLocaleString()}`;
+        : t === "SMALL"
+          ? `Fewer than ${smallGroup}`
+          : `${t.meet.toLocaleString()} of ${t.measured.toLocaleString()} (${Math.round((100 * t.meet) / Math.max(1, t.measured))}%)`;
 
   return (
     <div>

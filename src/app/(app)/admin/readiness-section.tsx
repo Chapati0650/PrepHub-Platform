@@ -63,12 +63,12 @@ export function ReadinessSection({
       }
     >
       <div className="flex break-inside-avoid flex-col gap-5 rounded-2xl border border-border p-5">
-        {typeof benchmark.below === "number" && typeof benchmark.slipped === "number" && (
+        {benchmark.meetNow !== "withheld" && (
           // The number a CCMR office reports, said first (review, 2026-11-09: with a small group
           // withheld, a campus admin couldn't see how many of their students meet the benchmark).
           <p className="text-lg">
             <span className="font-heading text-3xl font-semibold tabular-nums">
-              {(benchmark.measured - benchmark.below - benchmark.slipped).toLocaleString()}
+              {benchmark.meetNow === null ? `Fewer than ${MIN_GROUP_SIZE}` : benchmark.meetNow.toLocaleString()}
             </span>{" "}
             of the {benchmark.measured.toLocaleString()} students with two predictions to compare meet both benchmarks now
           </p>

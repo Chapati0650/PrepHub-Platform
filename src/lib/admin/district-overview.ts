@@ -57,7 +57,8 @@ export type CampusRow = FigureRow & {
    * campus's whole readiness breakdown is shown (10+ measured and no group of 1-4), so it can't be
    * combined with the campus page to recover a withheld group.
    */
-  readiness: { meet: number; measured: number } | { withheld: true } | null;
+  /** `meet` null: a group of 1-4 ("Fewer than 5"). */
+  readiness: { meet: number | null; measured: number } | { withheld: true } | null;
 };
 
 export type DistrictOverview = {
@@ -111,11 +112,11 @@ function measuredOf(b: RawBenchmark): number {
  * "Still below" minus "Fell back", both shown), else null. Showing it then adds nothing; showing it
  * otherwise could (review, 2026-11-09: "Withheld" here protected nothing, the campus page had it).
  */
-export function campusMeetNow(b: RawBenchmark): { meet: number; measured: number } | null {
+export function campusMeetNow(b: RawBenchmark): { meet: number | null; measured: number } | { withheld: true } | null {
   const measured = measuredOf(b);
   if (measured < MIN_STUDENTS_FOR_SCORE_FIGURES) return null;
-  const p = protectBenchmarkGroups(b);
-  return typeof p.below === "number" && typeof p.slipped === "number" ? { meet: measured - p.below - p.slipped, measured } : null;
+  const { meetNow } = protectBenchmarkGroups(b);
+  return meetNow === "withheld" ? { withheld: true } : { meet: meetNow, measured };
 }
 
 const GROUP_KEYS = ["crossed", "held", "slipped", "below"] as const;
@@ -184,8 +185,7 @@ export function buildDistrictOverview(districtName: string, raw: RawCampusFigure
       campusId: r.campusId,
       campusName: r.campusName,
       ...toFigureRow(r),
-      readiness:
-        campusMeetNow(r.benchmark) ?? (measuredOf(r.benchmark) >= MIN_STUDENTS_FOR_SCORE_FIGURES ? { withheld: true as const } : null),
+      readiness: campusMeetNow(r.benchmark),
     })),
   };
 }
