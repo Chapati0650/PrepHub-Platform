@@ -20,7 +20,9 @@ export function buildCommunityUpdates(input: {
     updates.push(`${input.studentsActiveToday} student${input.studentsActiveToday === 1 ? "" : "s"} practiced today.`);
   }
   if (input.weeklyEstimatedSatPointsImproved > 0) {
-    updates.push(`${input.schoolName} improved by an estimated ${input.weeklyEstimatedSatPointsImproved} SAT points this week.`);
+    // Said as what it is, a sum across students: "improved by 650 points" read as one school's score
+    // jumping 650 (review, 2026-11-09).
+    updates.push(`Students at ${input.schoolName} gained an estimated ${input.weeklyEstimatedSatPointsImproved} SAT points between them this week.`);
   }
   if (input.weeklyStudyHours > 0) {
     updates.push(`The school studied for ${input.weeklyStudyHours} hours this week.`);

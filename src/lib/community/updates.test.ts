@@ -38,7 +38,7 @@ describe("buildCommunityUpdates", () => {
 
   it("includes the weekly SAT improvement update only when positive", () => {
     expect(buildCommunityUpdates({ ...base, weeklyEstimatedSatPointsImproved: 420 })).toContain(
-      "Lebanon Trail improved by an estimated 420 SAT points this week.",
+      "Students at Lebanon Trail gained an estimated 420 SAT points between them this week.",
     );
     expect(buildCommunityUpdates({ ...base, weeklyEstimatedSatPointsImproved: 0 })).toEqual([]);
   });
