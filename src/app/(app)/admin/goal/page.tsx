@@ -40,7 +40,7 @@ export default async function SchoolGoalPage({ searchParams }: { searchParams: P
       {viewingAsOwner && <OwnerSchoolSwitcher basePath="/admin/goal" schools={availableSchools} currentSchoolId={schoolId} />}
 
       <StaffHeader
-        eyebrow="Your school"
+        eyebrow={district ? "Campus" : "Your school"}
         title="Community goal"
         description="One target your whole school works toward together, like 5,000 questions answered by winter break. Every student sees the progress on their School Community page. A prize, such as a pizza party or free admission to a home game, is what makes it worth chasing."
       />

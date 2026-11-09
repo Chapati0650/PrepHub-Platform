@@ -38,7 +38,7 @@ export default async function AnnouncementsPage({ searchParams }: { searchParams
       )}
 
       <StaffHeader
-        eyebrow="Your school"
+        eyebrow={district ? "Campus" : "Your school"}
         title="Announcements"
         description="Send a short message to every student at your school. It appears at the top of their PrepHub home page and is emailed to their school address once, when you send it."
       />

@@ -62,7 +62,7 @@ export default async function SchoolAccessPage({ searchParams }: { searchParams:
       )}
 
       <StaffHeader
-        eyebrow="Your school"
+        eyebrow={district ? "Campus" : "Your school"}
         title="Access & support"
         description="Whether your students have PrepHub Premium through the school, until when, and how to reach a person at PrepHub."
       />

@@ -32,7 +32,7 @@ export default async function AdminTeachersPage({ searchParams }: { searchParams
         <OwnerSchoolSwitcher basePath="/admin/teachers" schools={availableSchools} currentSchoolId={schoolId} />
       )}
       <StaffHeader
-        eyebrow="Your school"
+        eyebrow={district ? "Campus" : "Your school"}
         title="Teachers"
         description="Teachers make classes, give students a code to join, and assign PrepHub questions as homework. They see their own students' results on the homework they assign and the Guided Sessions they run. You see how many classes and students each one has, never anyone's results."
       />

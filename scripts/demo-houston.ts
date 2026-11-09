@@ -71,7 +71,7 @@ const DISTRICT_NAME = "Houston ISD (Demo)";
  */
 const CAMPUSES = [
   { name: "Houston ISD Demo \u2013 Central High School", students: 70, enrollment: 96, quiet: 0, lift: 0 },
-  { name: "Houston ISD Demo \u2013 Northside High School", students: 55, enrollment: 74, quiet: -0.12, lift: 4 },
+  { name: "Houston ISD Demo \u2013 Northside High School", students: 55, enrollment: 76, quiet: -0.12, lift: 4 },
   { name: "Houston ISD Demo \u2013 Bayou High School", students: 40, enrollment: 57, quiet: 0.12, lift: -3 },
   { name: "Houston ISD Demo \u2013 Heights Academy", students: 25, enrollment: 36, quiet: 0.25, lift: -5 },
   { name: "Houston ISD Demo \u2013 Eastside Early College", students: 10, enrollment: 14, quiet: 0.4, lift: 1 },
@@ -479,7 +479,7 @@ async function create() {
       adminAssignments: { create: { organizationId: district.id, scope: "DISTRICT", createdAt: new Date(LAUNCH - 7 * DAY) } },
     },
   });
-  await prisma.user.create({
+  const campusAdmin = await prisma.user.create({
     data: {
       role: "SCHOOL_ADMINISTRATOR",
       firstName: "Jordan",
@@ -918,17 +918,26 @@ async function create() {
       communityGoalEndsAt: new Date(NOW + 21 * DAY),
     },
   });
-  // The second campus has a goal and an announcement of its own, from its own administrator.
-  await prisma.organization.update({
-    where: { id: schools[1].id },
-    data: {
-      communityGoalMetric: "QUESTIONS_ANSWERED",
-      communityGoalTarget: 4000,
-      communityGoalPrize: "Extra lunch period on Friday",
-      communityGoalStartsAt: goalStart,
-      communityGoalEndsAt: new Date(NOW + 21 * DAY),
-    },
-  });
+  // Every other campus has a goal of its own too, each about 60% done, so no campus reads as half set
+  // up five weeks in (review, 2026-11-09: four of five showed "Getting started: set a goal").
+  const PRIZES = ["Extra lunch period on Friday", "A pizza party for the campus", "Free tickets to the spring play", "Front-of-line passes at the next pep rally"];
+  const campusTargets: number[] = [];
+  for (let i = 1; i < schools.length; i++) {
+    const ids = (await prisma.studentMembership.findMany({ where: { schoolId: schools[i].id, status: "ACTIVE" }, select: { studentId: true } })).map((m) => m.studentId);
+    const answered = await countAnswers(ids, goalStart);
+    const campusTarget = Math.max(250, Math.round(answered / between(0.55, 0.7) / 250) * 250);
+    campusTargets.push(campusTarget);
+    await prisma.organization.update({
+      where: { id: schools[i].id },
+      data: {
+        communityGoalMetric: "QUESTIONS_ANSWERED",
+        communityGoalTarget: campusTarget,
+        communityGoalPrize: PRIZES[(i - 1) % PRIZES.length],
+        communityGoalStartsAt: goalStart,
+        communityGoalEndsAt: new Date(NOW + 21 * DAY),
+      },
+    });
+  }
   await prisma.announcement.createMany({
     data: [
       {
@@ -947,6 +956,15 @@ async function create() {
         expiresAt: new Date(NOW + 21 * DAY),
         createdByUserId: admin.id,
       },
+      // One welcome each on the other campuses; Northside's from its own administrator.
+      ...schools.slice(1).map((sc, k) => ({
+        organizationId: sc.id,
+        title: "Practice before SAT School Day",
+        message: `Our campus goal is ${campusTargets[k].toLocaleString()} questions together by the deadline. Every Practice Set counts, and so does homework and every Guided Session in class.`,
+        publishedAt: new Date(NOW - (6 + k) * DAY),
+        expiresAt: new Date(NOW + 30 * DAY),
+        createdByUserId: k === 0 ? campusAdmin.id : admin.id,
+      })),
     ],
   });
 

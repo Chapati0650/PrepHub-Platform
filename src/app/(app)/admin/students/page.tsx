@@ -84,7 +84,7 @@ export default async function StudentDirectoryPage({ searchParams }: { searchPar
           whether scores are here too, and a student deserves to be able to
           read the same sentence. */}
       <StaffHeader
-        eyebrow="Your school"
+        eyebrow={district ? "Campus" : "Your school"}
         title="Students"
         description="Everyone who has signed up through your school, and how much each has practiced. You see effort, never scores: no student's answers, mastery or predicted score appears here."
         actions={
