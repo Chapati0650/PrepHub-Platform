@@ -25,6 +25,8 @@ import { Marker } from "@/components/ui/marker";
 import { Greeting } from "./greeting";
 import { BrandChip } from "@/components/co-brand";
 import { getBrandingForUser } from "@/lib/branding/load";
+import { classSchoolCovering } from "@/lib/district/class-school";
+import { isDemoAccount } from "@/lib/demo-account";
 
 export const metadata = { title: "Home" };
 
@@ -147,6 +149,8 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   const branding = await getBrandingForUser(session.user.id, session.user.role ?? "STUDENT");
 
   const paidAccess = decidePaidAccess(session.user.role ?? null, subscription, schoolMembership);
+  // In a class at a school that covers PrepHub: the shell says how to switch it on; no sales panel here.
+  const schoolCoversClass = !paidAccess && !isAdmin ? await classSchoolCovering(session.user.id) : null;
   const onboarding = isStudent ? profile : null;
   // Which set is next decides what the one big button says for a free
   // student: Set 1 is free, Set 2 on is where Premium starts.
@@ -243,7 +247,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
             Or start somewhere smaller
           </h2>
           <div className="mt-4 flex flex-col divide-y divide-border border-y border-border">
-            {PRE_DIAGNOSTIC_LINKS.map((item) => (
+            {PRE_DIAGNOSTIC_LINKS.filter((item) => !(item.href === "/curriculum" && isDemoAccount(session.user.email))).map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -466,7 +470,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
               claims what /pricing's table claims. "Faster" is the honest
               framing: the free tier stops after Set 1, so there is no
               practice loop beyond it without Premium. */}
-          {!paidAccess && (
+          {!paidAccess && !schoolCoversClass && (
             <section className="rounded-2xl bg-surface-tint p-6">
               <p className="text-caption font-semibold tracking-[0.12em] text-primary uppercase">PrepHub Premium</p>
               <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-balance">

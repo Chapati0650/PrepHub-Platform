@@ -8,6 +8,7 @@ import { logoutAction, markPremiumCelebratedAction } from "./actions";
 import { resendDistrictVerificationAction } from "./access/actions";
 import { AppShell } from "@/components/app-shell";
 import { getBrandingForUser } from "@/lib/branding/load";
+import { classSchoolCovering } from "@/lib/district/class-school";
 
 // PRD-000's primary nav for students (Home/Practice/Progress/Profile) — also
 // shown to School Administrators (PRD-011 §6: "the account receives all
@@ -75,7 +76,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         })
       : null,
   ]);
-  const showUpgrade = role === "STUDENT" && !paid && !oneStepFromSchoolAccess;
+  // In a class at a school whose PrepHub is live, but not a member of it (signed up with a personal
+  // address and joined by class code): say how to switch the school's access on, never sell it.
+  const classSchool = role === "STUDENT" && !paid && !districtPrompt && classEnrollment ? await classSchoolCovering(session.user.id) : null;
+  const schoolCoversClass = classSchool !== null;
+  const shellPrompt = classSchool ? { kind: "USE_SCHOOL_EMAIL" as const, organizationName: classSchool.name } : districtPrompt;
+  const showUpgrade = role === "STUDENT" && !paid && !oneStepFromSchoolAccess && !schoolCoversClass;
   // A district-wide administrator's sidebar says "Your district", not "Your school".
   const districtAdmin =
     role === "SCHOOL_ADMINISTRATOR" &&
@@ -118,7 +124,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       showUpgrade={showUpgrade}
       provider={provider}
       branding={branding}
-      districtPrompt={districtPrompt}
+      districtPrompt={shellPrompt}
       resendVerification={resendDistrictVerificationAction}
       celebration={celebration}
       markCelebrated={markPremiumCelebratedAction}

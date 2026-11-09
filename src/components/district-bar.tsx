@@ -70,6 +70,22 @@ export function DistrictBar({
         </>
       )}
 
+      {prompt.kind === "USE_SCHOOL_EMAIL" && (
+        <>
+          <p className="text-center">
+            <span className="font-semibold">{prompt.organizationName} covers PrepHub Premium for its students.</span>{" "}
+            <span className="text-surface-deep-foreground/80">Connect your school email to switch it on.</span>
+          </p>
+          <Link
+            href="/access/verify-school"
+            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-marker px-3 py-1 text-xs font-semibold text-surface-deep transition-opacity hover:opacity-90"
+          >
+            Connect school email
+            <ArrowRight className="size-3" aria-hidden />
+          </Link>
+        </>
+      )}
+
       {prompt.kind === "NOT_ON_ROSTER" && (
         <p className="text-center">
           <span className="font-semibold">{prompt.organizationName} uses PrepHub</span>

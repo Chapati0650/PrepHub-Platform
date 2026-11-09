@@ -323,7 +323,13 @@ async function enroll(
 export type DistrictPrompt =
   | { kind: "CONFIRM_EMAIL"; organizationName: string; email: string }
   | { kind: "PICK_CAMPUS"; organizationName: string }
-  | { kind: "NOT_ON_ROSTER"; organizationName: string; email: string };
+  | { kind: "NOT_ON_ROSTER"; organizationName: string; email: string }
+  /**
+   * In a class at a school whose access is live, but signed up with an address the school doesn't
+   * recognise (2026-11-09: such a student was shown "Get 50% off"). Connecting the school email is the
+   * way in; the layout raises this one, not the sign-in enrollment above.
+   */
+  | { kind: "USE_SCHOOL_EMAIL"; organizationName: string };
 
 function promptFor(outcome: EnrollmentOutcome, match: DistrictMatch | null, email: string | null): DistrictPrompt | null {
   if (!match || !email) return null;
