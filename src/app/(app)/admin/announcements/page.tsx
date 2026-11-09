@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { DistrictCampusSwitcher, PickCampusPrompt } from "../school-switcher";
+import { DistrictCampusSwitcher } from "../school-switcher";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { OwnerSchoolSwitcher } from "../school-switcher";
 import { listAnnouncements } from "@/lib/announcements";
@@ -17,7 +17,28 @@ export default async function AnnouncementsPage({ searchParams }: { searchParams
   const { schoolId, viewingAsOwner, availableSchools, district } = await requireAdminSchoolContext(school);
 
   if (district && !schoolId) {
-    return <PickCampusPrompt basePath="/admin/announcements" districtName={district.name} campuses={district.campuses} what="Announcements" />;
+    // One announcement to every campus (2026-11-09: a district message took one post per campus).
+    const recipients = await prisma.studentMembership.count({
+      where: { schoolId: { in: district.campuses.map((c) => c.id) }, status: "ACTIVE" },
+    });
+    return (
+      <StaffPage>
+        <DistrictCampusSwitcher basePath="/admin/announcements" districtName={district.name} campuses={district.campuses} currentSchoolId={null} allowAll />
+        <StaffHeader
+          eyebrow="Your district"
+          title="Announcements to every campus"
+          description={`Send one message to every student at all ${district.campuses.length} campuses. It appears at the top of their PrepHub home page and is emailed to them once. Each campus's own announcements, and taking one down, are on that campus's page: choose it above.`}
+        />
+        <AnnouncementsPanel
+          announcements={[]}
+          schoolName={district.name}
+          recipients={recipients}
+          readOnly={false}
+          campusId="district"
+          today={localDateInputValue(new Date())}
+        />
+      </StaffPage>
+    );
   }
   if (!schoolId) return <StaffUnavailable title="Announcements aren't available for this account." />;
 

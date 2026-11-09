@@ -290,8 +290,9 @@ test.describe("Owner requests of 2026-11-08", () => {
     await ap.getByRole("button", { name: /^Send to \d+ students?$/ }).click();
     await expect(ap.getByRole("heading", { name: "Showing to students now" })).toBeVisible({ timeout: 30_000 });
 
+    // With no campus chosen, a district administrator writes to every campus at once (2026-11-09).
     await ap.goto("/admin/announcements");
-    await expect(ap.getByRole("heading", { name: "Choose a campus" })).toBeVisible();
+    await expect(ap.getByRole("heading", { name: "Announcements to every campus" })).toBeVisible();
 
     const foreign = seed<{ id: string; officialName: string }>("school", { name: `E2E Foreign ${Date.now()}` });
     await ap.goto(`/admin?school=${foreign.id}`);
