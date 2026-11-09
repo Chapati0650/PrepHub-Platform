@@ -2889,3 +2889,8 @@ Reviewed as Houston ISD's head of CCMR would see the demo (four reviewers, two r
   - Class page session list counts the roster as it was (`rosterThen`); the individual-practice CSV
     drops teacher-led columns; Diagnostic results reopened later say "Continue practicing"; the board
     hides the Exit/Log out bar and has Full screen; students see the example's last step.
+- **Round-5 changes:** district readiness takes only campuses with 20+ measured whose own "Still below" and
+  "Fell back" are shown (`inDistrictReadiness`), so one small campus can't blank district figures; "Most
+  missed" includes ties; "Missing" once past due; "N to catch up" on /live; "Daily Challenge streak"; the
+  worked example shows its choices to students; the score card leads on phones; demo learning trimmed so
+  every hours band stays within the Houston flyer, and ~30% of first Diagnostics read a little low.
