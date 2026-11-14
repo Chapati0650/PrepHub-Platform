@@ -270,7 +270,8 @@ test.describe("Owner requests of 2026-11-08", () => {
     const ap = await newPage(browser);
     await logIn(ap, admin.email, PASSWORD);
     await ap.goto("/admin");
-    await expect(ap.getByRole("heading", { name: district.officialName })).toBeVisible();
+    // The district's name heads the page; the heading itself is the greeting (2026-11-14).
+    await expect(ap.getByText(`${district.officialName} · whole district`)).toBeVisible();
     const table = ap.getByRole("table", { name: "PrepHub activity by campus" });
     await expect(table.getByRole("row")).toHaveCount(3);
     await expect(table.getByRole("link", { name: north.officialName })).toBeVisible();

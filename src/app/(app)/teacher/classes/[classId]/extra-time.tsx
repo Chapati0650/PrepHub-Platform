@@ -63,7 +63,7 @@ export function ExtraTimeSelect({
           </option>
         ))}
       </select>
-      {failed && <span className="text-sm text-destructive">Not saved. Try again.</span>}
+      {failed && <span className="text-base text-destructive">Not saved. Try again.</span>}
     </span>
   );
 }

@@ -57,7 +57,7 @@ export function CampusInvitePanel({ summary, readOnly, campusId }: { summary: Ro
       : `Send a reminder to ${students(summary.reminderDue)}`;
 
   return (
-    <section aria-labelledby="invite-heading" className="rounded-2xl border border-border p-5 sm:p-6">
+    <section id="invite" aria-labelledby="invite-heading" className="scroll-mt-8 rounded-2xl border border-border p-5 sm:p-6">
       <h2 id="invite-heading" className="text-xl">
         Students on your list who haven&apos;t signed up
       </h2>

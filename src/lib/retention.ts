@@ -16,7 +16,7 @@ const CHUNK = 5_000;
  * a district's scale is gigabytes a year of a student's email address sitting
  * in a table for no reason.
  *
- * Only the queue's sent (or permanently failed) rows and old daily-reminder
+ * Only the queue's sent (or permanently failed) rows and old daily-reminder (and admin-reminder)
  * claims go. The once-per-account claims ("results", "finish_diagnostic") are
  * what stop those emails being sent twice, so they are kept for good, and
  * analytics events are left alone because the funnel reads them.
@@ -43,7 +43,7 @@ export async function purgeExpiredMail(now = new Date()): Promise<{ queuedEmails
     const deleted = await prisma.$executeRaw`
       DELETE FROM "email_sends" WHERE "id" IN (
         SELECT "id" FROM "email_sends"
-         WHERE "kind" = 'daily_reminder' AND "day" < ${claimsBefore}
+         WHERE "kind" IN ('daily_reminder', 'admin_reminder') AND "day" < ${claimsBefore}
          LIMIT ${CHUNK}
       )`;
     reminderClaims += deleted;

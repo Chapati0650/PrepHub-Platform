@@ -87,7 +87,7 @@ export default async function SchoolAccessPage({ searchParams }: { searchParams:
               <dt className="text-base font-medium">Ends</dt>
               <dd className="mt-1 font-heading text-2xl font-semibold tracking-tight">{formatContractDate(info.contractEndDate)}</dd>
               {info.state === "ACTIVE" && daysLeft > 0 && (
-                <dd className="mt-1 text-sm text-muted-foreground">
+                <dd className="mt-1 text-base text-muted-foreground">
                   {daysLeft === 1 ? "Tomorrow" : `In ${daysLeft.toLocaleString()} days`}
                 </dd>
               )}

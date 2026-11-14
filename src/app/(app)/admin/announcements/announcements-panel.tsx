@@ -104,7 +104,7 @@ function AnnouncementCard({ announcement, removable, campusId }: { announcement:
         )}
       </div>
       <p className="mt-2 whitespace-pre-wrap text-base text-muted-foreground">{announcement.message}</p>
-      <p className="mt-3 text-sm text-muted-foreground">
+      <p className="mt-3 text-base text-muted-foreground">
         Sent {formatDate(announcement.publishedAt)}
         {announcement.expiresAt && ` · ${announcement.isActive ? "Showing through" : "Ran until"} ${formatDate(announcement.expiresAt)}`}
       </p>
@@ -164,17 +164,17 @@ function CreateAnnouncementForm({ schoolName, recipients, today, campusId }: { s
           <div className="flex flex-col gap-2">
             <p className="text-base font-medium">On every student&apos;s PrepHub home page</p>
             {/* The same box the student dashboard draws (home/page.tsx's AnnouncementsBanner). */}
-            <div className="rounded-lg border border-border bg-muted/50 p-3 text-left text-sm">
+            <div className="rounded-lg border border-border bg-muted/50 p-3 text-left text-base">
               <p className="font-medium">{title}</p>
               <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{message}</p>
             </div>
             {expiresAt && endOfLocalDay(expiresAt) && (
-              <p className="text-sm text-muted-foreground">Showing through {formatDate(endOfLocalDay(expiresAt)!)}</p>
+              <p className="text-base text-muted-foreground">Showing through {formatDate(endOfLocalDay(expiresAt)!)}</p>
             )}
           </div>
           <div className="flex flex-col gap-2">
             <p className="text-base font-medium">In their school email</p>
-            <div className="rounded-lg border border-border p-3 text-sm">
+            <div className="rounded-lg border border-border p-3 text-base">
               <p>
                 <span className="text-muted-foreground">Subject:</span>{" "}
                 <span className="font-medium">
@@ -253,7 +253,7 @@ function CreateAnnouncementForm({ schoolName, recipients, today, campusId }: { s
           maxLength={MESSAGE_MAX}
           rows={6}
           placeholder="What students need to know, and what to do about it."
-          className="text-base"
+          className="min-h-28 text-base md:text-base"
           required
         />
       </StaffField>

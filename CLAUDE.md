@@ -1775,7 +1775,8 @@ them may be sixty — the area has to be easy to see, easy to use and easy to
 learn, without being over the top. The teacher side is just as important.
 
 - **One kit**: `src/components/staff/staff-ui.tsx` — `StaffPage`,
-  `StaffHeader` (the `surface-tint` hero band, with an optional back link),
+  `StaffHeader` (a plain header under a rule since 2026-11-14, see "Staff
+  pages that act" below; it was the `surface-tint` hero band),
   `StaffSection`, `StatStrip` (rules inside one box, `gap-px bg-border`),
   `StaffSteps` (`01`/`02` ordinals and the word "Done", never a check alone),
   `StaffField` (a visible label above every input — no placeholder-only
@@ -2894,3 +2895,47 @@ Reviewed as Houston ISD's head of CCMR would see the demo (four reviewers, two r
   missed" includes ties; "Missing" once past due; "N to catch up" on /live; "Daily Challenge streak"; the
   worked example shows its choices to students; the score card leads on phones; demo learning trimmed so
   every hours band stays within the Houston flyer, and ~30% of first Diagnostics read a little low.
+
+## Staff pages that act (2026-11-14)
+
+The Owner: administrators decide renewal, may find small text hard to read, and the admin and teacher
+views must be as good as the student side and not look generated. They also asked for "smart" filters:
+filter to the 10 students who haven't started, then email those 10.
+
+- **The look** (`staff-ui.tsx`). Every staff page opened on the same pastel box (eyebrow in 11px caps,
+  title, a paragraph): identical rhythm on every page. `StaffHeader` is now plain under a rule; the
+  eyebrow is the school's name in normal case. 15px (`text-base`) is the smallest text on any staff
+  page, sentences are `text-lg`, and `StaffPage` is `max-w-6xl` so the student table stops wrapping
+  emails. No `text-sm`/`text-xs`/`text-caption` in `admin/` or `teacher/` (print-only sizes aside).
+  The district campus switcher is a slim bar, not a tinted box.
+- **`AttentionList`** leads the campus Overview, the district Overview and the teacher's home: each
+  item is a large count, one sentence, and the button that deals with it, inside the one tinted band
+  on the page. Unfinished setup steps are items too (the separate "Getting started" list is gone from
+  the Overview). Campus: gone quiet, not started (both with "Remind them", see below), roster
+  invitations still to send, teachers who never signed in, the school goal's last 21 days, a goal
+  reached or ended in the last 14. District: the largest six campus groups (gone quiet / not started),
+  each linking to that campus. Teacher: homework past due that students owe, homework due within 48
+  hours, classes nobody has joined. Greetings reuse `home/greeting.tsx`.
+- **Email these students** (`src/lib/admin/student-reminders.ts`, `reminder-message.ts` (pure,
+  client-safe), `reminder-log.ts`; `admin/students/reminder-composer.tsx`). The Students page's bar
+  says what's showing and offers "Email these N" for the whole filtered list (every page of it) or
+  for ticked rows, plus "Download this list" (the export route now honours the filters). The composer
+  counts on the server who it reaches and who it skips before sending, starts from wording chosen by
+  the filter (never started: the Diagnostic; gone quiet: your work is saved), and shows the email as
+  one student gets it. Rules, enforced on the server: this school only (chosen ids are scoped, and
+  foreign ones logged), ACTIVE and not deleted, nobody reminded in the last `REMINDER_COOLDOWN_DAYS`
+  (3), at most 3,000 per send. Claims are `EmailSend` rows (`admin_reminder`, unique per student per
+  day, purged after 90 days with the daily-reminder claims), written with the queue rows in one
+  transaction, so a double send mails nobody twice. The list shows "Reminded today" under a student,
+  and the Overview's item says how many were reminded and offers "Remind the other N" or only "See
+  who". `?compose=1` opens the composer on arrival (the Overview's "Remind them"). A shared demo login
+  sends nothing and says so. No migration: `EmailSend.kind` is a string.
+- **Teachers**: "Remind them" on the home page and on every open homework row of a class page
+  (`teacher/remind-button.tsx`, the existing `remindUnfinishedAction` and its 24-hour limit;
+  `lastNudgedAt` now rides on the class summary and detail, so a recent reminder shows instead of the
+  button). Once a class has students, the "Add students" panel folds to one line (code, Copy, Show to
+  class, "More ways to add students"). "Students see you as …" is a line under the greeting.
+- Verified in a real browser (Playwright, local): campus and district Overview, Students filtered and
+  the composer, the demo send, the real send path against local data (11 sent, the second send
+  skipped all 11, a foreign id refused and logged; rows removed afterwards), teacher home and class
+  page, phone width and dark mode.

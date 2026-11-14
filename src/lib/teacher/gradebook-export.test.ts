@@ -13,6 +13,7 @@ const assignment = (id: string, title: string, created: string, due: string | nu
   closed: false,
   mode: "PRACTICE" as const,
   createdAt: day(created),
+  lastNudgedAt: null,
   questionCount,
   completed: 0,
   inProgress: 0,

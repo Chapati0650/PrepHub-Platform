@@ -112,7 +112,45 @@ export function ClassCodePanel({
   justCreated?: boolean;
 }) {
   const [showing, setShowing] = useState(false);
+  // Once students are in, the code is a reference, not the point of the page:
+  // one line with the two things a teacher reaches for, and the rest a press
+  // away (2026-11-14: a 24-student class opened on a full-width panel about
+  // adding students).
+  const [expanded, setExpanded] = useState(empty || justCreated);
   const close = useCallback(() => setShowing(false), []);
+
+  if (!expanded) {
+    return (
+      <section
+        aria-label="Class code"
+        className="flex flex-col gap-4 rounded-2xl border border-border p-5 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+      >
+        <div className="flex items-baseline gap-4">
+          <p className="text-base text-muted-foreground">Class code</p>
+          <p className="font-mono text-3xl font-semibold tracking-[0.12em]">{code}</p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <CopyButton
+            text={code}
+            label="Copy code"
+            done="Code copied"
+            className="inline-flex h-11 items-center gap-2 rounded-lg border border-border px-4 text-base font-medium transition-colors hover:bg-muted"
+          />
+          <button
+            type="button"
+            onClick={() => setShowing(true)}
+            className="inline-flex h-11 items-center gap-2 rounded-lg border border-border px-4 text-base font-medium transition-colors hover:bg-muted"
+          >
+            <Presentation className="size-4" aria-hidden /> Show code to class
+          </button>
+          <Button variant="ghost" size="xl" onClick={() => setExpanded(true)} aria-expanded={false}>
+            More ways to add students
+          </Button>
+        </div>
+        {showing && <ShowToClass code={code} site={site} onClose={close} />}
+      </section>
+    );
+  }
 
   return (
     <section
@@ -120,9 +158,16 @@ export function ClassCodePanel({
       className="flex flex-col gap-6 rounded-3xl bg-surface-deep p-6 text-surface-deep-foreground sm:p-8"
     >
       <div>
-        <h2 id="add-students-heading" className="text-2xl font-semibold">
-          {justCreated ? `${className} is ready. Now add your students.` : empty ? "Add your students" : "Add students"}
-        </h2>
+        <div className="flex items-start justify-between gap-4">
+          <h2 id="add-students-heading" className="text-2xl font-semibold">
+            {justCreated ? `${className} is ready. Now add your students.` : empty ? "Add your students" : "Add students"}
+          </h2>
+          {!empty && !justCreated && (
+            <button type="button" onClick={() => setExpanded(false)} className={OUTLINE_BUTTON} aria-expanded>
+              <X className="size-4" aria-hidden /> Hide
+            </button>
+          )}
+        </div>
         <p className="mt-1 max-w-2xl text-base text-surface-deep-foreground/80">
           Students join themselves with this code, from their own PrepHub account. You don&apos;t type anything in for
           them, and each one appears in the list below the moment they join.
@@ -131,7 +176,7 @@ export function ClassCodePanel({
 
       <div className="grid gap-6 lg:grid-cols-[auto_1fr] lg:items-center lg:gap-10">
         <div>
-          <p className="text-caption font-semibold tracking-[0.12em] text-surface-deep-foreground/60 uppercase">Class code</p>
+          <p className="text-base font-medium text-surface-deep-foreground/70">Class code</p>
           <p className="mt-2 font-mono text-5xl font-semibold tracking-[0.12em] sm:text-6xl">{code}</p>
           <div className="mt-4 flex flex-wrap gap-3">
             <CopyButton text={code} label="Copy code" done="Code copied" />

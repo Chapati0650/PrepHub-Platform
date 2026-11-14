@@ -4,22 +4,39 @@ import { sessionSkillLabel } from "@/lib/guided/modes";
 import { getTeacherContext, requireTeacherSession } from "@/lib/teacher/access";
 import { listClassrooms, type ClassroomSummary } from "@/lib/teacher/classrooms";
 import { formatJoinCode } from "@/lib/teacher/join-code";
+import { HOMEWORK_NUDGE_COOLDOWN_HOURS } from "@/lib/teacher/config";
 import { formatGoalDate } from "@/lib/community/goal";
-import { StaffHeader, StaffPage, StaffSection, StaffSteps, StatusChip } from "@/components/staff/staff-ui";
+import {
+  AttentionList,
+  StaffHeader,
+  StaffPage,
+  StaffSection,
+  StaffSteps,
+  StatusChip,
+  type AttentionItem,
+} from "@/components/staff/staff-ui";
+import { LinkButton } from "@/components/ui/link-button";
+import { Greeting } from "@/app/(app)/home/greeting";
 import { NewClassForm } from "./new-class-form";
-import { DisplayNameForm } from "./display-name-form";
+import { TeacherNameLine } from "./display-name-form";
+import { RemindHomeworkButton } from "./remind-button";
 
 export const metadata = { title: "Your classes" };
+
+const HOUR_MS = 60 * 60 * 1000;
+/** Homework due this soon, and not finished by everyone, is worth a reminder before it's late. */
+const DUE_SOON_HOURS = 48;
 
 function plural(n: number, one: string, many = `${one}s`): string {
   return `${n.toLocaleString()} ${n === 1 ? one : many}`;
 }
 
-// A teacher's home: their classes, and making a new one. Teachers land here
-// from /home (they have no student dashboard of their own). Laid out on the
-// staff pages' terms (2026-10-25): each class card says what's due next and
-// how far the class has got, so the page answers "what needs my attention?"
-// without opening anything.
+// A teacher's home: what needs them, then their classes, then making a new
+// one. Teachers land here from /home (they have no student dashboard of their
+// own). Since 2026-11-14 it opens like the administrator's Overview: a
+// greeting and a "Needs your attention" list, where homework students haven't
+// finished comes with the reminder button rather than a red chip on a card
+// the teacher then has to open.
 export default async function TeacherHomePage() {
   const userId = await requireTeacherSession();
   const context = await getTeacherContext(userId);
@@ -29,7 +46,7 @@ export default async function TeacherHomePage() {
   // read as "your classes are gone".
   if (!context) {
     return (
-      <StaffPage className="max-w-2xl">
+      <StaffPage className="max-w-3xl">
         <div className="rounded-3xl bg-surface-tint p-6 sm:p-8">
           <h1 className="text-page-title">Your teaching access has ended.</h1>
           <p className="mt-3 text-lg text-foreground/75">
@@ -59,25 +76,23 @@ export default async function TeacherHomePage() {
     <StaffPage>
       <StaffHeader
         eyebrow={context.schoolName}
-        title={`Your classes, ${context.firstName}`}
-        description="Make a class and give your students its code. Then run Guided Sessions in class, assign PrepHub questions as homework, and see how each student did."
-      />
-
-      {/* The name on every homework and email students get, so it's up
-          front. One block in one place whether or not it's set yet: saving
-          re-renders the page, and a form that moved elsewhere would lose its
-          "Saved." the moment it appeared. */}
-      <div className="max-w-xl rounded-2xl border border-border p-5 sm:p-6">
-        <p className="mb-3 text-base">
-          Students see you as{" "}
-          <span className="font-medium">{context.teacherDisplayName ?? context.firstName}</span>.
-          {!context.teacherDisplayName && " Most teachers use the name their class calls them."}
-        </p>
-        <DisplayNameForm current={context.teacherDisplayName} firstName={context.firstName} />
-      </div>
+        title={<Greeting name={context.firstName} />}
+        description="What needs you first, then your classes. Homework, Guided Sessions and every student's results are one click from each class."
+        actions={
+          open.length > 0 && (
+            <LinkButton href="#new-class" variant="outline" size="xl">
+              New class
+            </LinkButton>
+          )
+        }
+      >
+        {/* The name on every homework and email students get. A line, not
+            a box at the top of the page: it's set once and rarely changed. */}
+        <TeacherNameLine current={context.teacherDisplayName} firstName={context.firstName} />
+      </StaffHeader>
 
       {open.length === 0 ? (
-        <StaffSection title="Getting started">
+        <StaffSection title="Getting started" description="Three steps, a few minutes each.">
           <StaffSteps
             steps={[
               { title: "Make a class", body: "Name it the way your students know it, like “3rd period SAT Prep”." },
@@ -86,31 +101,35 @@ export default async function TeacherHomePage() {
                 body: "They type the six-character code into PrepHub, or open the link you share. They join from their own account.",
               },
               {
-                title: "Assign homework",
-                body: "Pick questions from PrepHub's bank, set a due date, and see who finished and which questions they missed.",
+                title: "Assign homework or run a Guided Session",
+                body: "Pick questions from PrepHub's bank with a due date, or run a 30-minute session in class. You see how each student did.",
               },
             ]}
           />
         </StaffSection>
       ) : (
-        <StaffSection title={open.length === 1 ? "Your class" : `Your classes (${open.length})`}>
-          <ul className="grid gap-5 md:grid-cols-2">
-            {open.map((c) => {
-              const g = lastSession.get(c.id);
-              return (
-                <ClassCard
-                  key={c.id}
-                  classroom={c}
-                  lastSession={
-                    g?.endedAt
-                      ? { href: `/teacher/classes/${c.id}/live/${g.id}`, skill: sessionSkillLabel(g), endedAt: g.endedAt, tookPart: g._count.participants }
-                      : null
-                  }
-                />
-              );
-            })}
-          </ul>
-        </StaffSection>
+        <>
+          <AttentionList items={attentionItems(open)} empty="Nothing needs you right now. Every class is caught up." />
+
+          <StaffSection title={open.length === 1 ? "Your class" : `Your classes (${open.length})`}>
+            <ul className="grid gap-5 md:grid-cols-2">
+              {open.map((c) => {
+                const g = lastSession.get(c.id);
+                return (
+                  <ClassCard
+                    key={c.id}
+                    classroom={c}
+                    lastSession={
+                      g?.endedAt
+                        ? { href: `/teacher/classes/${c.id}/live/${g.id}`, skill: sessionSkillLabel(g), endedAt: g.endedAt, tookPart: g._count.participants }
+                        : null
+                    }
+                  />
+                );
+              })}
+            </ul>
+          </StaffSection>
+        </>
       )}
 
       <StaffSection
@@ -130,10 +149,10 @@ export default async function TeacherHomePage() {
               <li key={c.id}>
                 <Link
                   href={`/teacher/classes/${c.id}`}
-                  className="flex flex-wrap items-center justify-between gap-2 p-5 text-base hover:bg-muted/40"
+                  className="flex flex-wrap items-center justify-between gap-2 p-5 text-lg hover:bg-muted/40"
                 >
                   <span className="font-medium">{c.name}</span>
-                  <span className="text-muted-foreground">
+                  <span className="text-base text-muted-foreground">
                     {plural(c.studentCount, "student")} · {plural(c.assignmentCount, "assignment")}
                   </span>
                 </Link>
@@ -146,6 +165,89 @@ export default async function TeacherHomePage() {
   );
 }
 
+/** Whether the 24-hour limit on homework reminders has passed. */
+function canNudge(lastNudgedAt: Date | null, now: Date): boolean {
+  return !lastNudgedAt || now.getTime() - new Date(lastNudgedAt).getTime() >= HOMEWORK_NUDGE_COOLDOWN_HOURS * HOUR_MS;
+}
+
+function nudgedNote(lastNudgedAt: Date | null, now: Date): string {
+  if (!lastNudgedAt || canNudge(lastNudgedAt, now)) return "";
+  const hours = Math.max(1, Math.round((now.getTime() - new Date(lastNudgedAt).getTime()) / HOUR_MS));
+  return ` · you sent a reminder ${hours === 1 ? "an hour" : `${hours} hours`} ago`;
+}
+
+/**
+ * Across every open class: homework past due that students still owe, homework
+ * due in the next two days that not everyone has finished, and classes nobody
+ * has joined. Each with the button that deals with it.
+ */
+function attentionItems(classes: ClassroomSummary[], now: Date = new Date()): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  for (const c of classes) {
+    const resultsHref = (assignmentId: string) => `/teacher/classes/${c.id}/assignments/${assignmentId}`;
+    if (c.overdue) {
+      const o = c.overdue;
+      items.push({
+        key: `overdue-${o.id}`,
+        count: o.unfinished,
+        title: (
+          <>
+            {o.unfinished === 1 ? "student hasn't" : "students haven't"} finished <span className="font-semibold">{o.title}</span>
+          </>
+        ),
+        detail: `${c.name} · was due ${formatGoalDate(o.dueAt)}${nudgedNote(o.lastNudgedAt, now)}`,
+        actions: (
+          <>
+            {canNudge(o.lastNudgedAt, now) && (
+              <RemindHomeworkButton assignmentId={o.id} recipients={o.unfinished} className={c.name} pastDue />
+            )}
+            <LinkButton href={resultsHref(o.id)} size="xl" variant="outline" className="bg-background">
+              See who
+            </LinkButton>
+          </>
+        ),
+      });
+    }
+    const n = c.nextDue;
+    const left = n ? c.studentCount - n.completed : 0;
+    if (n && left > 0 && new Date(n.dueAt).getTime() - now.getTime() <= DUE_SOON_HOURS * HOUR_MS) {
+      items.push({
+        key: `soon-${n.id}`,
+        count: left,
+        title: (
+          <>
+            still to finish <span className="font-semibold">{n.title}</span>
+          </>
+        ),
+        detail: `${c.name} · due ${formatGoalDate(n.dueAt)} · ${n.completed} of ${c.studentCount} done${nudgedNote(n.lastNudgedAt, now)}`,
+        actions: (
+          <>
+            {canNudge(n.lastNudgedAt, now) && (
+              <RemindHomeworkButton assignmentId={n.id} recipients={left} className={c.name} pastDue={false} />
+            )}
+            <LinkButton href={resultsHref(n.id)} size="xl" variant="outline" className="bg-background">
+              See who
+            </LinkButton>
+          </>
+        ),
+      });
+    }
+    if (c.studentCount === 0) {
+      items.push({
+        key: `empty-${c.id}`,
+        title: `Nobody has joined ${c.name} yet`,
+        detail: `Give your students the class code ${formatJoinCode(c.joinCode)}, or share the join link from the class page.`,
+        actions: (
+          <LinkButton href={`/teacher/classes/${c.id}`} size="xl" variant="outline" className="bg-background">
+            Add students
+          </LinkButton>
+        ),
+      });
+    }
+  }
+  return items;
+}
+
 function ClassCard({
   classroom: c,
   lastSession,
@@ -154,14 +256,11 @@ function ClassCard({
   lastSession: { href: string; skill: string; endedAt: Date; tookPart: number } | null;
 }) {
   return (
-    <li className="flex h-full flex-col overflow-hidden rounded-2xl border border-border">
-      <Link
-        href={`/teacher/classes/${c.id}`}
-        className="flex flex-1 flex-col gap-5 p-5 transition-colors hover:bg-muted/20 sm:p-6"
-      >
+    <li className="flex h-full flex-col overflow-hidden rounded-2xl border border-border transition-colors hover:border-foreground/25">
+      <Link href={`/teacher/classes/${c.id}`} className="flex flex-1 flex-col gap-6 p-6">
         <span className="flex items-start justify-between gap-3">
-          <span className="text-xl font-semibold">{c.name}</span>
-          <span className="shrink-0 text-base font-medium text-primary">Open →</span>
+          <span className="text-2xl font-semibold tracking-tight">{c.name}</span>
+          <span className="shrink-0 text-base font-medium text-primary dark:text-marker">Open →</span>
         </span>
 
         <span className="grid grid-cols-3 divide-x divide-border text-base">
@@ -174,22 +273,20 @@ function ClassCard({
             <span className="text-muted-foreground">homework</span>
           </span>
           <span className="pl-4">
-            <span className="block font-mono text-xl font-semibold tracking-wider">{formatJoinCode(c.joinCode)}</span>
+            <span className="block pt-1.5 font-mono text-xl font-semibold tracking-wider">{formatJoinCode(c.joinCode)}</span>
             <span className="text-muted-foreground">class code</span>
           </span>
         </span>
 
-        <span className="mt-auto flex flex-col gap-4 border-t border-border pt-4 text-base">
+        <span className="mt-auto flex flex-col gap-4 border-t border-border pt-5 text-base">
           {/* Past due and still owed, above what's next: "Nothing due right
               now" used to be all a teacher saw while half the class hadn't
               turned in last week's. */}
           {c.overdue && (
             <span className="block">
-              <span className="block text-sm font-medium text-muted-foreground">
-                Was due · {formatGoalDate(c.overdue.dueAt)}
-              </span>
-              <span className="mt-0.5 block font-medium">{c.overdue.title}</span>
-              <span className="mt-1 block">
+              <span className="block text-muted-foreground">Was due {formatGoalDate(c.overdue.dueAt)}</span>
+              <span className="mt-0.5 block text-lg font-medium">{c.overdue.title}</span>
+              <span className="mt-1.5 block">
                 <StatusChip tone="bad">
                   {c.overdue.unfinished} {c.overdue.unfinished === 1 ? "hasn't" : "haven't"} finished
                 </StatusChip>
@@ -198,8 +295,8 @@ function ClassCard({
           )}
           {c.nextDue ? (
             <span className="block">
-              <span className="block text-sm font-medium text-muted-foreground">Next due · {formatGoalDate(c.nextDue.dueAt)}</span>
-              <span className="mt-0.5 block font-medium">{c.nextDue.title}</span>
+              <span className="block text-muted-foreground">Next due {formatGoalDate(c.nextDue.dueAt)}</span>
+              <span className="mt-0.5 block text-lg font-medium">{c.nextDue.title}</span>
               <span className="mt-0.5 block text-muted-foreground tabular-nums">
                 {c.nextDue.completed} of {c.studentCount} done
               </span>
@@ -211,17 +308,20 @@ function ClassCard({
           )}
         </span>
       </Link>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface-tint/60 px-5 py-3 text-base sm:px-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/40 px-6 py-4 text-base">
         <span className="min-w-0 text-muted-foreground">
           {lastSession ? (
-            <Link href={lastSession.href} className="underline underline-offset-4">
-              Last Guided Session · {lastSession.skill} · {formatGoalDate(lastSession.endedAt)} · {lastSession.tookPart} took part
+            <Link href={lastSession.href} className="underline-offset-4 hover:underline">
+              Last Guided Session: {lastSession.skill}, {formatGoalDate(lastSession.endedAt)}
             </Link>
           ) : (
             "No Guided Sessions yet"
           )}
         </span>
-        <Link href={`/teacher/classes/${c.id}/live/new`} className="shrink-0 font-medium text-primary underline-offset-4 hover:underline">
+        <Link
+          href={`/teacher/classes/${c.id}/live/new`}
+          className="shrink-0 font-medium text-primary underline-offset-4 hover:underline dark:text-marker"
+        >
           Start a Guided Session →
         </Link>
       </div>

@@ -21,10 +21,10 @@ export function OwnerSchoolSwitcher({
 }) {
   return (
     <div className="rounded-xl border border-marker/60 bg-surface-tint p-4 print:hidden">
-      <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+      <p className="text-base font-medium text-muted-foreground">
         Owner preview · read-only
       </p>
-      <p className="mt-1 text-sm text-muted-foreground">
+      <p className="mt-1 text-base text-muted-foreground">
         This is what a School Administrator at this campus sees. Publishing and
         editing are disabled here.
       </p>
@@ -37,8 +37,8 @@ export function OwnerSchoolSwitcher({
               aria-current={s.id === currentSchoolId ? "page" : undefined}
               className={
                 s.id === currentSchoolId
-                  ? "rounded-full bg-primary px-3 py-1 text-sm font-medium text-primary-foreground"
-                  : "rounded-full border border-border px-3 py-1 text-sm hover:bg-muted"
+                  ? "rounded-full bg-primary px-3 py-1 text-base font-medium text-primary-foreground"
+                  : "rounded-full border border-border px-3 py-1 text-base hover:bg-muted"
               }
             >
               {s.name}
@@ -47,7 +47,7 @@ export function OwnerSchoolSwitcher({
         </div>
       )}
       {schools.length === 0 && (
-        <p className="mt-3 text-sm text-muted-foreground">
+        <p className="mt-3 text-base text-muted-foreground">
           No schools exist yet. Create one under Schools to preview this area.
         </p>
       )}
@@ -78,28 +78,24 @@ export function DistrictCampusSwitcher({
 }) {
   const pill = (current: boolean) =>
     current
-      ? "rounded-full bg-primary px-3 py-1 text-sm font-medium text-primary-foreground"
-      : "rounded-full border border-border px-3 py-1 text-sm hover:bg-muted";
+      ? "rounded-full bg-primary px-3 py-1 text-base font-medium text-primary-foreground"
+      : "rounded-full border border-border bg-background px-3 py-1 text-base hover:bg-muted";
   return (
+    // A slim bar above the page's own header (2026-11-14): which part of the
+    // district this page shows, and the rest one press away. It used to be a
+    // tinted box with two lines of explanation on every page.
     <nav
-      aria-label="Campus"
-      className="rounded-xl border border-border bg-surface-tint p-4 print:hidden"
+      aria-label={`Campus in ${districtName}`}
+      className="-mb-4 flex flex-col gap-3 rounded-2xl bg-muted/50 px-4 py-3 sm:flex-row sm:items-center sm:gap-4 print:hidden"
     >
-      <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-        {districtName}
-      </p>
-      <p className="mt-1 text-sm text-muted-foreground">
-        {currentSchoolId
-          ? "Viewing one campus. Choose another, or go back to the whole district."
-          : "Choose a campus."}
-      </p>
+      <p className="shrink-0 text-base font-medium text-muted-foreground">{districtName}</p>
       {campuses.length > CHIPS_UP_TO ? (
         // A large district (Houston ISD has about 270 campuses) gets a list to pick from, not a wall of
         // chips. A plain GET form, so it works without JavaScript and keeps bookmarkable addresses.
         <form
           action={basePath}
           method="get"
-          className="mt-3 flex flex-wrap items-center gap-2"
+          className="flex flex-wrap items-center gap-2"
         >
           <Link
             href="/admin"
@@ -143,7 +139,7 @@ export function DistrictCampusSwitcher({
           </button>
         </form>
       ) : (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
           {allowAll ? (
             <Link
               href="/admin"

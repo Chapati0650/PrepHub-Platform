@@ -65,7 +65,7 @@ export function GrowthByTimeSection({
                   <li key={b.fromHours} className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[11rem_1fr_6rem] sm:gap-4">
                     <div>
                       <p className="text-base font-medium">{bandLabel(b)}</p>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-base text-muted-foreground">
                         {b.students.toLocaleString()} {b.students === 1 ? "student" : "students"}
                       </p>
                     </div>
@@ -74,7 +74,7 @@ export function GrowthByTimeSection({
                     </div>
                     <p className="font-heading text-2xl font-semibold tabular-nums sm:text-right">
                       {signed(b.averageGain)}
-                      <span className="ml-1 text-sm font-normal text-muted-foreground">pts</span>
+                      <span className="ml-1 text-base font-normal text-muted-foreground">pts</span>
                     </p>
                   </li>
                 );

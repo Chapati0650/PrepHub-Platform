@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { remindDescription } from "../../../../remind-button";
 
 type QuestionStat = {
   position: number;
@@ -64,7 +65,7 @@ function BreakdownLine({ breakdown }: { breakdown: AnswerBreakdown }) {
           </span>
         ))}
         {breakdown.commonWrong && (
-          <span className="text-sm text-muted-foreground">
+          <span className="text-base text-muted-foreground">
             Most common wrong answer: {breakdown.commonWrong}.
           </span>
         )}
@@ -276,7 +277,7 @@ export function AssignmentControls({
             ))}
             {/* The "new homework" email went out with the mode it had then,
                 and an email can't be changed after it's sent. */}
-            <p className="text-sm text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               The email students got when you assigned it said it was{" "}
               {initial.mode === "QUIZ" ? "a quiz" : "practice"}. If you change it, let them know.
             </p>
@@ -403,7 +404,7 @@ export function RemindPanel({
           size="xl"
           className="shrink-0"
           title={`Email a reminder to ${plural(recipients, "student")}?`}
-          description={`PrepHub emails the ${plural(recipients, "student")} in ${className} who ${recipients === 1 ? "hasn't" : "haven't"} turned it in, right away, with a link to it${pastDue ? " and a note that it's past due and still accepted" : ""}. Students who have finished, who joined after it was due, or who have left the class aren't emailed. An email can't be unsent, and you can send the next reminder in 24 hours.`}
+          description={remindDescription(recipients, className, pastDue)}
           confirmLabel="Send reminder"
           onConfirm={async () => {
             try {

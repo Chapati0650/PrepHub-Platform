@@ -90,7 +90,7 @@ export function ReadinessSection({
                 <span className="block text-base font-medium">
                   {g.label}: <span className="tabular-nums">{groupSize(g.count)}</span>
                 </span>
-                <span className="block text-sm text-muted-foreground">{g.detail}</span>
+                <span className="block text-base text-muted-foreground">{g.detail}</span>
               </span>
             </li>
           ))}
@@ -112,13 +112,13 @@ export function ReadinessSection({
               <ShortfallRow label="Reading & Writing only" count={benchmark.shortfall.MISSES_READING_ONLY} />
               <ShortfallRow label="Both" count={benchmark.shortfall.MISSES_BOTH} />
             </ul>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-2 text-base text-muted-foreground">
               Students who need only one subject are the closest to a readiness credit.
             </p>
           </div>
         )}
       </div>
-      <p className="text-sm text-muted-foreground">
+      <p className="text-base text-muted-foreground">
         Based on PrepHub Score Predictions, which are estimates, not official College Board results or an official CCMR
         determination. A group of 1 to {MIN_GROUP_SIZE - 1} students shows as &ldquo;Fewer than {MIN_GROUP_SIZE}&rdquo;, and where the
         others would give it away, one more group shows as &ldquo;Withheld&rdquo;.

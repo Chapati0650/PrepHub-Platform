@@ -106,14 +106,14 @@ export type ClassroomSummary = {
    * The open homework due soonest, for the class card: what's next, and how
    * many of the students now in the class have finished it.
    */
-  nextDue: { id: string; title: string; dueAt: Date; completed: number } | null;
+  nextDue: { id: string; title: string; dueAt: Date; completed: number; lastNudgedAt: Date | null } | null;
   /**
    * The most recent homework whose due date has passed and which is still
    * open, while anyone now in the class owes it — so "Nothing due right now"
    * never hides missing work. `unfinished` leaves out students who joined
    * after it was due, like every "Missing" count.
    */
-  overdue: { id: string; title: string; dueAt: Date; unfinished: number } | null;
+  overdue: { id: string; title: string; dueAt: Date; unfinished: number; lastNudgedAt: Date | null } | null;
 };
 
 export async function listClassrooms(context: TeacherContext, now: Date = new Date()): Promise<ClassroomSummary[]> {
@@ -139,6 +139,7 @@ export async function listClassrooms(context: TeacherContext, now: Date = new Da
             id: true,
             title: true,
             dueAt: true,
+            lastNudgedAt: true,
             sessions: { where: { status: "COMPLETED" }, select: { studentId: true } },
           },
         },
@@ -153,7 +154,7 @@ export async function listClassrooms(context: TeacherContext, now: Date = new Da
         dueAt: { lt: now },
       },
       orderBy: { dueAt: "desc" },
-      select: { id: true, classroomId: true, title: true, dueAt: true, closedAt: true },
+      select: { id: true, classroomId: true, title: true, dueAt: true, closedAt: true, lastNudgedAt: true },
     }),
   ]);
 
@@ -193,9 +194,13 @@ export async function listClassrooms(context: TeacherContext, now: Date = new Da
             title: next.title,
             dueAt: next.dueAt,
             completed: next.sessions.filter((s) => roster.has(s.studentId)).length,
+            lastNudgedAt: next.lastNudgedAt ?? null,
           }
         : null,
-      overdue: late?.dueAt && unfinished > 0 ? { id: late.id, title: late.title, dueAt: late.dueAt, unfinished } : null,
+      overdue:
+        late?.dueAt && unfinished > 0
+          ? { id: late.id, title: late.title, dueAt: late.dueAt, unfinished, lastNudgedAt: late.lastNudgedAt ?? null }
+          : null,
     };
   });
 }
@@ -261,6 +266,8 @@ export type ClassroomDetail = {
     closed: boolean;
     mode: AssignmentMode;
     createdAt: Date;
+    /** When the teacher last sent "Remind the N who haven't finished" (24-hour limit). */
+    lastNudgedAt: Date | null;
     questionCount: number;
     completed: number;
     inProgress: number;
@@ -304,6 +311,7 @@ export async function getClassroomDetail(context: TeacherContext, classroomId: s
         closedAt: true,
         mode: true,
         createdAt: true,
+        lastNudgedAt: true,
         _count: { select: { questions: true } },
       },
     }),
@@ -382,6 +390,7 @@ export async function getClassroomDetail(context: TeacherContext, classroomId: s
         closed: a.closedAt !== null,
         mode: a.mode,
         createdAt: a.createdAt,
+        lastNudgedAt: a.lastNudgedAt ?? null,
         questionCount: a._count.questions,
         expected: enrollments.filter(
           (e) =>

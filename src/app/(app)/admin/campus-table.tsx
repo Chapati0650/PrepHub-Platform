@@ -93,7 +93,7 @@ export function CampusTable({
           <caption className="sr-only">
             PrepHub activity by campus. Use the column buttons to sort.
           </caption>
-          <thead className="bg-surface-tint text-sm">
+          <thead className="bg-surface-tint text-base">
             <tr>
               {COLUMNS.map((c) => (
                 <th
@@ -159,7 +159,7 @@ export function CampusTable({
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-sm text-muted-foreground md:hidden">
+      <p className="mt-2 text-base text-muted-foreground md:hidden">
         Swipe the table sideways to see every column.
       </p>
     </div>

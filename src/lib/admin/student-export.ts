@@ -46,9 +46,14 @@ async function activityInChunks(studentIds: string[]): Promise<Map<string, Stude
   return all;
 }
 
-export async function getStudentExportRows(schoolId: string): Promise<string[][]> {
+/**
+ * `membershipIds` narrows the download to a filtered list (the page's "Download
+ * this list"); it is still scoped to `schoolId`, so an id from elsewhere is
+ * simply not found.
+ */
+export async function getStudentExportRows(schoolId: string, membershipIds?: string[]): Promise<string[][]> {
   const memberships = await prisma.studentMembership.findMany({
-    where: { schoolId },
+    where: membershipIds ? { schoolId, id: { in: membershipIds } } : { schoolId },
     orderBy: [{ student: { firstName: "asc" } }],
     select: {
       studentId: true,

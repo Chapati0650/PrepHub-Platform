@@ -90,7 +90,9 @@ test.describe("School Administrator (PRD-011)", () => {
     await expect(studentPage.getByRole("link", { name: "Access & support" })).not.toBeVisible();
 
     // Overview: registration against enrollment, and an honest empty state for score growth.
-    await expect(adminPage.getByRole("heading", { name: schoolName })).toBeVisible();
+    // The school's name heads the page; the heading itself is the greeting (2026-11-14).
+    await expect(adminPage.getByText(schoolName, { exact: true }).first()).toBeVisible();
+    await expect(adminPage.getByRole("heading", { name: "Needs your attention" })).toBeVisible();
     await expect(adminPage.getByText("10% of 10 enrolled")).toBeVisible();
     await expect(adminPage.getByText(/^Nothing to compare yet\./)).toBeVisible();
 
@@ -103,7 +105,8 @@ test.describe("School Administrator (PRD-011)", () => {
     await adminPage.getByLabel("Find a student").fill("Ada");
     await expect(studentRow).toBeVisible();
     await adminPage.getByLabel("Find a student").fill("no-such-student-xyz");
-    await expect(adminPage.getByText("No students match these filters. Try clearing them.")).toBeVisible();
+    await expect(adminPage.getByText("No students match these filters.")).toBeVisible();
+    await expect(adminPage.getByRole("button", { name: "Clear filters" })).toBeVisible();
     await adminPage.getByLabel("Find a student").fill("");
 
     await studentRow.getByRole("button", { name: "Edit" }).click();

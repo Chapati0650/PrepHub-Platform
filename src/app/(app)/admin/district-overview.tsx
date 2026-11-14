@@ -1,6 +1,7 @@
 import { MIN_GROUP_SIZE, MIN_STUDENTS_FOR_SCORE_FIGURES, type ProtectedCount } from "@/lib/admin/impact";
 import { MIN_CAMPUS_FOR_DISTRICT_READINESS, type DistrictOverview, type FigureRow } from "@/lib/admin/district-overview";
-import { StaffHeader, StaffNote, StaffPage, StaffSection, StatStrip } from "@/components/staff/staff-ui";
+import { AttentionList, StaffHeader, StaffNote, StaffPage, StaffSection, StatStrip, type AttentionItem } from "@/components/staff/staff-ui";
+import { Greeting } from "@/app/(app)/home/greeting";
 import type { GrowthByStudyTime } from "@/lib/admin/growth-by-time";
 import { PrintButton } from "@/components/staff/print-button";
 import { formatLongLocalDate } from "@/lib/community/local-day";
@@ -28,7 +29,12 @@ export function DistrictOverviewView({
   growth,
   skills,
   teaching,
+  greetingName,
+  attention,
 }: {
+  greetingName: string | null;
+  /** The campuses with students to nudge, largest first (page.tsx's districtAttention). */
+  attention: AttentionItem[];
   teaching: { guided: { sessions: number; students: number; minutes: number }; homework: { assigned: number; finished: number } };
   overview: DistrictOverview;
   campuses: { id: string; name: string }[];
@@ -42,10 +48,19 @@ export function DistrictOverviewView({
     <StaffPage>
       <DistrictCampusSwitcher basePath="/admin" districtName={overview.districtName} campuses={campuses} currentSchoolId={null} allowAll />
       <StaffHeader
-        eyebrow="Your district"
-        title={overview.districtName}
-        description="How PrepHub is going across your district, and at each campus. These are totals: no student's scores are ever shown."
+        eyebrow={`${overview.districtName} · whole district`}
+        title={greetingName ? <Greeting name={greetingName} /> : overview.districtName}
+        description="What needs you across the district, then how PrepHub is going there and at each campus. These are totals: no student's scores are ever shown."
         actions={<PrintButton asOf={formatLongLocalDate(new Date())} />}
+      />
+
+      <AttentionList
+        items={attention}
+        empty={
+          totals.activeThisWeek
+            ? `Nothing needs you right now. ${count(totals.activeThisWeek)} students practiced in the last week.`
+            : "Nothing needs you right now."
+        }
       />
 
       <StaffSection
@@ -161,7 +176,7 @@ export function DistrictOverviewView({
           />
         )}
         {overview.campuses.length > 0 && (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-base text-muted-foreground">
             <strong className="font-medium text-foreground">Not enough yet</strong>: fewer than {MIN_STUDENTS_FOR_SCORE_FIGURES} students
             at the campus can be compared so far.{" "}
             {overview.campuses.some((c) => c.readiness && "withheld" in c.readiness) && (

@@ -133,7 +133,7 @@ export default async function AssignmentResultsPage({
           // and widen the whole page on a phone.
           <div className="relative overflow-x-auto rounded-2xl border border-border">
             <table className="w-full text-base">
-              <thead className="bg-muted/50 text-left text-sm">
+              <thead className="bg-muted/50 text-left text-base">
                 <tr>
                   <th scope="col" className="px-4 py-3 font-medium">
                     Student
@@ -160,7 +160,7 @@ export default async function AssignmentResultsPage({
                         {studentRosterName(s)}
                         {!s.enrolled && <span className="font-normal text-muted-foreground"> · left the class</span>}
                       </span>
-                      <span className="block max-w-[10rem] truncate text-sm text-muted-foreground sm:max-w-[16rem]">
+                      <span className="block max-w-[10rem] truncate text-base text-muted-foreground sm:max-w-[16rem]">
                         {s.email}
                       </span>
                     </td>
@@ -205,7 +205,7 @@ export default async function AssignmentResultsPage({
                               return (
                                 <span
                                   key={a.position}
-                                  className="rounded-md bg-muted px-1.5 py-0.5 text-sm whitespace-nowrap"
+                                  className="rounded-md bg-muted px-1.5 py-0.5 text-base whitespace-nowrap"
                                   title={`Answered ${a.answer || "—"}; the answer is ${right}`}
                                 >
                                   Q{a.position + 1}

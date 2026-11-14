@@ -16,6 +16,8 @@ import { formatGoalDate } from "@/lib/community/goal";
 import { LinkButton } from "@/components/ui/link-button";
 import { StaffHeader, StaffPage, StaffSection, StatusChip } from "@/components/staff/staff-ui";
 import { ClassCodePanel, ClassSettings, RemoveStudentButton } from "./class-controls";
+import { RemindHomeworkButton } from "../../remind-button";
+import { HOMEWORK_NUDGE_COOLDOWN_HOURS } from "@/lib/teacher/config";
 import { ExtraTimeSelect } from "./extra-time";
 import { listClassSessions } from "@/lib/guided/console";
 import { classExtraTime } from "@/lib/guided/queries";
@@ -23,6 +25,12 @@ import { classExtraTime } from "@/lib/guided/queries";
 export const metadata = { title: "Class" };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+
+function hoursAgo(at: Date, now: Date): string {
+  const hours = Math.max(1, Math.round((now.getTime() - at.getTime()) / HOUR_MS));
+  return hours === 1 ? "an hour ago" : `${hours} hours ago`;
+}
 
 type Assignment = ClassroomDetail["assignments"][number];
 
@@ -150,11 +158,15 @@ export default async function ClassroomPage({
             {detail.assignments.map((a) => {
               const due = dueStatus(a, now);
               const share = a.expected > 0 ? Math.round((a.completed / a.expected) * 100) : 0;
+              const unfinished = Math.max(0, a.expected - a.completed);
+              const remindable = !a.closed && !detail.archived && unfinished > 0;
+              const nudgedRecently =
+                a.lastNudgedAt !== null && now.getTime() - a.lastNudgedAt.getTime() < HOMEWORK_NUDGE_COOLDOWN_HOURS * HOUR_MS;
               return (
-                <li key={a.id}>
+                <li key={a.id} className="flex flex-col md:flex-row md:items-center">
                   <Link
                     href={`/teacher/classes/${detail.id}/assignments/${a.id}`}
-                    className="flex flex-col gap-4 p-5 transition-colors hover:bg-muted/30 md:flex-row md:items-center md:gap-8"
+                    className="flex flex-1 flex-col gap-4 p-5 transition-colors hover:bg-muted/30 md:flex-row md:items-center md:gap-8"
                   >
                     <span className="min-w-0 flex-1">
                       <span className="block text-lg font-medium">{a.title}</span>
@@ -188,6 +200,23 @@ export default async function ClassroomPage({
                       )}
                     </span>
                   </Link>
+                  {/* Beside the row, not inside its link: a button can't sit in a link. */}
+                  {remindable && (
+                    <div className="px-5 pb-5 md:w-48 md:py-5 md:pr-5 md:pl-0 md:text-right">
+                      {nudgedRecently ? (
+                        <span className="text-base text-muted-foreground">Reminded {hoursAgo(a.lastNudgedAt!, now)}</span>
+                      ) : (
+                        <RemindHomeworkButton
+                          assignmentId={a.id}
+                          recipients={unfinished}
+                          className={detail.name}
+                          pastDue={a.dueAt !== null && a.dueAt < now}
+                          label={`Remind the ${unfinished}`}
+                          variant="outline"
+                        />
+                      )}
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -319,7 +348,7 @@ function Gradebook({
     // and widen the whole page on a phone.
     <div className="relative overflow-x-auto rounded-2xl border border-border">
       <table className="w-full border-collapse text-base">
-        <thead className="text-left text-sm">
+        <thead className="text-left text-base">
           <tr className="border-b border-border">
             <th scope="col" className="sticky left-0 z-10 min-w-44 bg-muted px-4 py-3 font-medium">
               Student
@@ -352,8 +381,8 @@ function Gradebook({
             <tr key={s.studentId} className="group">
               <th scope="row" className="sticky left-0 z-10 bg-background px-4 py-3 text-left font-normal group-hover:bg-muted">
                 <span className="block font-medium">{studentRosterName(s)}</span>
-                <span className="block max-w-56 truncate text-sm text-muted-foreground">{s.email}</span>
-                {s.leftAt && <span className="block text-sm text-muted-foreground">Left {formatGoalDate(s.leftAt)}</span>}
+                <span className="block max-w-56 truncate text-base text-muted-foreground">{s.email}</span>
+                {s.leftAt && <span className="block text-base text-muted-foreground">Left {formatGoalDate(s.leftAt)}</span>}
               </th>
               {assignments.map((a) => (
                 <td key={a.id} className="px-3 py-3 tabular-nums group-hover:bg-muted/40">

@@ -2,7 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdminWriteContext, schoolField } from "@/lib/admin/school-context";
-import { updateStudentInfo } from "@/lib/admin/student-directory";
+import { parseDirectoryFilters, updateStudentInfo } from "@/lib/admin/student-directory";
+import {
+  REMINDER_MAX_RECIPIENTS,
+  previewReminderAudience,
+  sendStudentReminders,
+  type ReminderPreview,
+  type ReminderTarget,
+} from "@/lib/admin/student-reminders";
+import { cleanReminderInput } from "@/lib/admin/reminder-message";
+import { prisma } from "@/lib/prisma";
 import { AdminError } from "@/lib/admin/errors";
 import { updateStudentInfoSchema } from "@/lib/validation/admin";
 import { RosterError } from "@/lib/owner/roster";
@@ -36,6 +45,77 @@ export async function updateStudentInfoAction(_prev: ActionState, formData: Form
 
   revalidatePath("/admin/students");
   return { success: true };
+}
+
+/**
+ * What the composer sends: the list's own query string (its filters, read
+ * again on the server) or the students ticked on the page. Server actions
+ * accept whatever the browser sends, so every field is checked here.
+ */
+export type ReminderRequest = {
+  school: string | null;
+  filtersQuery: string;
+  membershipIds: string[] | null;
+};
+
+function reminderTarget(request: ReminderRequest): ReminderTarget | null {
+  if (Array.isArray(request?.membershipIds)) {
+    const ids = request.membershipIds.filter((id): id is string => typeof id === "string").slice(0, REMINDER_MAX_RECIPIENTS + 1);
+    return ids.length > 0 ? { kind: "selected", membershipIds: ids } : null;
+  }
+  if (typeof request?.filtersQuery !== "string") return null;
+  return { kind: "filter", filters: parseDirectoryFilters(new URLSearchParams(request.filtersQuery.slice(0, 500))) };
+}
+
+export type ReminderPreviewResult = { error?: string; preview?: ReminderPreview };
+
+/** How many a send would reach, and how many it would skip, before anything is sent. */
+export async function previewRemindersAction(request: ReminderRequest): Promise<ReminderPreviewResult> {
+  const context = await requireAdminWriteContext(typeof request?.school === "string" ? request.school : null);
+  if ("error" in context) return context;
+  const target = reminderTarget(request);
+  if (!target) return { error: "Choose some students first." };
+  try {
+    return { preview: await previewReminderAudience(context.schoolId, target) };
+  } catch (err) {
+    if (err instanceof AdminError) return { error: err.message };
+    throw err;
+  }
+}
+
+export type ReminderSendResult = {
+  error?: string;
+  sent?: number;
+  recentlyReminded?: number;
+  noAccess?: number;
+  /** A shared demo login: nothing was sent, and this many would have been. */
+  demoWouldSend?: number;
+};
+
+export async function sendRemindersAction(request: ReminderRequest & { subject: unknown; message: unknown }): Promise<ReminderSendResult> {
+  const context = await requireAdminWriteContext(typeof request?.school === "string" ? request.school : null);
+  if ("error" in context) return context;
+  const target = reminderTarget(request);
+  if (!target) return { error: "Choose some students first." };
+
+  try {
+    // A shared demo login shows what would happen and sends nothing: a send
+    // would mark the demo's students "Reminded" for every later visitor.
+    if (await isDemoSession()) {
+      const cleaned = cleanReminderInput(request);
+      if ("error" in cleaned) return cleaned;
+      const preview = await previewReminderAudience(context.schoolId, target);
+      return { demoWouldSend: preview.eligible };
+    }
+    const sender = await prisma.user.findUniqueOrThrow({ where: { id: context.userId }, select: { firstName: true } });
+    const result = await sendStudentReminders(context.schoolId, sender, target, request);
+    revalidatePath("/admin/students");
+    revalidatePath("/admin");
+    return result;
+  } catch (err) {
+    if (err instanceof AdminError) return { error: err.message };
+    throw err;
+  }
 }
 
 export type InviteState = {

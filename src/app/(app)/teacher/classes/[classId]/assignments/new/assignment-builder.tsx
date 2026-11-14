@@ -524,14 +524,14 @@ export function AssignmentBuilder({
                 <li key={item.id} className="py-3">
                   <div className="flex items-start gap-4">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-base text-muted-foreground">
                         {CATEGORY_LABELS[item.category]} · {DIFFICULTY_LABELS[item.difficulty]} ·{" "}
                         {QUESTION_TYPE_LABELS[item.questionType]}
                       </p>
                       {/* The passage first: Reading and Writing stems repeat, so it's
                           the passage that tells one question from the next. */}
                       {item.passageSnippet && (
-                        <div className="mt-1 line-clamp-2 border-l-2 border-border pl-2.5 text-sm text-muted-foreground">
+                        <div className="mt-1 line-clamp-2 border-l-2 border-border pl-2.5 text-base text-muted-foreground">
                           <LatexText text={item.passageSnippet} />
                         </div>
                       )}
@@ -539,7 +539,7 @@ export function AssignmentBuilder({
                         <LatexText text={item.snippet} />
                       </div>
                       {item.assignedIn.length > 0 && (
-                        <p className="mt-1 text-sm font-medium text-amber-800 dark:text-amber-300">
+                        <p className="mt-1 text-base font-medium text-amber-800 dark:text-amber-300">
                           Already assigned in {item.assignedIn.map((t) => `“${t}”`).join(", ")}
                         </p>
                       )}
@@ -547,7 +547,7 @@ export function AssignmentBuilder({
                         type="button"
                         onClick={() => togglePreview(item.id)}
                         aria-expanded={openPreview === item.id}
-                        className="mt-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
+                        className="mt-1 text-base font-medium text-primary underline-offset-4 hover:underline"
                       >
                         {openPreview === item.id ? "Hide answer key" : "Preview with answer key"}
                       </button>
@@ -570,7 +570,7 @@ export function AssignmentBuilder({
                       ) : previewFailure?.id === item.id ? (
                         <ActionFailureNote failure={previewFailure.failure} onRetry={() => loadPreview(item.id)} />
                       ) : (
-                        <p className="text-sm text-muted-foreground">Loading…</p>
+                        <p className="text-base text-muted-foreground">Loading…</p>
                       )}
                     </div>
                   )}
@@ -639,7 +639,7 @@ export function AssignmentBuilder({
         <div className="flex flex-col gap-2">
           <Label htmlFor="hw-due" className="text-base">Due date <span className="font-normal text-muted-foreground">(optional)</span></Label>
           <Input id="hw-due" type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} className="h-11 w-fit text-base md:text-base" />
-          <p className="text-sm text-muted-foreground">
+          <p className="text-base text-muted-foreground">
             Due at the end of that day, Central time. Students who haven&apos;t finished get a reminder email the day before.
             Late work is still accepted and marked late.
           </p>
@@ -662,7 +662,7 @@ export function AssignmentBuilder({
               />
               <span>
                 <span className="block font-medium">{m.title}</span>
-                <span className="text-sm text-muted-foreground">{m.body}</span>
+                <span className="text-base text-muted-foreground">{m.body}</span>
               </span>
             </label>
           ))}
@@ -677,6 +677,7 @@ export function AssignmentBuilder({
             maxLength={2000}
             rows={3}
             placeholder="e.g. Show your work on paper — we'll go over #4 in class."
+            className="text-base md:text-base"
           />
         </div>
 
@@ -693,7 +694,7 @@ export function AssignmentBuilder({
                   <span className="w-6 shrink-0 font-heading font-semibold tabular-nums">{String(i + 1).padStart(2, "0")}</span>
                   {/* Clipped to its column: long math ran under the move buttons (review, 2026-11-09). */}
                   <span className="min-w-0 flex-1 overflow-hidden">
-                    <span className="block text-sm text-muted-foreground">
+                    <span className="block text-base text-muted-foreground">
                       {CATEGORY_LABELS[q.category]} · {DIFFICULTY_LABELS[q.difficulty]}
                     </span>
                     <span className="line-clamp-2">
@@ -720,7 +721,7 @@ export function AssignmentBuilder({
         {otherClasses.length > 0 && (
           <fieldset className="flex flex-col gap-2">
             <legend className="mb-1 text-base font-medium">Also assign to</legend>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               Each class gets its own copy, with its own results. {className} always gets it.
             </p>
             {otherClasses.map((c) => (
@@ -740,7 +741,7 @@ export function AssignmentBuilder({
         </div>
         <div className="relative flex flex-col gap-3 border-t border-border bg-background p-5 lg:shrink-0">
         {more.down && (
-          <span aria-hidden className="pointer-events-none absolute -top-3.5 left-1/2 hidden -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-background px-2.5 py-0.5 text-sm text-muted-foreground lg:flex">
+          <span aria-hidden className="pointer-events-none absolute -top-3.5 left-1/2 hidden -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-background px-2.5 py-0.5 text-base text-muted-foreground lg:flex">
             <ArrowDown className="size-3.5" aria-hidden /> More below
           </span>
         )}
@@ -753,7 +754,7 @@ export function AssignmentBuilder({
         <Button size="cta" onClick={submit} disabled={saving || submitted || selected.length === 0 || !title.trim()}>
           {saving || submitted ? "Assigning…" : classCount > 1 ? `Assign to ${classCount} classes` : "Assign to class"}
         </Button>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-base text-muted-foreground">
           {/* Why the button is grey, in words (review, 2026-11-09: nothing said a title was needed). */}
           {selected.length === 0
             ? "Add at least one question to assign."
@@ -796,7 +797,7 @@ function FilterSelect({
   const id = `filter-${label.toLowerCase()}`;
   return (
     <div className="flex flex-col gap-1.5">
-      <Label htmlFor={id} className="text-sm font-medium">
+      <Label htmlFor={id} className="text-base font-medium">
         {label}
       </Label>
       <Select value={value} onValueChange={(v) => onChange(v ?? ANY)}>

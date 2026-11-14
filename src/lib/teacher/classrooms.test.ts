@@ -84,7 +84,7 @@ describe("listClassrooms", () => {
     const [c] = await listClassrooms(teacher, new Date("2026-11-01"));
 
     // Ben owes Week 2; Eve joined after it was due, so she doesn't.
-    expect(c.overdue).toEqual({ id: "a2", title: "Week 2", dueAt: new Date("2026-10-29T05:59:59Z"), unfinished: 1 });
+    expect(c.overdue).toEqual({ id: "a2", title: "Week 2", dueAt: new Date("2026-10-29T05:59:59Z"), unfinished: 1, lastNudgedAt: null });
     expect(c.nextDue).toBeNull();
     expect(mocked.homeworkSession.findMany.mock.calls[0][0].where).toEqual({ assignmentId: { in: ["a2"] }, status: "COMPLETED" });
   });

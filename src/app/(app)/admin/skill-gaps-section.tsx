@@ -36,7 +36,7 @@ export function SkillGapsSection({ gaps, note }: { gaps: SkillGaps; note?: strin
             <li key={s.category} className="grid grid-cols-1 items-center gap-1.5 sm:grid-cols-[14rem_1fr_9rem] sm:gap-4">
               <p className="text-base font-medium">
                 {CATEGORY_LABELS[s.category]}
-                <span className="block text-sm font-normal text-muted-foreground">
+                <span className="block text-base font-normal text-muted-foreground">
                   {sectionOf(s.category) === "MATH" ? "Math" : "Reading & Writing"}
                 </span>
               </p>
@@ -45,13 +45,13 @@ export function SkillGapsSection({ gaps, note }: { gaps: SkillGaps; note?: strin
               </div>
               <p className="text-base tabular-nums sm:text-right">
                 {s.below === null ? `Fewer than ${MIN_GROUP_SIZE}` : s.below === "withheld" ? "Withheld" : `${s.below.toLocaleString()} below`}
-                {s.share !== null && <span className="ml-1 text-sm text-muted-foreground">({Math.round(s.share * 100)}%)</span>}
+                {s.share !== null && <span className="ml-1 text-base text-muted-foreground">({Math.round(s.share * 100)}%)</span>}
               </p>
             </li>
           ))}
         </ul>
       </div>
-      <p className="text-sm text-muted-foreground">
+      <p className="text-base text-muted-foreground">
         Teachers can run a Guided Session on any of these skills; PrepHub suggests the one where the most of a class has
         points to gain. Skill levels are PrepHub estimates from the Diagnostic and practice since.
       </p>

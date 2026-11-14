@@ -10,6 +10,7 @@ import {
   type StudentActivity,
 } from "@/lib/school/student-activity";
 import { AdminError } from "./errors";
+import { lastRemindedAt } from "./reminder-log";
 
 /**
  * The questions an administrator actually asks of the list: who hasn't
@@ -68,6 +69,8 @@ export type StudentDirectoryEntry = {
   status: MembershipStatus;
   registeredAt: Date;
   lastActiveAt: Date | null;
+  /** When the school last emailed this student a reminder from this page (the last 30 days only). */
+  lastRemindedAt: Date | null;
   /** Engagement, not performance — see the note below. */
   activity: StudentActivity;
 };
@@ -94,12 +97,41 @@ export type StudentDirectoryPage = {
   pageCount: number;
 };
 
-export async function getStudentDirectory(
-  schoolId: string,
-  filters: StudentDirectoryFilters = {},
-  now: Date = new Date(),
-): Promise<StudentDirectoryPage> {
-  const where: Prisma.StudentMembershipWhereInput = {
+type SearchParamValue = string | string[] | undefined;
+
+function one(value: SearchParamValue): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+/**
+ * The list's filters from a URL (the page, the spreadsheet download and the
+ * "Email these students" action all read the same query string). Every value
+ * is checked against what it can be, not cast: a hand-edited `?status=foo`
+ * used to reach Prisma as an enum value and fail the whole page.
+ */
+export function parseDirectoryFilters(params: Record<string, SearchParamValue> | URLSearchParams): StudentDirectoryFilters {
+  const get = (key: string) => (params instanceof URLSearchParams ? (params.get(key) ?? undefined) : one(params[key]));
+  const page = Number(get("page"));
+  const graduationYear = Number(get("graduationYear"));
+  const status = get("status");
+  const activity = get("activity");
+  const search = get("search")?.trim().slice(0, 100);
+  return {
+    search: search || undefined,
+    page: Number.isFinite(page) && page > 0 ? page : 1,
+    graduationYear: Number.isInteger(graduationYear) && graduationYear >= 2000 && graduationYear <= 2100 ? graduationYear : undefined,
+    status: MEMBERSHIP_STATUSES.find((s) => s === status),
+    activity: DIRECTORY_ACTIVITY_FILTERS.includes(activity as DirectoryActivityFilter) ? (activity as DirectoryActivityFilter) : undefined,
+  };
+}
+
+/** Whether anything narrows the list (paging aside). */
+export function hasDirectoryFilters(filters: StudentDirectoryFilters): boolean {
+  return Boolean(filters.search || filters.graduationYear || filters.status || filters.activity);
+}
+
+function directoryWhere(schoolId: string, filters: StudentDirectoryFilters): Prisma.StudentMembershipWhereInput {
+  return {
     schoolId,
     ...(filters.graduationYear ? { expectedGraduationYear: filters.graduationYear } : {}),
     ...(filters.status ? { status: filters.status } : {}),
@@ -112,6 +144,38 @@ export async function getStudentDirectory(
         }
       : {}),
   };
+}
+
+/**
+ * Every membership the filtered list holds, across all its pages, newest
+ * first: what "Email these students" and "Download this list" act on. The
+ * same narrowing as the page itself, so the count on the button is the count
+ * in the list.
+ */
+export async function matchingMembershipIds(
+  schoolId: string,
+  filters: StudentDirectoryFilters,
+  now: Date = new Date(),
+): Promise<string[]> {
+  const where = directoryWhere(schoolId, filters);
+  const activity = filters.activity;
+  if (!activity) {
+    const rows = await prisma.studentMembership.findMany({ where, select: { id: true }, orderBy: { activatedAt: "desc" } });
+    return rows.map((r) => r.id);
+  }
+  const [candidates, lastAnswered] = await Promise.all([
+    prisma.studentMembership.findMany({ where, select: { id: true, studentId: true }, orderBy: { activatedAt: "desc" } }),
+    lastAnsweredAtForSchool(schoolId, { activeOnly: false }),
+  ]);
+  return candidates.filter((c) => matchesActivity(activity, lastAnswered.get(c.studentId), now)).map((c) => c.id);
+}
+
+export async function getStudentDirectory(
+  schoolId: string,
+  filters: StudentDirectoryFilters = {},
+  now: Date = new Date(),
+): Promise<StudentDirectoryPage> {
+  const where = directoryWhere(schoolId, filters);
 
   // With an activity filter the matching set can only be known after asking
   // about every candidate's activity, so the ids are narrowed first and the
@@ -124,18 +188,7 @@ export async function getStudentDirectory(
     // Activity lives in seven answer tables, not on the membership. One read
     // of every student's last answer at this school (scoped by a membership
     // join, not a list of ids) answers the filter for all of them at once.
-    const activity = filters.activity;
-    const [candidates, lastAnswered] = await Promise.all([
-      prisma.studentMembership.findMany({
-        where,
-        select: { id: true, studentId: true },
-        orderBy: { activatedAt: "desc" },
-      }),
-      lastAnsweredAtForSchool(schoolId, { activeOnly: false }),
-    ]);
-    narrowedIds = candidates
-      .filter((c) => matchesActivity(activity, lastAnswered.get(c.studentId), now))
-      .map((c) => c.id);
+    narrowedIds = await matchingMembershipIds(schoolId, filters, now);
     total = narrowedIds.length;
   } else {
     total = await prisma.studentMembership.count({ where });
@@ -169,7 +222,7 @@ export async function getStudentDirectory(
   // One query for the page's students, covering every table a student's
   // answers and sessions can land in. "Last Active Date" still has no
   // dedicated column — it is the most recent of any of them.
-  const activity = await getStudentActivity(studentIds);
+  const [activity, reminded] = await Promise.all([getStudentActivity(studentIds), lastRemindedAt(studentIds, now)]);
 
   return {
     entries: memberships.map((m) => {
@@ -182,6 +235,7 @@ export async function getStudentDirectory(
         status: m.status,
         registeredAt: m.activatedAt,
         lastActiveAt: studentActivity.lastActiveAt,
+        lastRemindedAt: reminded.get(m.studentId) ?? null,
         activity: studentActivity,
       };
     }),

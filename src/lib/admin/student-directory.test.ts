@@ -14,6 +14,7 @@ vi.mock("@/lib/prisma", () => {
   const mockPrisma: Record<string, unknown> = {
     studentMembership: { findMany: vi.fn(), count: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     user: { update: vi.fn() },
+    emailSend: { findMany: vi.fn() },
     $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   };
@@ -23,6 +24,7 @@ vi.mock("@/lib/prisma", () => {
 const mocked = prisma as unknown as {
   studentMembership: Record<string, ReturnType<typeof vi.fn>>;
   user: Record<string, ReturnType<typeof vi.fn>>;
+  emailSend: Record<string, ReturnType<typeof vi.fn>>;
   $queryRaw: ReturnType<typeof vi.fn>;
   $transaction: ReturnType<typeof vi.fn>;
 };
@@ -35,6 +37,7 @@ beforeEach(() => {
   // keeps page one returning whatever findMany is mocked to give.
   mocked.studentMembership.count.mockResolvedValue(100);
   mocked.$transaction.mockResolvedValue(undefined);
+  mocked.emailSend.findMany.mockResolvedValue([]);
   fixture = installActivityQueryMock(mocked.$queryRaw, { answers: [], sessions: [], predictions: [] });
 });
 
@@ -72,6 +75,7 @@ describe("getStudentDirectory", () => {
         status: "ACTIVE",
         registeredAt: new Date("2026-01-01"),
         lastActiveAt: null,
+        lastRemindedAt: null,
         activity: { questionsAnswered: 0, sessionsCompleted: 0, studyHours: 0, lastActiveAt: null },
       },
     ]);

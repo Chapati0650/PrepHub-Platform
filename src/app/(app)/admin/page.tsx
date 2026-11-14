@@ -9,18 +9,30 @@ import {
 } from "@/lib/admin/impact";
 import { formatContractDate, type SchoolAccessInfo, type SchoolAccessState } from "@/lib/admin/access-info";
 import { getStudentDirectorySummary } from "@/lib/admin/student-directory";
+import { shortCampusName } from "@/lib/admin/campus-names";
 import { campusesGuidedTotals, campusesHomeworkTotals, schoolGuidedTotals } from "@/lib/guided/queries";
 import { SCHOOLS_CONTACT_EMAIL } from "@/components/marketing/site-chrome";
 import {
+  AttentionList,
   StaffHeader,
   StaffNote,
   StaffPage,
   StaffSection,
-  StaffSteps,
   StaffUnavailable,
   StatStrip,
   StatusChip,
+  type AttentionItem,
 } from "@/components/staff/staff-ui";
+import { LinkButton } from "@/components/ui/link-button";
+import { Greeting } from "@/app/(app)/home/greeting";
+import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
+import { getRosterInviteSummary, inviteScopeForSchool, type RosterInviteSummary } from "@/lib/owner/roster-invites";
+import { listTeachers } from "@/lib/teacher/accounts";
+import { getSchoolCommunityData, type CommunityGoal } from "@/lib/community/school-community-data";
+import type { StudentDirectorySummary } from "@/lib/admin/student-directory";
+import { previewReminderAudience, type ReminderPreview } from "@/lib/admin/student-reminders";
+import { REMINDER_COOLDOWN_DAYS } from "@/lib/admin/reminder-message";
 import { DistrictCampusSwitcher, OwnerSchoolSwitcher } from "./school-switcher";
 import { DistrictOverviewView } from "./district-overview";
 import { getDistrictOverview } from "@/lib/admin/district-overview";
@@ -101,14 +113,25 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
     // Only campuses whose own score figure is shown, like the district's average gain.
     const shown = overview.campuses.filter((c) => c.averageScoreGain !== null).map((c) => c.campusId);
     const ids = district.campuses.map((c) => c.id);
-    const [growth, skills, guided, homework] = await Promise.all([
+    const districtSession = await auth();
+    const [growth, skills, guided, homework, attention, me] = await Promise.all([
       getGrowthByStudyTime(shown),
       getDistrictSkillGaps(ids),
       campusesGuidedTotals(ids, 30),
       campusesHomeworkTotals(ids, 30),
+      districtAttention(district.campuses),
+      districtSession?.user?.id ? prisma.user.findUnique({ where: { id: districtSession.user.id }, select: { firstName: true } }) : null,
     ]);
     return (
-      <DistrictOverviewView overview={overview} campuses={district.campuses} growth={growth} skills={skills} teaching={{ guided, homework }} />
+      <DistrictOverviewView
+        overview={overview}
+        campuses={district.campuses}
+        growth={growth}
+        skills={skills}
+        teaching={{ guided, homework }}
+        greetingName={me?.firstName ?? null}
+        attention={attention}
+      />
     );
   }
 
@@ -116,7 +139,8 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
 
   // The student counts come from the Students page's own summary, so the two
   // pages can never disagree about how many have started or are active.
-  const [data, impact, setup, students, guided, growthByTime, skillGaps, homework] = await Promise.all([
+  const session = await auth();
+  const [data, impact, setup, students, guided, growthByTime, skillGaps, homework, invites, teachers, community, me] = await Promise.all([
     getAdminOverviewData(schoolId),
     getCampusImpact(schoolId),
     getAdminSetupProgress(schoolId),
@@ -125,10 +149,20 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
     getGrowthByStudyTime([schoolId]),
     getSkillGaps(schoolId),
     campusesHomeworkTotals([schoolId], 30),
+    inviteScopeForSchool(schoolId).then((scope) => getRosterInviteSummary(scope)),
+    listTeachers(schoolId),
+    getSchoolCommunityData(schoolId),
+    session?.user?.id ? prisma.user.findUnique({ where: { id: session.user.id }, select: { firstName: true } }) : null,
+  ]);
+  // Who in each nudge group was already reminded lately, so the Overview
+  // doesn't offer "Remind them" for students emailed this morning.
+  const nudgeTarget = (activity: "GONE_QUIET" | "NOT_STARTED") => ({ kind: "filter" as const, filters: { activity, status: "ACTIVE" as const } });
+  const [quietReach, notStartedReach] = await Promise.all([
+    students.goneQuiet > 0 ? previewReminderAudience(schoolId, nudgeTarget("GONE_QUIET")) : null,
+    students.notStarted > 0 ? previewReminderAudience(schoolId, nudgeTarget("NOT_STARTED")) : null,
   ]);
 
   const { enrollment, stats } = data;
-  const setupDone = setup.studentsJoined && setup.teachersAdded && setup.announcementPosted && setup.goalSet;
   const growth = impact.scoreGrowth;
   // The Owner's preview picks its school from the URL, so every link on the
   // page carries it — without it, one click landed back on the first school.
@@ -143,51 +177,30 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
       )}
 
       <StaffHeader
-        eyebrow={district ? "Campus" : "Your school"}
-        title={data.schoolName}
-        description={`How PrepHub is going at ${district ? "this campus" : "your school"}. The numbers update as students practice. You see ${district ? "the campus's" : "your whole school's"} totals here; no student's scores are ever shown.`}
+        eyebrow={district ? `${data.schoolName} · campus` : data.schoolName}
+        title={me?.firstName ? <Greeting name={me.firstName} /> : data.schoolName}
+        description={`What needs you at ${district ? "this campus" : "your school"}, then how PrepHub is going. Every figure is a school total; no student's scores are ever shown.`}
         actions={<PrintButton asOf={formatLongLocalDate(new Date())} />}
       />
 
-      {!setupDone && (
-        <StaffSection
-          title="Getting started"
-          description="Four steps to set PrepHub up for your school. Each takes a few minutes, and this list disappears once they're all done."
-        >
-          <StaffSteps
-            steps={[
-              {
-                title: "Get your students signed up",
-                body: "Students create their own account with their school email. If your school gave PrepHub a student list, you can email everyone an invitation from the Students page.",
-                done: setup.studentsJoined,
-                href: href("/admin/students"),
-                cta: "Go to Students",
-              },
-              {
-                title: "Add your teachers",
-                body: "Teachers make classes, give students a code to join, and assign homework.",
-                done: setup.teachersAdded,
-                href: href("/admin/teachers"),
-                cta: "Add teachers",
-              },
-              {
-                title: "Post a welcome announcement",
-                body: "Tell students why your school is using PrepHub and where to start. It appears on their home page and goes to their inbox.",
-                done: setup.announcementPosted,
-                href: href("/admin/announcements"),
-                cta: "Write one",
-              },
-              {
-                title: "Set a school goal",
-                body: "One target the whole school works toward together, with a prize if you'd like one.",
-                done: setup.goalSet,
-                href: href("/admin/goal"),
-                cta: "Set a goal",
-              },
-            ]}
-          />
-        </StaffSection>
-      )}
+      <AttentionList
+        items={attentionItems({
+          students,
+          reach: { GONE_QUIET: quietReach, NOT_STARTED: notStartedReach },
+          setup,
+          invites,
+          inviteable: data.access.state === "ACTIVE",
+          teachersWaiting: teachers.filter((t) => !t.activated).length,
+          goal: community.goal,
+          readOnly: viewingAsOwner,
+          href,
+        })}
+        empty={
+          students.activeThisWeek > 0
+            ? `Nothing needs you right now. ${plural(students.activeThisWeek, "student")} practiced in the last week.`
+            : "Nothing needs you right now."
+        }
+      />
 
       <StaffSection title="At a glance">
         <StatStrip
@@ -264,29 +277,12 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
             {impact.measurableStudents === 1 ? "has" : "have"}.
           </StaffNote>
         ) : (
-          <StatStrip
-            stats={[
-              {
-                label: "Students improved",
-                value: `${groupSize(growth.studentsImproved)} of ${impact.measurableStudents.toLocaleString()}`,
-                hint: "predicted score went up",
-              },
-              {
-                label: "Average gain",
-                value: formatGain(growth.averageScoreGain),
-                hint: "points, first prediction to latest",
-              },
-              {
-                label: "Biggest gain",
-                value: formatGain(growth.biggestScoreGain),
-                hint: "points, one student's improvement",
-              },
-              {
-                label: "Practice Sets finished",
-                value: stats.totalAdaptiveSessionsCompleted.toLocaleString(),
-                hint: "each one updates a student's prediction",
-              },
-            ]}
+          <ScoreGrowthPanel
+            averageGain={growth.averageScoreGain}
+            biggestGain={growth.biggestScoreGain}
+            improved={groupSize(growth.studentsImproved)}
+            measured={impact.measurableStudents}
+            practiceSets={stats.totalAdaptiveSessionsCompleted}
           />
         )}
       </StaffSection>
@@ -333,6 +329,300 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
         </Link>
       </StaffSection>
     </StaffPage>
+  );
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * What the Overview leads with (2026-11-14): each thing an administrator
+ * could usefully do today, with the button that does it. A count the page
+ * already showed ("Gone quiet: 11") now arrives with "Remind them", which
+ * opens the Students page's email composer on exactly those students.
+ * Unfinished setup steps are items here too, so a new school and an
+ * established one read the page the same way.
+ */
+function attentionItems({
+  students,
+  reach,
+  setup,
+  invites,
+  inviteable,
+  teachersWaiting,
+  goal,
+  readOnly,
+  href,
+  now = new Date(),
+}: {
+  students: StudentDirectorySummary;
+  /** How many in each group a reminder would reach now, and how many were reminded lately. */
+  reach: Record<"GONE_QUIET" | "NOT_STARTED", ReminderPreview | null>;
+  setup: { studentsJoined: boolean; teachersAdded: boolean; announcementPosted: boolean; goalSet: boolean };
+  invites: RosterInviteSummary;
+  /** Invitations are refused unless the school's access is live. */
+  inviteable: boolean;
+  teachersWaiting: number;
+  goal: CommunityGoal | null;
+  /** The Owner's preview: links to look, never buttons that send. */
+  readOnly: boolean;
+  href: (path: string) => string;
+  now?: Date;
+}): AttentionItem[] {
+  const link = (path: string, query?: string) => {
+    const base = href(path);
+    return query ? `${base}${base.includes("?") ? "&" : "?"}${query}` : base;
+  };
+  const outline = (to: string, label: string) => (
+    <LinkButton href={to} size="xl" variant="outline" className="bg-background">
+      {label}
+    </LinkButton>
+  );
+  const items: AttentionItem[] = [];
+  const studentsLink = (query: string) => link("/admin/students", query);
+  if (students.goneQuiet > 0) {
+    items.push(nudgeItem({ kind: "GONE_QUIET", count: students.goneQuiet, campus: null, reach: reach.GONE_QUIET, readOnly, studentsLink }));
+  }
+  if (students.notStarted > 0) {
+    items.push(nudgeItem({ kind: "NOT_STARTED", count: students.notStarted, campus: null, reach: reach.NOT_STARTED, readOnly, studentsLink }));
+  }
+
+  const canInvite = inviteable && invites.awaitingClaim > 0 && (invites.neverInvited > 0 || invites.reminderDue > 0);
+  if (canInvite) {
+    const one = invites.awaitingClaim === 1;
+    items.push({
+      key: "invites",
+      count: invites.awaitingClaim,
+      title: `${one ? "student" : "students"} on your school's list ${one ? "hasn't" : "haven't"} signed up`,
+      detail:
+        invites.neverInvited > 0
+          ? `${plural(invites.neverInvited, "student")} ${invites.neverInvited === 1 ? "hasn't" : "haven't"} been emailed an invitation yet.`
+          : `Everyone on the list has been invited. ${plural(invites.reminderDue, "student")} can be sent a reminder now.`,
+      actions: readOnly
+        ? outline(`${link("/admin/students")}#invite`, "See the list")
+        : (
+            <LinkButton href={`${link("/admin/students")}#invite`} size="xl">
+              {invites.neverInvited > 0 ? "Invite them" : "Send a reminder"}
+            </LinkButton>
+          ),
+    });
+  } else if (!setup.studentsJoined) {
+    items.push({
+      key: "setup-students",
+      title: "Get your students signed up",
+      detail: "Students create their own account with their school email, and they appear on your Students page automatically.",
+      actions: outline(link("/admin/students"), "Go to Students"),
+    });
+  }
+
+  if (teachersWaiting > 0) {
+    items.push({
+      key: "teachers",
+      count: teachersWaiting,
+      title: teachersWaiting === 1 ? "teacher hasn't set up their account" : "teachers haven't set up their accounts",
+      detail: "They were added but haven't signed in yet. You can resend the invitation from the Teachers page.",
+      actions: outline(link("/admin/teachers"), "Go to Teachers"),
+    });
+  } else if (!setup.teachersAdded) {
+    items.push({
+      key: "setup-teachers",
+      title: "Add your teachers",
+      detail: "Teachers make classes, run Guided Sessions in class and assign homework. Each gets an email to set up their account.",
+      actions: outline(link("/admin/teachers"), "Add teachers"),
+    });
+  }
+
+  if (goal) {
+    const { status } = goal;
+    const progress = `${goal.current.toLocaleString()} of ${goal.target.toLocaleString()} ${goal.label.toLowerCase()}`;
+    const recently = (at: Date | null) => at !== null && now.getTime() - new Date(at).getTime() <= 14 * DAY_MS;
+    if (status.state === "IN_PROGRESS" && status.daysLeft !== null && status.daysLeft <= 21) {
+      items.push({
+        key: "goal",
+        count: status.daysLeft,
+        title: `${status.daysLeft === 1 ? "day" : "days"} left on the school goal`,
+        detail: `${progress} so far (${status.percent}%)${goal.prize ? `, for ${goal.prize}` : ""}. An announcement is a good way to rally students for the last stretch.`,
+        actions: outline(link("/admin/announcements"), "Post an announcement"),
+      });
+    } else if (status.state === "REACHED" && recently(goal.reachedAt)) {
+      items.push({
+        key: "goal",
+        title: "Your school reached its goal",
+        detail: `${goal.target.toLocaleString()} ${goal.label.toLowerCase()}${goal.prize ? `. Time to arrange the prize: ${goal.prize}.` : "."} Let students know with an announcement.`,
+        actions: outline(link("/admin/announcements"), "Tell students"),
+      });
+    } else if (status.state === "ENDED" && recently(goal.endsAt)) {
+      items.push({
+        key: "goal",
+        title: "The school goal ended before it was reached",
+        detail: `It reached ${progress}. A new goal with a nearer deadline is a good way to keep the momentum.`,
+        actions: outline(link("/admin/goal"), "Set a new goal"),
+      });
+    }
+  } else if (!setup.goalSet) {
+    items.push({
+      key: "setup-goal",
+      title: "Set a school goal",
+      detail: "One target the whole school works toward together, with a prize if you'd like one.",
+      actions: outline(link("/admin/goal"), "Set a goal"),
+    });
+  }
+
+  if (!setup.announcementPosted) {
+    items.push({
+      key: "setup-announcement",
+      title: "Post a welcome announcement",
+      detail: "Tell students why your school is using PrepHub and where to start. It shows on their home page and goes to their inbox.",
+      actions: outline(link("/admin/announcements"), "Write one"),
+    });
+  }
+  return items;
+}
+
+export type NudgeKind = "GONE_QUIET" | "NOT_STARTED";
+
+/**
+ * One "these students could use a nudge" item, on the campus Overview or (per
+ * campus) the district's: the count, what it means, what's already been done
+ * about it, and "Remind them", which opens the Students page's composer on
+ * exactly that list. `reach` says how many a reminder would reach now; when
+ * everyone was emailed lately the button gives way to "See who".
+ */
+function nudgeItem({
+  kind,
+  count,
+  campus,
+  reach,
+  readOnly,
+  studentsLink,
+}: {
+  kind: NudgeKind;
+  count: number;
+  /** The campus's short name on the district Overview; null on a campus's own. */
+  campus: string | null;
+  reach: ReminderPreview | null;
+  readOnly: boolean;
+  studentsLink: (query: string) => string;
+}): AttentionItem {
+  const one = count === 1;
+  const at = campus ? ` at ${campus}` : "";
+  const title =
+    kind === "GONE_QUIET"
+      ? `${one ? "student has" : "students have"} gone quiet${at}`
+      : `${one ? "student" : "students"}${at} signed up but ${one ? "hasn't" : "haven't"} started`;
+  const plainDetail =
+    kind === "GONE_QUIET"
+      ? "They started practicing, then nothing for two weeks or more. A short note from school is often all it takes."
+      : "They have an account and haven't answered a question yet. The first step is a 15-minute Diagnostic.";
+  const reminded = reach?.recentlyReminded ?? 0;
+  const eligible = reach?.eligible ?? count;
+  const detail =
+    reminded === 0
+      ? plainDetail
+      : eligible === 0
+        ? `All of them were emailed a reminder in the last ${REMINDER_COOLDOWN_DAYS} days.`
+        : `${plural(reminded, "student")} ${reminded === 1 ? "was" : "were"} emailed a reminder in the last ${REMINDER_COOLDOWN_DAYS} days.`;
+  const canRemind = !readOnly && eligible > 0;
+  const query = `activity=${kind}&status=ACTIVE`;
+  return {
+    key: `${kind}-${campus ?? "campus"}`,
+    count,
+    title,
+    detail,
+    actions: (
+      <>
+        {canRemind && (
+          <LinkButton href={studentsLink(`${query}&compose=1`)} size="xl">
+            {reminded > 0 ? `Remind the other ${eligible.toLocaleString()}` : "Remind them"}
+          </LinkButton>
+        )}
+        <LinkButton href={studentsLink(query)} size="xl" variant="outline" className="bg-background">
+          See who
+        </LinkButton>
+      </>
+    ),
+  };
+}
+
+/** The district list stays a list: the largest few, not one row per campus of 270. */
+const DISTRICT_ATTENTION_ITEMS = 6;
+
+/**
+ * The district Overview's attention list: the campuses with the most students
+ * gone quiet or not started, largest first, each with its own "Remind them".
+ * Reminders are sent a campus at a time, from that campus's Students page, so
+ * each item is one campus.
+ */
+async function districtAttention(campuses: { id: string; name: string }[]): Promise<AttentionItem[]> {
+  const names = campuses.map((c) => c.name);
+  const summaries = await Promise.all(campuses.map((c) => getStudentDirectorySummary(c.id)));
+  const groups = campuses
+    .flatMap((c, i) => [
+      { campus: c, kind: "GONE_QUIET" as const, count: summaries[i].goneQuiet },
+      { campus: c, kind: "NOT_STARTED" as const, count: summaries[i].notStarted },
+    ])
+    .filter((g) => g.count > 0)
+    .sort((x, y) => y.count - x.count)
+    .slice(0, DISTRICT_ATTENTION_ITEMS);
+  const reach = await Promise.all(
+    groups.map((g) => previewReminderAudience(g.campus.id, { kind: "filter", filters: { activity: g.kind, status: "ACTIVE" } })),
+  );
+  return groups.map((g, i) =>
+    nudgeItem({
+      kind: g.kind,
+      count: g.count,
+      campus: shortCampusName(g.campus.name, names),
+      reach: reach[i],
+      readOnly: false,
+      studentsLink: (query) => `/admin/students?school=${g.campus.id}&${query}`,
+    }),
+  );
+}
+
+/**
+ * The page's headline number: the average change in students' predicted
+ * scores, set large (CLAUDE.md "Hero numbers"), with the three figures that
+ * qualify it beside it rather than four equal boxes.
+ */
+function ScoreGrowthPanel({
+  averageGain,
+  biggestGain,
+  improved,
+  measured,
+  practiceSets,
+}: {
+  averageGain: number;
+  biggestGain: number;
+  improved: string;
+  measured: number;
+  practiceSets: number;
+}) {
+  const figures = [
+    { label: "Students improved", value: `${improved} of ${measured.toLocaleString()}`, hint: "predicted score went up" },
+    { label: "Biggest gain", value: formatGain(biggestGain), hint: "points, one student's improvement" },
+    { label: "Practice Sets finished", value: practiceSets.toLocaleString(), hint: "each one updates a prediction" },
+  ];
+  return (
+    <div className="grid overflow-hidden rounded-2xl border border-border break-inside-avoid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
+      <div className="flex flex-col justify-center gap-2 border-b border-border p-6 sm:p-8 lg:border-r lg:border-b-0">
+        <p className="text-lg font-medium">Average change</p>
+        <p className="font-heading text-6xl font-semibold tracking-tight tabular-nums sm:text-7xl">
+          {formatGain(averageGain)}
+          <span className="ml-2 text-2xl font-medium text-muted-foreground">points</span>
+        </p>
+        <p className="text-base text-muted-foreground">
+          in predicted SAT score, from each student&apos;s first prediction to their latest, across {plural(measured, "student")}.
+        </p>
+      </div>
+      <dl className="grid gap-px bg-border sm:grid-cols-3">
+        {figures.map((s) => (
+          <div key={s.label} className="flex flex-col justify-center bg-background p-6">
+            <dt className="text-base font-medium text-foreground/80">{s.label}</dt>
+            <dd className="mt-2 font-heading text-3xl font-semibold tracking-tight tabular-nums">{s.value}</dd>
+            <dd className="mt-1.5 text-base text-muted-foreground">{s.hint}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 

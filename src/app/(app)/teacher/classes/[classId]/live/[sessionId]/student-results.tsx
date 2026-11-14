@@ -45,7 +45,7 @@ function Drill({ rows, name, individual = false }: { rows: DrillRow[]; name: str
   return (
     <table className="w-full text-left text-base">
       <caption className="sr-only">Every question for {name}</caption>
-      <thead className="text-sm text-muted-foreground">
+      <thead className="text-base text-muted-foreground">
         <tr>
           <th scope="col" className="p-2 font-medium">
             Question
@@ -75,7 +75,7 @@ function Drill({ rows, name, individual = false }: { rows: DrillRow[]; name: str
                 <th
                   scope="colgroup"
                   colSpan={5}
-                  className="p-2 text-sm font-semibold"
+                  className="p-2 text-base font-semibold"
                 >
                   {d.group === "TOGETHER"
                     ? "Class questions (answered together, with a second vote where the room talked)"
@@ -87,14 +87,14 @@ function Drill({ rows, name, individual = false }: { rows: DrillRow[]; name: str
               <th scope="row" className="p-2 font-medium">
                 {d.label}
                 {d.skill && (
-                  <span className="block text-sm font-normal text-muted-foreground">
+                  <span className="block text-base font-normal text-muted-foreground">
                     {d.skill}
                   </span>
                 )}
                 {d.notes.map((n) => (
                   <span
                     key={n}
-                    className="block text-sm font-normal text-muted-foreground"
+                    className="block text-base font-normal text-muted-foreground"
                   >
                     {n === "Caught up later"
                       ? "Caught up later (listed, not counted above)"
@@ -115,7 +115,7 @@ function Drill({ rows, name, individual = false }: { rows: DrillRow[]; name: str
                 <span className="font-semibold">{mark(d.finalCorrect)}</span>
                 {d.firstCorrect !== null &&
                   d.finalCorrect !== d.firstCorrect && (
-                    <span className="block text-sm text-muted-foreground">
+                    <span className="block text-base text-muted-foreground">
                       First try: {mark(d.firstCorrect).toLowerCase()}
                     </span>
                   )}
@@ -188,7 +188,7 @@ export function StudentResults({
         <caption className="sr-only">
           How each student did in this session. Use the column buttons to sort.
         </caption>
-        <thead className="border-b border-border text-sm text-muted-foreground">
+        <thead className="border-b border-border text-base text-muted-foreground">
           <tr>
             {columns.map((c) => (
               <th
@@ -257,7 +257,7 @@ export function StudentResults({
                         <>
                           {CONFIDENCE_PATTERN_LABELS[r.confidencePattern]}
                           {r.confidencePattern !== "NONE" && (
-                            <span className="block text-sm text-muted-foreground">
+                            <span className="block text-base text-muted-foreground">
                               {r.confidence.sure} sure · {r.confidence.thinkSo}{" "}
                               think so · {r.confidence.guessing} guessing
                             </span>
@@ -273,7 +273,7 @@ export function StudentResults({
                       <>
                         {r.own.right} of {r.own.answered} right
                         {r.own.answered < r.own.total && (
-                          <span className="block text-sm text-muted-foreground">
+                          <span className="block text-base text-muted-foreground">
                             {r.own.total - r.own.answered} not reached
                           </span>
                         )}

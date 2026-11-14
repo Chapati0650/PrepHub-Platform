@@ -4,9 +4,8 @@ import { Download } from "lucide-react";
 import { requireAdminSchoolContext } from "@/lib/admin/school-context";
 import { OwnerSchoolSwitcher } from "../school-switcher";
 import {
-  DIRECTORY_ACTIVITY_FILTERS,
-  MEMBERSHIP_STATUSES,
   getStudentDirectory,
+  parseDirectoryFilters,
   getStudentDirectorySummary,
   graduationYearWindow,
   type DirectoryActivityFilter,
@@ -14,6 +13,9 @@ import {
   type StudentDirectorySummary,
 } from "@/lib/admin/student-directory";
 import { getSchoolAccessInfo } from "@/lib/admin/access-info";
+import { previewReminderAudience } from "@/lib/admin/student-reminders";
+import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
 import { getRosterInviteSummary, inviteScopeForSchool } from "@/lib/owner/roster-invites";
 import { buttonVariants } from "@/components/ui/button";
 import { StaffHeader, StaffPage, StaffUnavailable } from "@/components/staff/staff-ui";
@@ -29,23 +31,15 @@ function one(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-// Every value is checked against what it can be, not cast: these come from
-// the URL, and a hand-edited `?status=foo` used to reach Prisma as an enum
-// value and fail the whole page.
-function parseFilters(searchParams: SearchParams): StudentDirectoryFilters {
-  const page = Number(one(searchParams.page));
-  const graduationYear = Number(one(searchParams.graduationYear));
-  const status = one(searchParams.status);
-  const activity = one(searchParams.activity);
-  return {
-    search: one(searchParams.search),
-    page: Number.isFinite(page) && page > 0 ? page : 1,
-    graduationYear: Number.isInteger(graduationYear) && graduationYear >= 2000 && graduationYear <= 2100 ? graduationYear : undefined,
-    status: MEMBERSHIP_STATUSES.find((s) => s === status),
-    activity: DIRECTORY_ACTIVITY_FILTERS.includes(activity as DirectoryActivityFilter)
-      ? (activity as DirectoryActivityFilter)
-      : undefined,
-  };
+/** The list's filters (and the campus, where links carry it) as a query string, without the page. */
+function filtersQueryString(filters: StudentDirectoryFilters, schoolParam: string): string {
+  const q = new URLSearchParams();
+  if (filters.search) q.set("search", filters.search);
+  if (filters.graduationYear) q.set("graduationYear", String(filters.graduationYear));
+  if (filters.status) q.set("status", filters.status);
+  if (filters.activity) q.set("activity", filters.activity);
+  const query = q.toString();
+  return [query, schoolParam].filter(Boolean).join("&");
 }
 
 // PRD-011 §12-§14 — the administrator's list of registered students: who has
@@ -60,15 +54,24 @@ export default async function StudentDirectoryPage({ searchParams }: { searchPar
   }
   if (!schoolId) return <StaffUnavailable title="The student list isn't available for this account." />;
 
-  const filters = parseFilters(params);
-  const [directory, invites, summary, access] = await Promise.all([
+  const filters = parseDirectoryFilters(params);
+  // "Remind them" on the Overview lands here with `compose=1`: the composer
+  // opens on arrival, already counted, so the administrator is one press from
+  // sending rather than three clicks from finding the button.
+  const composeOnLoad = one(params.compose) === "1" && !viewingAsOwner;
+  const session = await auth();
+  const [directory, invites, summary, access, school, sender, composePreview] = await Promise.all([
     getStudentDirectory(schoolId, filters),
     inviteScopeForSchool(schoolId).then((scope) => getRosterInviteSummary(scope)),
     getStudentDirectorySummary(schoolId),
     getSchoolAccessInfo(schoolId),
+    prisma.organization.findUnique({ where: { id: schoolId }, select: { officialName: true } }),
+    session?.user?.id ? prisma.user.findUnique({ where: { id: session.user.id }, select: { firstName: true } }) : null,
+    composeOnLoad ? previewReminderAudience(schoolId, { kind: "filter", filters }).then((preview) => ({ preview })) : null,
   ]);
   const currentYear = new Date().getFullYear();
   const schoolParam = carryCampusParam ? `school=${schoolId}` : "";
+  const schoolName = school?.officialName ?? "your school";
 
   return (
     <StaffPage>
@@ -84,9 +87,9 @@ export default async function StudentDirectoryPage({ searchParams }: { searchPar
           whether scores are here too, and a student deserves to be able to
           read the same sentence. */}
       <StaffHeader
-        eyebrow={district ? "Campus" : "Your school"}
+        eyebrow={schoolName}
         title="Students"
-        description="Everyone who has signed up through your school, and how much each has practiced. You see effort, never scores: no student's answers, mastery or predicted score appears here."
+        description="Everyone who signed up through your school, how much each has practiced, and who could use a nudge. You see effort, never scores: no student's answers, mastery or predicted score appears here."
         actions={
           // A plain link, not a client navigation: the browser downloads the file.
           <a
@@ -94,7 +97,7 @@ export default async function StudentDirectoryPage({ searchParams }: { searchPar
             className={cn(buttonVariants({ variant: "outline", size: "xl" }), "bg-background")}
           >
             <Download aria-hidden />
-            Download as a spreadsheet
+            Download everyone
           </a>
         }
       />
@@ -114,8 +117,13 @@ export default async function StudentDirectoryPage({ searchParams }: { searchPar
         page={directory.page}
         pageCount={directory.pageCount}
         filters={filters}
+        filtersQuery={filtersQueryString(filters, schoolParam)}
         currentYear={currentYear}
         classYears={graduationYearWindow()}
+        schoolName={schoolName}
+        senderName={sender?.firstName ?? "Your school"}
+        composeOnLoad={composeOnLoad}
+        composePreview={composePreview}
       />
     </StaffPage>
   );
@@ -178,16 +186,16 @@ function ActivitySummary({
                 href={`/admin/students${query ? `?${query}` : ""}`}
                 aria-current={selected ? "true" : undefined}
                 className={cn(
-                  "flex w-full flex-col p-5 transition-colors",
+                  "flex w-full flex-col p-6 transition-colors",
                   selected ? "bg-surface-tint" : "bg-background hover:bg-muted/50",
                 )}
               >
-                <span className="text-base font-medium">{g.label}</span>
+                <span className="text-base font-medium text-foreground/80">{g.label}</span>
                 <span className="mt-2 font-heading text-4xl font-semibold tracking-tight tabular-nums">
                   {g.value(summary).toLocaleString()}
                 </span>
-                <span className="mt-1 text-sm text-muted-foreground">{g.hint(summary, accessLive)}</span>
-                <span className={cn("mt-3 text-sm font-medium", selected ? "text-primary" : "text-muted-foreground")}>
+                <span className="mt-1.5 text-base leading-snug text-muted-foreground">{g.hint(summary, accessLive)}</span>
+                <span className={cn("mt-auto pt-4 text-base font-medium", selected ? "text-primary dark:text-marker" : "text-foreground/70")}>
                   {selected ? "Showing these below" : g.activity ? "Show these students →" : "Show everyone →"}
                 </span>
               </Link>
