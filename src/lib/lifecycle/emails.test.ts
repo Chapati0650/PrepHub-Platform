@@ -149,17 +149,17 @@ describe("queueFinishDiagnosticNudges", () => {
 });
 
 describe("reminderDue", () => {
-  it("reminds daily while a student is studying", () => {
-    expect(reminderDue({ activeInLastWeek: true, activeInLastMonth: true, remindedInLastSixDays: true })).toBe(true);
+  it("leaves alone a student practicing every few days", () => {
+    expect(reminderDue({ activeInLastThreeDays: true, activeInLastMonth: true, remindedInLastSixDays: false })).toBe(false);
   });
 
-  it("drops to weekly once they've drifted", () => {
-    expect(reminderDue({ activeInLastWeek: false, activeInLastMonth: true, remindedInLastSixDays: false })).toBe(true);
-    expect(reminderDue({ activeInLastWeek: false, activeInLastMonth: true, remindedInLastSixDays: true })).toBe(false);
+  it("reminds a student who has slowed down, at most once a week", () => {
+    expect(reminderDue({ activeInLastThreeDays: false, activeInLastMonth: true, remindedInLastSixDays: false })).toBe(true);
+    expect(reminderDue({ activeInLastThreeDays: false, activeInLastMonth: true, remindedInLastSixDays: true })).toBe(false);
   });
 
   it("stops after a month away", () => {
-    expect(reminderDue({ activeInLastWeek: false, activeInLastMonth: false, remindedInLastSixDays: false })).toBe(false);
+    expect(reminderDue({ activeInLastThreeDays: false, activeInLastMonth: false, remindedInLastSixDays: false })).toBe(false);
   });
 });
 
@@ -197,7 +197,7 @@ describe("queueDailyReminders", () => {
       { ...base, id: "p", email: "p@x.com", firstName: "Pat", subscription: { status: "ACTIVE" } },
       { ...base, id: "f", email: "f@x.com", firstName: "Fay" },
     ]);
-    activity({ p: new Date(NOW.getTime() - 2 * DAY), f: new Date(NOW.getTime() - 2 * DAY) });
+    activity({ p: new Date(NOW.getTime() - 5 * DAY), f: new Date(NOW.getTime() - 5 * DAY) });
 
     expect(await queueDailyReminders(NOW)).toEqual({ queued: 2, complete: true });
 
@@ -225,7 +225,7 @@ describe("queueDailyReminders", () => {
         },
       },
     ]);
-    activity({ d: new Date(NOW.getTime() - DAY) });
+    activity({ d: new Date(NOW.getTime() - 5 * DAY) });
 
     await queueDailyReminders(NOW);
 
@@ -237,7 +237,7 @@ describe("queueDailyReminders", () => {
       { ...base, id: "busy", email: "busy@x.com", firstName: "Bo" },
       { ...base, id: "idle", email: "idle@x.com", firstName: "Ida" },
     ]);
-    activity({ busy: new Date("2026-09-21T15:00:00Z"), idle: new Date(NOW.getTime() - 2 * DAY) });
+    activity({ busy: new Date("2026-09-21T15:00:00Z"), idle: new Date(NOW.getTime() - 5 * DAY) });
 
     expect((await queueDailyReminders(NOW)).queued).toBe(1);
 
@@ -266,7 +266,7 @@ describe("queueDailyReminders", () => {
     const previous = process.env.AUTH_SECRET;
     process.env.AUTH_SECRET = "test-secret";
     optedIn([{ ...base, id: "f", email: "f@x.com", firstName: "Fay" }]);
-    activity({ f: new Date(NOW.getTime() - DAY) });
+    activity({ f: new Date(NOW.getTime() - 5 * DAY) });
 
     await queueDailyReminders(NOW);
 
@@ -308,7 +308,7 @@ describe("queueDailyReminders", () => {
       { ...base, id: "a-gone", email: "gone@x.com", firstName: "Go" },
       { ...base, id: "b-active", email: "active@x.com", firstName: "Ac" },
     ]);
-    activity({ "a-gone": new Date(NOW.getTime() - 45 * DAY), "b-active": new Date(NOW.getTime() - 2 * DAY) });
+    activity({ "a-gone": new Date(NOW.getTime() - 45 * DAY), "b-active": new Date(NOW.getTime() - 5 * DAY) });
 
     await queueDailyReminders(NOW);
 

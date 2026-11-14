@@ -21,12 +21,12 @@ test.describe("School Community (PRD-009) and Profile & Settings (PRD-010)", () 
     await expect(page.locator("html")).not.toHaveClass(/dark/);
 
     // Notifications: toggling and saving persists across a reload.
-    const reminderCheckbox = page.getByRole("checkbox", { name: "Daily Practice Reminder" });
+    const reminderCheckbox = page.getByRole("checkbox", { name: "Weekly Practice Reminder" });
     await expect(reminderCheckbox).toBeChecked();
     await reminderCheckbox.click();
     await page.getByRole("button", { name: "Save notification settings" }).click();
     await page.reload();
-    await expect(page.getByRole("checkbox", { name: "Daily Practice Reminder" })).not.toBeChecked();
+    await expect(page.getByRole("checkbox", { name: "Weekly Practice Reminder" })).not.toBeChecked();
 
     // Profile: first name is editable and persists across a reload. (Not
     // checked via /home — this student hasn't started the Diagnostic, and

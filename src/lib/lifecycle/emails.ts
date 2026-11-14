@@ -188,7 +188,7 @@ export async function queueFinishDiagnosticNudges(now = new Date()): Promise<num
 }
 
 /**
- * The daily reminder. "Paid" is the entitlement service's verdict, not the
+ * The practice reminder (weekly since 2026-11-14). "Paid" is the entitlement service's verdict, not the
  * subscription alone: a student whose district covers them has a practice set
  * waiting too, and used to be pointed at the free Daily Challenge instead.
  */
@@ -199,10 +199,10 @@ export function dailyReminderMessage(u: { id: string; email: string; firstName: 
     : "You can turn these off any time in Settings, under Notifications.";
   return {
     to: u.email,
-    subject: paid ? "Today's practice set is waiting" : "Today's Daily Challenge is waiting",
+    subject: paid ? "Your next practice set is waiting" : "Today's Daily Challenge is waiting",
     text: `Hi ${u.firstName},
 
-${paid ? "Half a set today keeps your prediction moving. Your next questions are ready:" : "One hard question, no clock, and your streak stays alive:"}
+${paid ? "It's been a few days. Half a set keeps your prediction moving, and your next questions are ready:" : "It's been a few days. One hard question, no clock:"}
 ${SITE}${paid ? "/practice" : "/daily"}
 
 — Prithvi, PrepHub
@@ -212,24 +212,27 @@ ${optOut}`,
 }
 
 /**
- * Whether today's reminder goes to a student who hasn't studied today.
+ * Whether tonight's reminder goes to a student.
  *
- * Daily while they're studying (anything in the last week), weekly once
- * they've drifted (last activity 8–30 days ago), and then nothing. It used to
- * be every day for as long as the toggle was on, which in October 2026 meant
- * about seventy emails a day, most of them to students who had stopped months
- * earlier — 162 of the 194 with reminders on hadn't touched PrepHub in two
- * weeks. Mail nobody opens is what gets a sending domain filtered, and this
- * domain also carries password resets and school announcements.
+ * At most once a week (Owner, 2026-11-14), only to a student who has slowed
+ * down (nothing in the last three days) and not after a month away. A student
+ * practicing every few days gets nothing: they don't need the nudge.
+ *
+ * History: it was every day for as long as the toggle was on, which in October
+ * 2026 meant about seventy emails a day, most to students who had stopped
+ * months earlier (162 of the 194 with reminders on hadn't touched PrepHub in
+ * two weeks). Then daily-while-active, weekly-after. Weekly throughout cuts
+ * district volume by about two thirds before launch days, when sign-up
+ * confirmations already fill the day. Mail nobody opens is what gets a sending
+ * domain filtered, and this domain also carries password resets and school
+ * announcements.
  */
 export function reminderDue(student: {
-  activeInLastWeek: boolean;
+  activeInLastThreeDays: boolean;
   activeInLastMonth: boolean;
   remindedInLastSixDays: boolean;
 }): boolean {
-  if (student.activeInLastWeek) return true;
-  if (student.activeInLastMonth) return !student.remindedInLastSixDays;
-  return false;
+  return student.activeInLastMonth && !student.activeInLastThreeDays && !student.remindedInLastSixDays;
 }
 
 const DAY_MS = 86_400_000;
@@ -258,7 +261,7 @@ export async function queueDailyReminders(
 ): Promise<{ queued: number; complete: boolean }> {
   const day = dayKey(now);
   const startOfDay = new Date(`${day}T00:00:00Z`);
-  const weekAgo = new Date(now.getTime() - 7 * DAY_MS);
+  const threeDaysAgo = new Date(now.getTime() - 3 * DAY_MS);
   const monthAgo = new Date(now.getTime() - 30 * DAY_MS);
   const sixDaysAgoKey = dayKey(new Date(now.getTime() - 6 * DAY_MS));
   let queued = 0;
@@ -284,7 +287,7 @@ export async function queueDailyReminders(
     const activeThisMonth = await studentsActiveSince(ids, monthAgo);
     if (activeThisMonth.size > 0) {
       const candidates = [...activeThisMonth];
-      const [students, recentReminders, activeThisWeek, studiedToday] = await Promise.all([
+      const [students, recentReminders, activeLately, studiedToday] = await Promise.all([
         prisma.user.findMany({
           where: { id: { in: candidates } },
           select: {
@@ -301,7 +304,7 @@ export async function queueDailyReminders(
           where: { userId: { in: candidates }, kind: "daily_reminder", day: { gte: sixDaysAgoKey } },
           select: { userId: true },
         }),
-        studentsActiveSince(candidates, weekAgo),
+        studentsActiveSince(candidates, threeDaysAgo),
         studentsActiveSince(candidates, startOfDay),
       ]);
       const reminded = new Set(recentReminders.map((r) => r.userId));
@@ -311,7 +314,7 @@ export async function queueDailyReminders(
             (u) =>
               !studiedToday.has(u.id) &&
               reminderDue({
-                activeInLastWeek: activeThisWeek.has(u.id),
+                activeInLastThreeDays: activeLately.has(u.id),
                 activeInLastMonth: true,
                 remindedInLastSixDays: reminded.has(u.id),
               }),

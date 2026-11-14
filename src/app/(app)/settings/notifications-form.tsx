@@ -10,7 +10,8 @@ import type { ActionState } from "@/app/(auth)/actions";
 
 const initialState: ActionState = {};
 
-// PRD-010 §7 — Daily Practice Reminder is the only independent toggle;
+// PRD-010 §7 — the practice reminder (PRD-010's "Daily Practice Reminder", weekly since
+// 2026-11-14) is the only independent toggle;
 // Streak Lost Email is always-on ("cannot be disabled independently") so it's
 // shown as informational text only, with no control.
 export function NotificationsForm({ dailyReminderEnabled }: { dailyReminderEnabled: boolean }) {
@@ -29,13 +30,13 @@ export function NotificationsForm({ dailyReminderEnabled }: { dailyReminderEnabl
       )}
 
       <label className="flex items-start gap-2 text-sm">
-        <Checkbox name="dailyReminderEnabled" defaultChecked={dailyReminderEnabled} aria-label="Daily Practice Reminder" />
+        <Checkbox name="dailyReminderEnabled" defaultChecked={dailyReminderEnabled} aria-label="Weekly Practice Reminder" />
         <span>
-          <span className="font-medium">Daily Practice Reminder</span>
+          <span className="font-medium">Weekly Practice Reminder</span>
           <br />
           <span className="text-muted-foreground">
-            An evening email on days you haven&apos;t studied yet. If you&apos;ve been away for a while it slows to once
-            a week, and stops after a month.
+            One evening email, at most once a week, when you haven&apos;t practiced for a few days. It stops after a month
+            away.
           </span>
         </span>
       </label>

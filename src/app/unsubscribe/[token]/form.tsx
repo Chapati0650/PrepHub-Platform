@@ -13,7 +13,7 @@ export function UnsubscribeForm({ token }: { token: string }) {
   if (state.done) {
     return (
       <div role="status" className="mt-6 border-t border-border pt-6">
-        <p className="text-lg font-semibold">Done. No more daily reminders.</p>
+        <p className="text-lg font-semibold">Done. No more practice reminders.</p>
         <p className="mt-2 text-sm text-muted-foreground">
           Everything else about your account stays as it is. If you change your mind, turn them back on in Settings,
           under Notifications.
@@ -31,7 +31,7 @@ export function UnsubscribeForm({ token }: { token: string }) {
         </Alert>
       )}
       <Button type="submit" size="cta" disabled={pending}>
-        {pending ? "One moment…" : "Turn off daily reminders"}
+        {pending ? "One moment…" : "Turn off practice reminders"}
       </Button>
     </form>
   );

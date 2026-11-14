@@ -1920,8 +1920,14 @@ rules that keep each one from coming back:
 
 **Email**
 
-- **Daily reminders taper** (`reminderDue`, tested): daily while a student has
-  studied in the last week, weekly after that, nothing after 30 days. It was
+- **Reminders are weekly since 2026-11-14** (Owner; `reminderDue`, tested): at
+  most one a week, only to a student with nothing in the last three days, none
+  after 30 days away. The Settings toggle reads "Weekly Practice Reminder" (the
+  column is still `dailyReminderEnabled`, the claim kind still
+  `daily_reminder`). Weekly cuts a district's volume by about two thirds, which
+  matters on launch days when sign-up confirmations fill the day. Before that
+  they tapered: daily while a student had studied in the last week, weekly
+  after that, nothing after 30 days. It was
   every day for as long as the toggle was on: ~70 emails a day in October,
   and 162 of the 194 students with reminders on hadn't studied in two weeks.
   Mail nobody opens gets a domain filtered, and this domain carries password
