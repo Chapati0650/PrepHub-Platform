@@ -3,7 +3,7 @@ import { isSandboxStudent, samePoolSql } from "./pool";
 import { prisma } from "@/lib/prisma";
 import { isAnswerCorrect } from "@/lib/adaptive/grading";
 import { getStudentQuestionContent, type StudentQuestionContent } from "@/lib/session/question-content";
-import { LIVE_PRESENCE_MS, RUSH_BOT_LABEL, RUSH_BOT_LABELED, RUSH_DIFFICULTY, RUSH_SECTIONS, RUSH_TIME_LIMIT_MS } from "./config";
+import { HOST_ROOM_PRESENCE_MS, LIVE_PRESENCE_MS, RUSH_BOT_LABEL, RUSH_BOT_LABELED, RUSH_DIFFICULTY, RUSH_SECTIONS, RUSH_TIME_LIMIT_MS } from "./config";
 import { botAvatar, botRounds, parseBotProfile, type BotAvatar } from "./bot";
 import {
   compareRuns,
@@ -135,7 +135,9 @@ export async function getChallengePreview(studentId: string, code: string): Prom
     isCreator: c.creatorId === studentId,
     live: c.live,
     liveStatus: c.liveStatus,
-    creatorPresent: Boolean(creatorRun && Date.now() - creatorRun.lastSeenAt.getTime() < LIVE_PRESENCE_MS),
+    creatorPresent: Boolean(
+      creatorRun && Date.now() - creatorRun.lastSeenAt.getTime() < (c.live && hostStarts(c) ? HOST_ROOM_PRESENCE_MS : LIVE_PRESENCE_MS),
+    ),
     hostStarts: c.live && hostStarts(c),
   };
 }

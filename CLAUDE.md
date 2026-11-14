@@ -2912,7 +2912,13 @@ seamless and quick".
   (`FOR UPDATE`), since WAITING no longer means "one player"; the join page says a room with two is
   full. The second player can leave without closing the host's room. Random matches and rematches
   still start the moment the second player arrives. No migration: the rule is derived from
-  `mode`/`rematchOfId`.
+  `mode`/`rematchOfId`. Joining such a room needs the host seen in the last
+  `HOST_ROOM_PRESENCE_MS` (30 minutes), not 12 seconds: a host's room tab in the background polls
+  about once a minute, and the joiner only waits for Start anyway.
+- **The North Texas demo** (`DEMO_PROFILE=regional` in `scripts/demo-houston.ts`, still uncommitted
+  like the Houston one): "North Texas Demo ISD", four campuses shaped like Northwest ISD's, `ntx.*`
+  logins (added to `SHARED_DEMO_LOGINS`), and fictional students' SOLO Rush runs so every campus has
+  a weekly board. The board resets Monday 00:00 Central: run `rush` the morning of a Monday demo.
 - The lobby polls every second once both are in, and every room polls the moment its tab becomes
   visible again (background tabs are throttled), so a match started while one player was on another
   tab shows the countdown at once. Verified with two separate browsers: the guest saw the countdown

@@ -75,6 +75,13 @@ export const RUSH_DIFFICULTIES: Record<RushDifficulty, { label: string; pool: re
 export const LIVE_COUNTDOWN_MS = 5_000;
 export const LIVE_GAP_MS = 2_500;
 export const LIVE_PRESENCE_MS = 12_000;
+/**
+ * How recently the host of a room that waits for Start must have been seen for someone to join it.
+ * Far looser than LIVE_PRESENCE_MS: the joiner only waits for Start, and a host's room tab in the
+ * background polls about once a minute (browsers throttle it), so a strict window would turn away
+ * an opponent joining before a presentation while the host is on another tab.
+ */
+export const HOST_ROOM_PRESENCE_MS = 30 * 60_000;
 export const LIVE_LOBBY_STALE_MS = 25_000;
 export const LIVE_RANDOM_FALLBACK_MS = 30_000;
 export const LIVE_POLL_MS = 1_000;

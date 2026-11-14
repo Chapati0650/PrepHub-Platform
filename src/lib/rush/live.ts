@@ -7,6 +7,7 @@ import { questionRating } from "@/lib/adaptive/config";
 import { isAnswerCorrect } from "@/lib/adaptive/grading";
 import { getStudentQuestionContent, type StudentQuestionContent } from "@/lib/session/question-content";
 import {
+  HOST_ROOM_PRESENCE_MS,
   LIVE_COUNTDOWN_MS,
   LIVE_GAP_MS,
   LIVE_LOBBY_STALE_MS,
@@ -127,7 +128,8 @@ export async function joinLiveRoom(studentId: string, challengeId: string): Prom
     throw rushError("NOT_JOINABLE", "for-someone-else");
   }
   if (c.liveStatus !== "WAITING") throw rushError("NOT_JOINABLE", "already-started");
-  const creatorPresent = c.runs.some((r) => Date.now() - r.lastSeenAt.getTime() < LIVE_PRESENCE_MS);
+  const presenceWindow = hostStarts(c) ? HOST_ROOM_PRESENCE_MS : LIVE_PRESENCE_MS;
+  const creatorPresent = c.runs.some((r) => Date.now() - r.lastSeenAt.getTime() < presenceWindow);
   if (!creatorPresent) throw rushError("NOT_JOINABLE", "host-away");
 
   if (hostStarts(c)) {

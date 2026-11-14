@@ -146,7 +146,7 @@ export default async function RushPage({ searchParams }: { searchParams: Promise
         <section className="flex flex-col gap-4 rounded-3xl bg-surface-tint p-6 lg:self-start">
           <div>
             <p className="font-heading text-xl font-semibold tracking-tight">Have a code?</p>
-            <p className="mt-1 text-sm text-muted-foreground">A friend sent you a challenge. Enter their six-character code — a live room starts the countdown the moment you&apos;re in.</p>
+            <p className="mt-1 text-sm text-muted-foreground">A friend sent you a challenge. Enter their six-character code to join their room; they press Start when you&apos;re both ready.</p>
           </div>
           <form action={joinRushAction} className="flex flex-col gap-3">
             <input

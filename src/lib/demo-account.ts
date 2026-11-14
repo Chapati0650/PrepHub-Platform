@@ -25,10 +25,16 @@ export const SHARED_DEMO_LOGINS: readonly string[] = [
   "hisd.teacher@example.com",
   "hisd.student@example.com",
   "hisd.newstudent@example.com",
+  // The North Texas demo for the regional CCMR meeting (2026-11-16; scripts/demo-houston.ts, DEMO_PROFILE=regional).
+  "ntx.admin@example.com",
+  "ntx.campusadmin@example.com",
+  "ntx.teacher@example.com",
+  "ntx.student@example.com",
+  "ntx.newstudent@example.com",
 ];
 
 export function isSharedDemoLogin(email: string | null | undefined): boolean {
   if (!email) return false;
   const e = email.trim().toLowerCase();
-  return SHARED_DEMO_LOGINS.includes(e) || e.endsWith("@hisd-demo.example.com");
+  return SHARED_DEMO_LOGINS.includes(e) || e.endsWith("@hisd-demo.example.com") || e.endsWith("@ntx-demo.example.com");
 }
