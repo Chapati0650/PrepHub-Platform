@@ -5,7 +5,7 @@ import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
 import { hasPaidAccess } from "@/lib/entitlements";
 import { getRushOverview, type RushHistoryRow } from "@/lib/rush/runs";
-import { RUSH_MODES, RUSH_PLAY_OPTIONS, RUSH_PLAY_OPTION_ORDER, RUSH_RUN_SIZE, RUSH_SECTIONS, RUSH_SECTION_ORDER, RUSH_TIME_LIMIT_MS } from "@/lib/rush/config";
+import { RUSH_MODES, RUSH_PLAY_OPTIONS, RUSH_PLAY_OPTION_ORDER, RUSH_QUICK_SIZE, RUSH_RUN_SIZE, RUSH_SECTIONS, RUSH_SECTION_ORDER, RUSH_TIME_LIMIT_MS } from "@/lib/rush/config";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -53,7 +53,7 @@ export default async function RushPage({ searchParams }: { searchParams: Promise
       <section className="rounded-2xl border-2 border-marker/60 bg-surface-tint p-6">
         <h2 className="font-heading text-lg font-semibold tracking-tight">What is 1v1 Rush?</h2>
         <p className="mt-2 max-w-prose text-muted-foreground">
-          Ten questions, a mix of easy, medium and hard, with a hard clock on each. Points for being right, more for
+          Ten questions (five in a Quick duel), a mix of easy, medium and hard, with a hard clock on each. Points for being right, more for
           being fast. Get matched live with another student, open a room and send a friend the link, or play solo —
           same questions, same clock, and the results show who won. Nothing here changes your Predicted SAT Score.
         </p>
@@ -105,7 +105,7 @@ export default async function RushPage({ searchParams }: { searchParams: Promise
                   </div>
                 </fieldset>
                 <p className="text-sm text-surface-deep-foreground/70">
-                  {RUSH_RUN_SIZE} mixed questions · {Math.round(RUSH_TIME_LIMIT_MS.READING_WRITING / 1000)}s each for Reading &amp;
+                  {RUSH_RUN_SIZE} mixed questions ({RUSH_QUICK_SIZE} in a Quick duel) · {Math.round(RUSH_TIME_LIMIT_MS.READING_WRITING / 1000)}s each for Reading &amp;
                   Writing, {Math.round(RUSH_TIME_LIMIT_MS.MATH / 1000)}s for Math.
                 </p>
                 <div>

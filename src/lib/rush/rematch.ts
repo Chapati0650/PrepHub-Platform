@@ -51,7 +51,7 @@ async function loadMatch(challengeId: string) {
       id: true,
       mode: true,
       live: true,
-      set: { select: { section: true } },
+      set: { select: { section: true, _count: { select: { slots: true } } } },
       runs: {
         select: { studentId: true, status: true, student: { select: { firstName: true } } },
         orderBy: [{ score: "desc" }, { totalMs: "asc" }],
@@ -144,7 +144,8 @@ export async function requestRematch(studentId: string, challengeId: string): Pr
 
   try {
     const created = await prisma.$transaction(async (tx) => {
-      const set = await createSet(studentId, match.set.section, RUSH_DIFFICULTY, tx);
+      // The same length as the match it rematches: a Quick duel's rematch is quick too.
+      const set = await createSet(studentId, match.set.section, RUSH_DIFFICULTY, tx, match.set._count.slots);
       const challenge = await createChallenge(tx, {
         setId: set.id,
         mode: "FRIEND",

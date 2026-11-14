@@ -58,6 +58,8 @@ export type LiveState = {
   limitMs: number;
   status: RushLiveStatus;
   isCreator: boolean;
+  /** A friend's room waits for its host to press Start once the second player is in (see hostStarts). */
+  hostStarts: boolean;
   // How long the creator has been alone in the lobby — the client offers a
   // recorded opponent once this passes LIVE_RANDOM_FALLBACK_MS.
   waitedMs: number;
@@ -86,9 +88,21 @@ export type LiveState = {
 
 // ---- Rooms ------------------------------------------------------------------
 
-export async function createLiveRoom(studentId: string, params: { section: ClubSection; mode: "FRIEND" | "RANDOM" }) {
+/**
+ * Whether a room waits for its host to press Start (2026-11-14). A friend's
+ * room does: the second player joins, both see each other, and the host
+ * starts when they're both ready, so a match can be set up ahead of time
+ * (for a presentation, the opponent joins before it begins and the match
+ * starts on cue). A random match and a rematch start themselves: nobody is
+ * hosting a random pairing, and accepting a rematch is already the "ready".
+ */
+export function hostStarts(c: { mode: string; rematchOfId: string | null }): boolean {
+  return c.mode === "FRIEND" && c.rematchOfId === null;
+}
+
+export async function createLiveRoom(studentId: string, params: { section: ClubSection; mode: "FRIEND" | "RANDOM"; size?: number }) {
   return prisma.$transaction(async (tx) => {
-    const set = await createSet(studentId, params.section, RUSH_DIFFICULTY, tx);
+    const set = await createSet(studentId, params.section, RUSH_DIFFICULTY, tx, params.size);
     const challenge = await createChallenge(tx, { setId: set.id, mode: params.mode, creatorId: studentId, live: true, liveStatus: "WAITING" });
     await tx.rushRun.create({ data: { challengeId: challenge.id, studentId } });
     return { challengeId: challenge.id, code: challenge.code };
@@ -104,7 +118,7 @@ export async function joinLiveRoom(studentId: string, challengeId: string): Prom
 
   const c = await prisma.rushChallenge.findUnique({
     where: { id: challengeId },
-    select: { live: true, liveStatus: true, invitedStudentId: true, runs: { select: { lastSeenAt: true } } },
+    select: { live: true, mode: true, rematchOfId: true, liveStatus: true, invitedStudentId: true, runs: { select: { lastSeenAt: true } } },
   });
   if (!c || !c.live) throw rushError("CHALLENGE_NOT_FOUND", "room-gone");
   // A rematch room is for one student. Checked here as well as wherever the
@@ -115,6 +129,20 @@ export async function joinLiveRoom(studentId: string, challengeId: string): Prom
   if (c.liveStatus !== "WAITING") throw rushError("NOT_JOINABLE", "already-started");
   const creatorPresent = c.runs.some((r) => Date.now() - r.lastSeenAt.getTime() < LIVE_PRESENCE_MS);
   if (!creatorPresent) throw rushError("NOT_JOINABLE", "host-away");
+
+  if (hostStarts(c)) {
+    // The room stays WAITING until the host presses Start, so "full" is a
+    // count of players, taken under a row lock: two people opening the link
+    // at once can't both become the second player.
+    return prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "rush_challenges" WHERE "id" = ${challengeId} FOR UPDATE`;
+      const room = await tx.rushChallenge.findUnique({ where: { id: challengeId }, select: { liveStatus: true, _count: { select: { runs: true } } } });
+      if (!room || room.liveStatus !== "WAITING") throw rushError("NOT_JOINABLE", "already-started");
+      if (room._count.runs >= 2) throw rushError("NOT_JOINABLE", "room-full");
+      const run = await tx.rushRun.create({ data: { challengeId, studentId }, select: { id: true } });
+      return { runId: run.id, challengeId };
+    });
+  }
 
   return prisma.$transaction(async (tx) => {
     const claimed = await tx.rushChallenge.updateMany({
@@ -191,13 +219,44 @@ export async function claimBotOpponent(challengeId: string, studentId: string): 
   return claimed.count === 1;
 }
 
-// Leaving a lobby nobody has joined removes it (the set goes with it).
-// Anything past WAITING is a match in progress and stays.
+/**
+ * The host's Start: WAITING → COUNTDOWN, only for the room's creator, only
+ * once the second player is in. Guarded on WAITING, so a double press starts
+ * it once. Returns whether this call started it.
+ */
+export async function startLiveRoom(studentId: string, challengeId: string): Promise<boolean> {
+  const started = await prisma.rushChallenge.updateMany({
+    where: {
+      id: challengeId,
+      creatorId: studentId,
+      live: true,
+      mode: "FRIEND",
+      rematchOfId: null,
+      liveStatus: "WAITING",
+      runs: { some: { studentId: { not: studentId } } },
+    },
+    data: { liveStatus: "COUNTDOWN", liveStartsAt: new Date(Date.now() + LIVE_COUNTDOWN_MS) },
+  });
+  return started.count === 1;
+}
+
+// Leaving a room before it starts. The host leaving closes it (the set goes
+// with it); the second player leaving a room that waits for Start just steps
+// out, and the host's room is open for someone else. Anything past WAITING is
+// a match in progress and stays.
 export async function cancelLiveRoom(studentId: string, challengeId: string): Promise<boolean> {
-  const c = await prisma.rushChallenge.findUnique({ where: { id: challengeId }, select: { setId: true, creatorId: true, live: true, liveStatus: true } });
-  if (!c || !c.live || c.creatorId !== studentId || c.liveStatus !== "WAITING") return false;
-  await prisma.rushSet.delete({ where: { id: c.setId } });
-  return true;
+  const c = await prisma.rushChallenge.findUnique({
+    where: { id: challengeId },
+    select: { setId: true, creatorId: true, live: true, liveStatus: true, mode: true, rematchOfId: true },
+  });
+  if (!c || !c.live || c.liveStatus !== "WAITING") return false;
+  if (c.creatorId === studentId) {
+    await prisma.rushSet.delete({ where: { id: c.setId } });
+    return true;
+  }
+  if (!hostStarts(c)) return false;
+  const left = await prisma.rushRun.deleteMany({ where: { challengeId, studentId, challenge: { liveStatus: "WAITING" } } });
+  return left.count > 0;
 }
 
 // ---- The clock --------------------------------------------------------------
@@ -340,6 +399,7 @@ export async function getLiveState(studentId: string, challengeId: string): Prom
     limitMs,
     status: c.liveStatus,
     isCreator: c.creatorId === studentId,
+    hostStarts: hostStarts(c),
     rematchFor: c.invitedStudent?.firstName ?? null,
     waitedMs: now - c.createdAt.getTime(),
     startsInMs: c.liveStatus === "COUNTDOWN" && c.liveStartsAt ? Math.max(0, c.liveStartsAt.getTime() - now) : null,

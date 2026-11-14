@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
@@ -19,7 +19,7 @@ import { STALE_BUILD_MESSAGE, isStaleServerActionError } from "@/lib/stale-build
 import { ShareChallenge } from "../../share-challenge";
 import { RushQuestion, TimeBar, formatSeconds } from "../../rush-question";
 import { PointsPop, SoundControls, StreakFlame, useRushMusic, useRushSound } from "../../game-fx";
-import { fallbackToRecordedAction, leaveLiveRoomAction } from "../../actions";
+import { fallbackToRecordedAction, leaveLiveRoomAction, startLiveRoomAction } from "../../actions";
 import { PracticeAvatar } from "../../practice-avatar";
 import { withRetry } from "../../retry";
 
@@ -49,7 +49,9 @@ const NOTICE_COPY: Record<Notice, string> = {
 // Between polls the countdowns run on this device's clock from the last
 // server-reported remainder, so they never drift more than a poll.
 function pollDelay(state: LiveState): number {
-  if (state.status === "WAITING") return LIVE_LOBBY_POLL_MS;
+  // Both players in a room that waits for Start: every second, so the
+  // countdown the host starts reaches the other screen at once.
+  if (state.status === "WAITING") return state.hostStarts && state.opponent ? LIVE_POLL_MS : LIVE_LOBBY_POLL_MS;
   const waitingOnMe = state.status === "PLAYING" && state.questionOpen && state.me.answered === null;
   // Back to every second as the buzzer nears, so the round's close is seen promptly.
   return waitingOnMe && state.remainingMs > LIVE_IDLE_POLL_MS + LIVE_POLL_MS ? LIVE_IDLE_POLL_MS : LIVE_POLL_MS;
@@ -91,6 +93,21 @@ export function LiveRush({
   // after this player answers, when the room may be about to move on.
   const pollNow = useRef<() => void>(() => {});
   const resultsHref = `/rush/results/${id}`;
+  const [starting, startTransition] = useTransition();
+  const [startError, setStartError] = useState(false);
+  function startMatch() {
+    setStartError(false);
+    startTransition(async () => {
+      try {
+        const started = await startLiveRoomAction(id);
+        if (!started) setStartError(true);
+      } catch (err) {
+        if (isStaleServerActionError(err)) setStale(true);
+        else setStartError(true);
+      }
+      pollNow.current();
+    });
+  }
 
   // ---- Poll -----------------------------------------------------------
   useEffect(() => {
@@ -144,9 +161,17 @@ export function LiveRush({
       timer = window.setTimeout(loop, delay);
     }
     timer = window.setTimeout(loop, LIVE_POLL_MS);
+    // A tab in the background polls slowly (the browser throttles its
+    // timers); coming back to it looks again at once, so a room started
+    // while this player was on another tab shows its countdown immediately.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") pollNow.current();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [id, poll, router, resultsHref]);
 
@@ -302,6 +327,34 @@ export function LiveRush({
     );
   }
 
+  if (state.status === "WAITING" && state.hostStarts) {
+    return (
+      <Shell eyebrow={eyebrow}>
+        <HostStartLobby
+          state={state}
+          joinUrl={joinUrl}
+          starting={starting}
+          startError={startError}
+          onStart={startMatch}
+          leaveForm={
+            <form
+              action={leaveLiveRoomAction}
+              onSubmit={() => {
+                leaving.current = true;
+              }}
+              className="mt-8"
+            >
+              <input type="hidden" name="challengeId" value={id} />
+              <Button type="submit" variant="ghost" className="rounded-full">
+                {state.isCreator ? "Close the room" : "Leave the room"}
+              </Button>
+            </form>
+          }
+        />
+      </Shell>
+    );
+  }
+
   if (state.status === "WAITING") {
     const friend = state.mode === "FRIEND";
     const offerFallback = !friend && state.waitedMs >= LIVE_RANDOM_FALLBACK_MS;
@@ -324,7 +377,7 @@ export function LiveRush({
           {rematchFor
             ? `${rematchFor} can accept from their results page or their 1v1 Rush page. Keep this page open — the five-second countdown starts the moment they do, on a fresh set of questions.`
             : friend
-              ? "Send this to a friend. The five-second countdown starts the moment they join, and you'll play the same ten questions on the same clock."
+              ? `Send this to a friend. The five-second countdown starts the moment they join, and you'll play the same ${state.total} questions on the same clock.`
               : `You'll be matched with the next student who starts a live ${state.sectionLabel} rush. Keep this page open — the countdown starts the moment they arrive.${RUSH_BOT_ENABLED && RUSH_BOT_LABELED ? ` If nobody does within ${RUSH_BOT_AFTER_MS / 1000} seconds, you'll play a practice opponent instead.` : ""}`}
         </p>
         {friend && !rematchFor && (
@@ -342,7 +395,7 @@ export function LiveRush({
           >
             <input type="hidden" name="challengeId" value={id} />
             <input type="hidden" name="section" value={state.section} />
-            <p className="min-w-0 flex-1 text-sm text-muted-foreground">Nobody yet. You can race another student&apos;s recorded run instead — same ten-question format, their times as your pace.</p>
+            <p className="min-w-0 flex-1 text-sm text-muted-foreground">Nobody yet. You can race another student&apos;s recorded run instead — same format, their times as your pace.</p>
             <Button type="submit" variant="outline" className="rounded-full">
               Race a recorded run
             </Button>
@@ -559,5 +612,102 @@ function RoundSummary({ me, opp, oppName }: { me: LiveRoundAnswer | null; opp: L
       {line("You", me)}
       {line(oppName, opp)}
     </div>
+  );
+}
+
+/**
+ * A friend's room before Start (2026-11-14). The host shares the link; once
+ * the other player is in, both see each other and the host presses Start.
+ * Built for a match set up ahead of time: at a presentation the opponent
+ * joins before it begins, and the match starts on cue with nobody waiting
+ * on stage.
+ */
+function HostStartLobby({
+  state,
+  joinUrl,
+  starting,
+  startError,
+  onStart,
+  leaveForm,
+}: {
+  state: LiveState;
+  joinUrl: string;
+  starting: boolean;
+  startError: boolean;
+  onStart: () => void;
+  leaveForm: React.ReactNode;
+}) {
+  const opp = state.opponent;
+  const format = `${state.total} questions, ${Math.round(state.limitMs / 1000)} seconds each, the same clock for both of you.`;
+  const dot = (
+    <span className="relative flex size-2.5" aria-hidden>
+      <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60" />
+      <span className="relative inline-flex size-2.5 rounded-full bg-primary" />
+    </span>
+  );
+
+  if (!state.isCreator) {
+    return (
+      <>
+        <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+          {dot}
+          You&apos;re in
+        </p>
+        <h1 className="mt-3 text-display-sm sm:text-display">{opp ? `${opp.name} will start the match.` : "You're in the room."}</h1>
+        <p className="mt-4 max-w-prose text-muted-foreground">
+          {format} Keep this page open: the countdown begins the moment they press Start.
+        </p>
+        {leaveForm}
+      </>
+    );
+  }
+
+  if (!opp) {
+    return (
+      <>
+        <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+          {dot}
+          Room open
+        </p>
+        <h1 className="mt-3 text-display-sm sm:text-display">Your room is open.</h1>
+        <p className="mt-4 max-w-prose text-muted-foreground">
+          Send this to your opponent. When they join you&apos;ll see them here, and the match starts when you press Start. {format}
+        </p>
+        <div className="mt-6 rounded-2xl border border-border bg-background p-5">
+          <ShareChallenge code={state.code} joinUrl={joinUrl} />
+        </div>
+        {leaveForm}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+        {dot}
+        Ready
+      </p>
+      <h1 className="mt-3 text-display-sm sm:text-display">{opp.name} is in the room.</h1>
+      <p className="mt-4 max-w-prose text-muted-foreground">
+        {format} Press Start when you&apos;re both ready; a five-second countdown runs on both screens.
+      </p>
+      {!opp.present && (
+        <p className="mt-3 max-w-prose text-sm text-muted-foreground" role="status">
+          {opp.name}&apos;s page hasn&apos;t checked in for a few seconds. If they&apos;ve switched tabs, the match still starts for
+          them the moment they come back.
+        </p>
+      )}
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        <Button size="cta" onClick={onStart} disabled={starting}>
+          {starting ? "Starting…" : "Start the match"}
+        </Button>
+      </div>
+      {startError && (
+        <p className="mt-3 text-sm text-destructive" role="alert">
+          Couldn&apos;t start just now. Press Start again.
+        </p>
+      )}
+      {leaveForm}
+    </>
   );
 }

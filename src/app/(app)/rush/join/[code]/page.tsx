@@ -66,14 +66,16 @@ export default async function RushJoinPage({ params }: { params: Promise<{ code:
 
   // A live room that has already started, or whose creator has left it,
   // can't be joined — say so instead of bouncing to a generic error.
-  if (preview.live && (preview.liveStatus !== "WAITING" || !preview.creatorPresent)) {
-    const started = preview.liveStatus !== "WAITING";
+  // A room that waits for Start can be full (two players) before it begins.
+  const full = preview.live && preview.liveStatus === "WAITING" && preview.hostStarts && preview.participants >= 2;
+  if (preview.live && (preview.liveStatus !== "WAITING" || !preview.creatorPresent || full)) {
+    const started = preview.liveStatus !== "WAITING" || full;
     return (
       <Shell eyebrow="1v1 Rush · Live">
         <h1 className="mt-3 text-page-title sm:text-page-title-lg">{started ? "That rush has already started." : `${preview.creatorName} isn't in the room right now.`}</h1>
         <p className="mt-3 max-w-prose text-muted-foreground">
           {started
-            ? "A live room takes exactly two players and closes once the countdown begins. Ask for a new link."
+            ? "A live room takes exactly two players, and this one has both. Ask for a new link."
             : "A live room only runs while its host has it open. Ask them to open it again, then try the link."}
         </p>
         <div className="mt-8">
@@ -97,9 +99,11 @@ export default async function RushJoinPage({ params }: { params: Promise<{ code:
       </dl>
       <p className="mt-6 max-w-prose text-muted-foreground">
         {preview.live
-          ? `${preview.creatorName} is in the room now. Join and a five-second countdown starts for both of you — same ten questions, same clock, and the results show who won.`
+          ? preview.hostStarts
+            ? `${preview.creatorName} is in the room now. Join, and the match starts when ${preview.creatorName} presses Start — the same ${preview.questionCount} questions on the same clock, and the results show who won.`
+            : `${preview.creatorName} is in the room now. Join and a five-second countdown starts for both of you — the same ${preview.questionCount} questions on the same clock, and the results show who won.`
           : preview.creatorFinished
-            ? `${preview.creatorName} has already played these ten. You'll see their time on each question as you go, and the results page shows who won.`
+            ? `${preview.creatorName} has already played these ${preview.questionCount}. You'll see their time on each question as you go, and the results page shows who won.`
             : `${preview.creatorName} hasn't played yet. You'll each see the other's result once you've both finished.`}
         {!preview.live && preview.participants > 1 && ` ${preview.participants} people are in this one so far.`}
       </p>

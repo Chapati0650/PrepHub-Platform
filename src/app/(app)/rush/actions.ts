@@ -29,6 +29,7 @@ import {
 import {
   cancelLiveRoom,
   createLiveRoom,
+  startLiveRoom,
   getLiveState,
   serveLiveQuestion,
   startLiveRandom,
@@ -76,7 +77,8 @@ export async function startRushAction(formData: FormData): Promise<void> {
   let href: string;
   try {
     if (play.live) {
-      const room = play.mode === "RANDOM" ? await startLiveRandom(studentId, section) : await createLiveRoom(studentId, { section, mode: "FRIEND" });
+      const room =
+        play.mode === "RANDOM" ? await startLiveRandom(studentId, section) : await createLiveRoom(studentId, { section, mode: "FRIEND", size: play.size });
       href = `/rush/live/${room.challengeId}`;
     } else if (play.mode === "RANDOM") {
       href = `/rush/play/${(await startRandomRush(studentId, { section })).runId}`;
@@ -170,6 +172,14 @@ export async function submitLiveAnswerAction(
     if (err instanceof RushError) return rushProblem(err);
     throw err;
   }
+}
+
+// The host's Start, once the second player is in a friend's room. Returns
+// whether it started; the room's poll draws the countdown either way.
+export async function startLiveRoomAction(challengeId: string): Promise<boolean> {
+  const studentId = await requireStudentId();
+  if (typeof challengeId !== "string") return false;
+  return startLiveRoom(studentId, challengeId);
 }
 
 // Leaving an empty lobby. Form action so it works as a plain button.

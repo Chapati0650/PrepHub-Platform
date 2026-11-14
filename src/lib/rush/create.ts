@@ -9,7 +9,13 @@ import { rushError } from "./errors";
 // Shared by the async paths (runs.ts) and live rooms (live.ts): a set of
 // ten pinned revisions, and a challenge with a fresh join code.
 
-export async function createSet(studentId: string, section: ClubSection, difficulty: RushDifficulty, tx: Prisma.TransactionClient) {
+export async function createSet(
+  studentId: string,
+  section: ClubSection,
+  difficulty: RushDifficulty,
+  tx: Prisma.TransactionClient,
+  size: number = RUSH_RUN_SIZE,
+) {
   const [candidates, seen] = await Promise.all([
     tx.question.findMany({
       where: {
@@ -35,7 +41,7 @@ export async function createSet(studentId: string, section: ClubSection, difficu
     candidates: candidates.map((c) => ({ questionId: c.id, questionRevisionId: c.currentPublishedRevisionId!, difficulty: c.difficulty })),
     seenQuestionIds: seenIds,
     difficulty,
-    size: RUSH_RUN_SIZE,
+    size,
     random: createRandom(randomSeed),
   });
   if (picked.length === 0) throw rushError("NO_QUESTIONS", "no-questions");

@@ -170,7 +170,7 @@ export default async function RushResultsPage({ params }: { params: Promise<{ ch
         <section className="rounded-2xl border border-border p-5">
           <h2 className="font-medium">Send it to a friend</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            They&apos;ll play the same ten questions against your times. Any PrepHub account can accept — no Premium needed.
+            They&apos;ll play the same questions against your times. Any PrepHub account can accept — no Premium needed.
           </p>
           <div className="mt-4">
             <ShareChallenge code={data.code} joinUrl={joinUrl} />

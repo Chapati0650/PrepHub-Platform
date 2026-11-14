@@ -52,7 +52,7 @@ function match(opts: { mode?: string; live?: boolean; myStatus?: string; adaStat
     id: "match1",
     mode: opts.mode ?? "RANDOM",
     live: opts.live ?? true,
-    set: { section: "MATH" },
+    set: { section: "MATH", _count: { slots: 10 } },
     runs: [
       { studentId: "ada", status: opts.adaStatus ?? "COMPLETED", student: { firstName: "Ada" } },
       { studentId: "me", status: opts.myStatus ?? "COMPLETED", student: { firstName: "Me" } },

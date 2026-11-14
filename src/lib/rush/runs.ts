@@ -14,7 +14,7 @@ import {
   type RushOutcome,
 } from "./scoring";
 import { RushError, rushError } from "./errors";
-import { joinLiveRoom } from "./live";
+import { hostStarts, joinLiveRoom } from "./live";
 import { createChallenge, createSet } from "./create";
 
 // Everything here is independent of src/lib/adaptive, exactly like the 800
@@ -104,6 +104,8 @@ export type ChallengePreview = {
   live: boolean;
   liveStatus: "WAITING" | "COUNTDOWN" | "PLAYING" | "FINISHED" | null;
   creatorPresent: boolean;
+  /** A live room that waits for its host's Start (live.ts hostStarts): it can be full while still WAITING. */
+  hostStarts: boolean;
 };
 
 export async function getChallengePreview(studentId: string, code: string): Promise<ChallengePreview | null> {
@@ -134,6 +136,7 @@ export async function getChallengePreview(studentId: string, code: string): Prom
     live: c.live,
     liveStatus: c.liveStatus,
     creatorPresent: Boolean(creatorRun && Date.now() - creatorRun.lastSeenAt.getTime() < LIVE_PRESENCE_MS),
+    hostStarts: c.live && hostStarts(c),
   };
 }
 

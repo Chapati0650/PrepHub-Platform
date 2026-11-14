@@ -14,6 +14,8 @@ import { CLUB_SECTIONS } from "@/lib/club/config";
 // must never move a Category State or the Predicted Score.
 
 export const RUSH_RUN_SIZE = 10;
+/** A Quick duel (2026-11-14): five questions, for a match that has to be over in two minutes, like a demo. */
+export const RUSH_QUICK_SIZE = 5;
 
 // Per-question hard limit. Slightly under the real test's pace (~71s per
 // Reading & Writing question, ~95s per Math question) so a rush is faster
@@ -101,8 +103,8 @@ export const RUSH_BOT_LABEL = "Practice opponent";
 // What the hub offers. `live` and `mode` together pick the code path:
 // RANDOM live = the lobby queue, FRIEND live = a room with a link, FRIEND
 // async = play now and send it, SOLO = alone.
-export type RushPlayOption = "RANDOM_LIVE" | "FRIEND_LIVE" | "FRIEND_ASYNC" | "SOLO";
-export const RUSH_PLAY_OPTIONS: Record<RushPlayOption, { label: string; blurb: string; mode: RushMode; live: boolean }> = {
+export type RushPlayOption = "RANDOM_LIVE" | "FRIEND_LIVE" | "QUICK_DUEL" | "FRIEND_ASYNC" | "SOLO";
+export const RUSH_PLAY_OPTIONS: Record<RushPlayOption, { label: string; blurb: string; mode: RushMode; live: boolean; size: number }> = {
   RANDOM_LIVE: {
     label: "Random opponent",
     blurb:
@@ -111,24 +113,34 @@ export const RUSH_PLAY_OPTIONS: Record<RushPlayOption, { label: string; blurb: s
         : "Matched live with another student who's online right now — same questions, same clock.",
     mode: "RANDOM",
     live: true,
+    size: RUSH_RUN_SIZE,
   },
   FRIEND_LIVE: {
     label: "Friend · live",
-    blurb: "You wait in a room with a link and a code. They join, a countdown runs, and you start together.",
+    blurb: "You open a room with a link and a code. They join, you press Start, and you play together.",
     mode: "FRIEND",
     live: true,
+    size: RUSH_RUN_SIZE,
+  },
+  QUICK_DUEL: {
+    label: `Quick duel · ${RUSH_QUICK_SIZE} questions`,
+    blurb: "A short live match with a friend: send the link, they join, and you press Start when you're both ready.",
+    mode: "FRIEND",
+    live: true,
+    size: RUSH_QUICK_SIZE,
   },
   FRIEND_ASYNC: {
     label: "Friend · anytime",
     blurb: "Play now and send the link. They race your times whenever they get to it — no Premium needed on their side.",
     mode: "FRIEND",
     live: false,
+    size: RUSH_RUN_SIZE,
   },
-  SOLO: { label: "Solo", blurb: "Race the clock on your own. Your best score is the one to beat.", mode: "SOLO", live: false },
+  SOLO: { label: "Solo", blurb: "Race the clock on your own. Your best score is the one to beat.", mode: "SOLO", live: false, size: RUSH_RUN_SIZE },
 };
-export const RUSH_PLAY_OPTION_ORDER: readonly RushPlayOption[] = ["RANDOM_LIVE", "FRIEND_LIVE", "FRIEND_ASYNC", "SOLO"];
+export const RUSH_PLAY_OPTION_ORDER: readonly RushPlayOption[] = ["RANDOM_LIVE", "FRIEND_LIVE", "QUICK_DUEL", "FRIEND_ASYNC", "SOLO"];
 export function isRushPlayOption(value: unknown): value is RushPlayOption {
-  return value === "RANDOM_LIVE" || value === "FRIEND_LIVE" || value === "FRIEND_ASYNC" || value === "SOLO";
+  return typeof value === "string" && (RUSH_PLAY_OPTION_ORDER as readonly string[]).includes(value);
 }
 
 export const RUSH_MODES: Record<RushMode, { label: string }> = {

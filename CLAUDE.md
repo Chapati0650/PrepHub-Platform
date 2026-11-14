@@ -2896,6 +2896,28 @@ Reviewed as Houston ISD's head of CCMR would see the demo (four reviewers, two r
   worked example shows its choices to students; the score card leads on phones; demo learning trimmed so
   every hours band stays within the Houston flyer, and ~30% of first Diagnostics read a little low.
 
+## 1v1 Rush: Quick duel and host start (2026-11-14)
+
+For the Owner's live match against NISD's CCMR director in front of a regional meeting: "extremely
+seamless and quick".
+
+- **Quick duel** (`QUICK_DUEL` in `RUSH_PLAY_OPTIONS`, `RUSH_QUICK_SIZE` = 5): a friend's live room
+  with five questions. `createSet` takes a size; everything downstream already read the set's slot
+  count. A rematch keeps the length of the match it rematches. A 5-question run still counts for the
+  weekly leaderboard; it can never beat a decent 10-question best, so it can't game the board.
+- **A friend's live room now waits for its host to press Start** (`hostStarts` in `live.ts`: FRIEND
+  and not a rematch). The second player joins and both see each other; the host presses Start
+  (`startLiveRoom`, guarded on WAITING + creator + a second run), then the usual 5-second countdown.
+  So a match can be set up before a talk and started on cue. Join is a row-locked count of players
+  (`FOR UPDATE`), since WAITING no longer means "one player"; the join page says a room with two is
+  full. The second player can leave without closing the host's room. Random matches and rematches
+  still start the moment the second player arrives. No migration: the rule is derived from
+  `mode`/`rematchOfId`.
+- The lobby polls every second once both are in, and every room polls the moment its tab becomes
+  visible again (background tabs are throttled), so a match started while one player was on another
+  tab shows the countdown at once. Verified with two separate browsers: the guest saw the countdown
+  0.9s after Start and question 1 at 6.5s, after waiting 20s in the room.
+
 ## Staff pages that act (2026-11-14)
 
 The Owner: administrators decide renewal, may find small text hard to read, and the admin and teacher
