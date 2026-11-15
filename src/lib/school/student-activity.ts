@@ -124,6 +124,10 @@ function answersIn(scope: StudentScope): Prisma.Sql {
       FROM "guided_own_slots" gos
      WHERE ${inScope('gos."studentId"', scope)}
        AND gos."answeredAt" IS NOT NULL
+    UNION ALL
+    SELECT cra."studentId", cra."answeredAt"
+      FROM "class_rush_answers" cra
+     WHERE ${inScope('cra."studentId"', scope)}
   `;
 }
 

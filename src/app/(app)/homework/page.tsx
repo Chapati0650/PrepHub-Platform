@@ -9,6 +9,7 @@ import { Marker } from "@/components/ui/marker";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 import { ClassLastNameForm, JoinClassForm, LeaveClassButton } from "./join-class-form";
+import { ClassRushBanner } from "@/components/class-rush-banner";
 
 export const metadata = { title: "Homework" };
 
@@ -42,6 +43,7 @@ export default async function HomeworkPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-10 p-4 pb-16 sm:p-8">
+      <ClassRushBanner />
       <PageHeader
         eyebrow={homework.todo.length > 0 ? "Homework" : undefined}
         title={homework.todo.length > 0 ? `${homework.todo.length} to do` : "Homework"}

@@ -94,6 +94,9 @@ export default async function ClassroomPage({
               >
                 {openSession ? "Back to the Guided Session" : "Start a Guided Session"}
               </LinkButton>
+              <LinkButton href={`/teacher/classes/${detail.id}/rush/new`} size="xl" variant="outline">
+                Class Rush
+              </LinkButton>
               <LinkButton href={`/teacher/classes/${detail.id}/assignments/new`} size="cta">
                 Assign homework
               </LinkButton>

@@ -120,6 +120,8 @@ model User {
   classroomEnrollments    ClassroomEnrollment[]
   homeworkSessions        HomeworkSession[]
   guidedSessionsRun       GuidedSession[]          @relation("GuidedSessionTeacher")
+  classRushesRun          ClassRush[]              @relation("ClassRushTeacher")
+  classRushPlays          ClassRushPlayer[]
   guidedParticipations    GuidedParticipant[]
   guidedResponses         GuidedResponse[]
   guidedOwnSlots          GuidedOwnSlot[]
@@ -1447,6 +1449,7 @@ model RushSet {
 
   slots      RushSlot[]
   challenges RushChallenge[]
+  classRushes ClassRush[]
 
   @@map("rush_sets")
 }
@@ -1891,6 +1894,7 @@ model Classroom {
   enrollments    ClassroomEnrollment[]
   assignments    Assignment[]
   guidedSessions GuidedSession[]
+  classRushes    ClassRush[]
 
   @@index([teacherId, archivedAt])
   @@index([schoolId])
@@ -2290,4 +2294,79 @@ model GuidedOwnSlot {
   @@index([studentId, answeredAt])
   @@index([questionId])
   @@map("guided_own_slots")
+}
+
+enum ClassRushStatus {
+  LOBBY
+  PLAYING
+  FINISHED
+}
+
+/// A 1v1 Rush the whole class plays at once (2026-11-15): one set of questions, one shared clock,
+/// a live leaderboard on the teacher's screen. Outside the adaptive engine like every Rush.
+model ClassRush {
+  id             String          @id @default(cuid())
+  classroomId    String
+  teacherId      String
+  setId          String
+  /// Unguessable: the cached shared-state route is keyed by it, and only people in the room get it.
+  stateKey       String          @unique
+  status         ClassRushStatus @default(LOBBY)
+  /// The question the class is on, 0-based.
+  position       Int             @default(0)
+  /// When the current question opens for everyone (in the future during a countdown); null in the lobby.
+  openedAt       DateTime?
+  /// When the current question closed (everyone answered, or the clock ran out); null while open.
+  closedAt       DateTime?
+  /// Bumped on every change; every transition is claimed against it.
+  version        Int             @default(0)
+  scoringVersion Int             @default(2)
+  createdAt      DateTime        @default(now())
+  startedAt      DateTime?
+  endedAt        DateTime?
+
+  classroom Classroom         @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  teacher   User              @relation("ClassRushTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  set       RushSet           @relation(fields: [setId], references: [id], onDelete: Cascade)
+  players   ClassRushPlayer[]
+
+  @@index([classroomId, status])
+  @@map("class_rushes")
+}
+
+model ClassRushPlayer {
+  id           String   @id @default(cuid())
+  rushId       String
+  studentId    String
+  score        Int      @default(0)
+  correctCount Int      @default(0)
+  totalMs      Int      @default(0)
+  joinedAt     DateTime @default(now())
+
+  rush    ClassRush         @relation(fields: [rushId], references: [id], onDelete: Cascade)
+  student User              @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  answers ClassRushAnswer[]
+
+  @@unique([rushId, studentId])
+  @@index([studentId])
+  @@map("class_rush_players")
+}
+
+model ClassRushAnswer {
+  id         String   @id @default(cuid())
+  playerId   String
+  /// Denormalized from the player, for the activity queries (lib/school/student-activity.ts).
+  studentId  String
+  position   Int
+  answer     String?
+  isCorrect  Boolean
+  points     Int
+  elapsedMs  Int
+  answeredAt DateTime @default(now())
+
+  player ClassRushPlayer @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, position])
+  @@index([studentId, answeredAt])
+  @@map("class_rush_answers")
 }

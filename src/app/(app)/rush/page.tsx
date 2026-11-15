@@ -17,6 +17,7 @@ import { listRematchInvites } from "@/lib/rush/rematch";
 import { rushHubErrorMessage } from "@/lib/rush/errors";
 import { LeaderboardPanel } from "./leaderboard-panel";
 import { RematchInvites } from "./rematch-invites";
+import { ClassRushBanner } from "@/components/class-rush-banner";
 
 export const metadata = { title: "1v1 Rush" };
 
@@ -43,6 +44,7 @@ export default async function RushPage({ searchParams }: { searchParams: Promise
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-10 p-4 pb-16 sm:p-8">
+      <ClassRushBanner />
       <div>
         <p className="text-caption font-semibold tracking-[0.12em] text-muted-foreground uppercase">Free to accept · Premium to start</p>
         <h1 className="mt-3 text-page-title sm:text-page-title-lg">

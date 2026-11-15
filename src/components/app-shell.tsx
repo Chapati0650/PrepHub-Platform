@@ -153,6 +153,9 @@ const FOCUS_MODE_PREFIXES = [
   "/practice/focused/session/",
   "/rush/play/",
   "/rush/live/",
+  // Class Rush: a student's game and the teacher's projector screen.
+  "/rush/class/",
+  "/teacher/rush/",
   // Guided Sessions: a student's session screen, and the teacher's console and board.
   "/live/",
   "/teacher/live/",

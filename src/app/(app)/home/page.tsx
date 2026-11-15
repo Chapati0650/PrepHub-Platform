@@ -27,6 +27,7 @@ import { BrandChip } from "@/components/co-brand";
 import { getBrandingForUser } from "@/lib/branding/load";
 import { classSchoolCovering } from "@/lib/district/class-school";
 import { isDemoAccount } from "@/lib/demo-account";
+import { ClassRushBanner } from "@/components/class-rush-banner";
 
 export const metadata = { title: "Home" };
 
@@ -280,6 +281,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-8 p-4 pb-16 sm:p-8">
+      <ClassRushBanner />
       <LiveSessionBanner sessions={liveSessions} />
       <AnnouncementsBanner announcements={announcements} />
 

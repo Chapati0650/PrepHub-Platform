@@ -2902,6 +2902,41 @@ Reviewed as Houston ISD's head of CCMR would see the demo (four reviewers, two r
   worked example shows its choices to students; the score card leads on phones; demo learning trimmed so
   every hours band stays within the Houston flyer, and ~30% of first Diagnostics read a little low.
 
+## Class Rush (2026-11-15)
+
+The Owner: teachers should run Rush tournaments in class, Blooket-style, with several modes:
+**everyone at once** (the main one, so every student practices the whole time), Swiss rounds and
+a knockout bracket. Everyone at once is built; Swiss and Knockout are next.
+
+- `src/lib/rush/class-rush.ts` (engine), `class-rush-clock.ts` (pure phases and steps, tested);
+  tables `ClassRush`/`ClassRushPlayer`/`ClassRushAnswer` (migration `20261115120000_class_rush`,
+  apply on Neon before deploying: the student banner queries it on /home, /rush and /homework).
+  The questions are a `RushSet` (pinned revisions, mixed difficulty) of 5 or 10.
+- **Built like a Guided Session for scale**: every student screen polls
+  `/api/class-rush/state/[stateKey]` (unguessable key, edge-cached 1s, nothing about one student
+  in it), and fetches its own score and the question by server action only when the game's
+  `version` moves. The teacher's screen polls `/api/class-rush/console/[rushId]` (private,
+  no-store). `advanceClassRush` runs on every cache miss, every console poll and every answer, and
+  every transition is an `updateMany` claimed against `version`, so the game moves whether or not
+  the teacher's tab is in front.
+- **Phases**: LOBBY → (Start) 5s countdown → each question QUESTION → REVEAL (7s: the answer, how
+  many got it, the top ten) → next, → FINISHED (podium + standings + Play again). A question
+  closes the moment everyone in the game has answered, or at the section's Rush time limit plus
+  grace; the teacher can also "Show the answer now" or "End game". Scoring is the Rush rules
+  (`scoreRushAnswerWithStreak`), timed by the server from the shared open time; answers are
+  recorded once (unique per player and question). Late joiners start at the current question.
+  A game untouched for 3 hours ends itself.
+- **Who**: the teacher of the class opens it (`/teacher/classes/[id]/rush/new`, the "Class Rush"
+  button on the class page) and projects `/teacher/rush/[id]`. Students currently enrolled join
+  from a banner (`ClassRushBanner`) on /home, /rush and /homework, by a button press on
+  `/rush/class/[id]`. Not Premium-gated, like homework. Names on the projector are first name and
+  last initial; a student hidden from the Rush leaderboard shows as "A classmate".
+- Outside the adaptive engine and the predicted score; the answers count as practice
+  (`class_rush_answers` is the tenth source in `lib/school/student-activity.ts`).
+- Verified locally with one teacher and four students in separate browsers (one at phone width):
+  join from the banner, start, five questions closing as soon as all four answered, reveals,
+  final places 1st–4th on every screen.
+
 ## 1v1 Rush: Quick duel and host start (2026-11-14)
 
 For the Owner's live match against NISD's CCMR director in front of a regional meeting: "extremely
