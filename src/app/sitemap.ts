@@ -12,6 +12,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     // besides the landing page meant to be found cold.
     { url: `${base}/schools`, lastModified: now, changeFrequency: "monthly", priority: 0.9 },
     { url: `${base}/signup`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
+    { url: `${base}/start`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
     { url: `${base}/login`, lastModified: now, changeFrequency: "monthly", priority: 0.3 },
     { url: `${base}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.1 },
     { url: `${base}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.1 },

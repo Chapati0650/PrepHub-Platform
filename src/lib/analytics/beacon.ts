@@ -11,7 +11,7 @@
 // store the path as sent — so every reset link opened left a live token in
 // the analytics table. The token is replaced with the route's placeholder.
 
-const EXACT = new Set(["/", "/login", "/signup", "/schools", "/pricing", "/reset-password"]);
+const EXACT = new Set(["/", "/login", "/signup", "/schools", "/start", "/pricing", "/reset-password"]);
 const RESET_WITH_TOKEN = /^\/reset-password\/[^/]+$/;
 
 /** The path to store, or null when the beacon shouldn't record this request. */
