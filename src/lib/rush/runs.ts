@@ -15,6 +15,7 @@ import {
 } from "./scoring";
 import { RushError, rushError } from "./errors";
 import { hostStarts, joinLiveRoom } from "./live";
+import { isGuestRoomCode } from "./guest-rooms";
 import { createChallenge, createSet } from "./create";
 
 // Everything here is independent of src/lib/adaptive, exactly like the 800
@@ -135,9 +136,10 @@ export async function getChallengePreview(studentId: string, code: string): Prom
     isCreator: c.creatorId === studentId,
     live: c.live,
     liveStatus: c.liveStatus,
-    creatorPresent: Boolean(
-      creatorRun && Date.now() - creatorRun.lastSeenAt.getTime() < (c.live && hostStarts(c) ? HOST_ROOM_PRESENCE_MS : LIVE_PRESENCE_MS),
-    ),
+    // A demo guest room takes its opponent whether or not the host is there yet (joinLiveRoom).
+    creatorPresent:
+      isGuestRoomCode(c.code) ||
+      Boolean(creatorRun && Date.now() - creatorRun.lastSeenAt.getTime() < (c.live && hostStarts(c) ? HOST_ROOM_PRESENCE_MS : LIVE_PRESENCE_MS)),
     hostStarts: c.live && hostStarts(c),
   };
 }

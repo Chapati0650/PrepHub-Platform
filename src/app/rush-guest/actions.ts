@@ -23,12 +23,11 @@ export async function joinRushAsGuestAction(_prev: GuestJoinState, formData: For
   if (!code || !isGuestRoomCode(code)) return { error: "That link doesn't match a live room." };
   const firstName = String(formData.get("firstName") ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
 
-  // Already signed in (another tab, or the back button): the ordinary join.
+  // Already signed in with an account that can play (another tab, or the
+  // back button): the ordinary join. One that can't (Owner, teacher) carries
+  // on as a guest; signing the guest in replaces that session.
   const session = await auth();
-  if (session?.user?.id) {
-    if (!canUseStudentExperience(session.user.role)) return { error: "This account can't play 1v1 Rush. Log out and open the link again.", firstName };
-    redirect(`/rush/join/${code}`);
-  }
+  if (session?.user?.id && canUseStudentExperience(session.user.role)) redirect(`/rush/join/${code}`);
 
   if (!firstName) return { error: "Type your first name. It's what your opponent sees.", firstName };
   if (formData.get("ageConfirmed") !== "on") return { error: "Confirm you're 13 or older to play.", firstName };

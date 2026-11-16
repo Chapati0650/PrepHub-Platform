@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { canUseStudentExperience } from "@/lib/access";
 import { Logo } from "@/components/logo";
 import { LinkButton } from "@/components/ui/link-button";
 import { Marker } from "@/components/ui/marker";
@@ -17,7 +18,12 @@ export const metadata: Metadata = { title: "1v1 Rush", robots: { index: false } 
 export default async function RushGuestPage({ params }: { params: Promise<{ code: string }> }) {
   const code = normalizeRushCode((await params).code);
   if (!code) redirect("/");
-  if ((await auth())?.user?.id || !isGuestRoomCode(code)) redirect(`/rush/join/${code}`);
+  const session = await auth();
+  // Signed in with an account that can play: the ordinary join page (which
+  // takes the host to their own room). One that can't (Owner, teacher) joins
+  // as a guest here, which replaces that sign-in.
+  const signedInCantPlay = !!session?.user?.id && !canUseStudentExperience(session.user.role);
+  if ((session?.user?.id && !signedInCantPlay) || !isGuestRoomCode(code)) redirect(`/rush/join/${code}`);
 
   const { hostName, questionCount, problem } = await guestRoomProblem(code);
 
@@ -43,6 +49,11 @@ export default async function RushGuestPage({ params }: { params: Promise<{ code
             <p className="mt-4 max-w-prose text-lg text-muted-foreground">
               {questionCount} SAT questions, the same clock for both of you. Points for right and fast. The match starts when {hostName} presses Start.
             </p>
+            {signedInCantPlay && (
+              <p className="mt-4 max-w-prose text-base text-muted-foreground">
+                The account you&apos;re signed in with can&apos;t play 1v1 Rush. Joining signs you out of it and in as a guest.
+              </p>
+            )}
             <GuestJoinForm code={code} />
           </>
         )}

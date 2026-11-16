@@ -23,6 +23,7 @@ import {
 import { createChallenge, createSet } from "./create";
 import { scoreRushAnswerWithStreak, streakBefore } from "./scoring";
 import { RushError, rushError } from "./errors";
+import { isGuestRoomCode } from "./guest-rooms";
 import {
   botAvatar,
   botHasAnswered,
@@ -119,7 +120,7 @@ export async function joinLiveRoom(studentId: string, challengeId: string): Prom
 
   const c = await prisma.rushChallenge.findUnique({
     where: { id: challengeId },
-    select: { live: true, mode: true, rematchOfId: true, liveStatus: true, invitedStudentId: true, runs: { select: { lastSeenAt: true } } },
+    select: { code: true, live: true, mode: true, rematchOfId: true, liveStatus: true, invitedStudentId: true, runs: { select: { lastSeenAt: true } } },
   });
   if (!c || !c.live) throw rushError("CHALLENGE_NOT_FOUND", "room-gone");
   // A rematch room is for one student. Checked here as well as wherever the
@@ -130,7 +131,9 @@ export async function joinLiveRoom(studentId: string, challengeId: string): Prom
   if (c.liveStatus !== "WAITING") throw rushError("NOT_JOINABLE", "already-started");
   const presenceWindow = hostStarts(c) ? HOST_ROOM_PRESENCE_MS : LIVE_PRESENCE_MS;
   const creatorPresent = c.runs.some((r) => Date.now() - r.lastSeenAt.getTime() < presenceWindow);
-  if (!creatorPresent) throw rushError("NOT_JOINABLE", "host-away");
+  // A demo guest room (guest-rooms.ts) takes its opponent whenever they
+  // arrive; they wait in the lobby until the host opens it and presses Start.
+  if (!creatorPresent && !isGuestRoomCode(c.code)) throw rushError("NOT_JOINABLE", "host-away");
 
   if (hostStarts(c)) {
     // The room stays WAITING until the host presses Start, so "full" is a

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { canUseStudentExperience } from "@/lib/access";
 import { normalizeRushCode } from "@/lib/rush/codes";
+import { isGuestRoomCode } from "@/lib/rush/guest-rooms";
 import { getChallengePreview } from "@/lib/rush/runs";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
@@ -17,11 +18,12 @@ export const metadata = { title: "1v1 Rush" };
 export default async function RushJoinPage({ params }: { params: Promise<{ code: string }> }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/home");
-  if (!canUseStudentExperience(session.user.role)) redirect("/home");
-  const studentId = session.user.id;
-
   const { code: raw } = await params;
   const code = normalizeRushCode(raw);
+  // An account that can't play (Owner, teacher) can still take a demo guest room's seat as a guest.
+  if (!canUseStudentExperience(session.user.role)) redirect(code && isGuestRoomCode(code) ? `/rush-guest/${code}` : "/home");
+  const studentId = session.user.id;
+
   const preview = code ? await getChallengePreview(studentId, code) : null;
 
   if (!preview) {

@@ -2965,7 +2965,9 @@ seamless and quick".
   (public, outside `(app)`): a first name, the 13+ tick, Join, and the action makes a throwaway
   student account (`rush-guest-<hex>@example.com`, random password nobody is told), signs it in
   and joins the room. Same per-IP limit as signup; the room is checked before an account is made.
-  Every other code still goes to signup. Remove a code once its demo is over.
+  Every other code still goes to signup. A guest room takes its opponent even while the host is
+  away (they wait in the lobby for Start), and an account that can't play (Owner, teacher) is
+  offered the guest form instead of /home. Remove a code once its demo is over.
 - The lobby polls every second once both are in, and every room polls the moment its tab becomes
   visible again (background tabs are throttled), so a match started while one player was on another
   tab shows the countdown at once. Verified with two separate browsers: the guest saw the countdown
