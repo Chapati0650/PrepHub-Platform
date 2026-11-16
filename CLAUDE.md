@@ -2960,6 +2960,12 @@ seamless and quick".
   like the Houston one): "North Texas Demo ISD", four campuses shaped like Northwest ISD's, `ntx.*`
   logins (added to `SHARED_DEMO_LOGINS`), and fictional students' SOLO Rush runs so every campus has
   a weekly board. The board resets Monday 00:00 Central: run `rush` the morning of a Monday demo.
+- **Guest rooms** (2026-11-16, `src/lib/rush/guest-rooms.ts`): a demo room whose code is listed
+  there can be joined signed out. Middleware sends a signed-out visitor to `/rush-guest/<code>`
+  (public, outside `(app)`): a first name, the 13+ tick, Join, and the action makes a throwaway
+  student account (`rush-guest-<hex>@example.com`, random password nobody is told), signs it in
+  and joins the room. Same per-IP limit as signup; the room is checked before an account is made.
+  Every other code still goes to signup. Remove a code once its demo is over.
 - The lobby polls every second once both are in, and every room polls the moment its tab becomes
   visible again (background tabs are throttled), so a match started while one player was on another
   tab shows the countdown at once. Verified with two separate browsers: the guest saw the countdown

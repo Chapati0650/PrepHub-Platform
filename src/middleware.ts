@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { RUSH_JOIN_COOKIE, RUSH_JOIN_COOKIE_MAX_AGE } from "@/lib/rush/join-cookie";
+import { isGuestRoomCode } from "@/lib/rush/guest-rooms";
 import { CLASS_JOIN_COOKIE, CLASS_JOIN_COOKIE_MAX_AGE, CLASS_JOIN_CODE_SHAPE } from "@/lib/teacher/join-cookie";
 
 // Deliberately named middleware.ts, not proxy.ts (Next.js 16's renamed
@@ -88,6 +89,8 @@ export default async function middleware(req: NextRequest) {
       if (req.cookies.has(RUSH_JOIN_COOKIE)) res.cookies.delete(RUSH_JOIN_COOKIE);
       return res;
     }
+    // A demo room that takes guests: no sign-up, just a first name.
+    if (isGuestRoomCode(joinCode)) return NextResponse.redirect(new URL(`/rush-guest/${joinCode.toUpperCase()}`, req.url));
     const res = NextResponse.redirect(new URL("/signup", req.url));
     res.cookies.set(RUSH_JOIN_COOKIE, joinCode, { httpOnly: true, sameSite: "lax", path: "/", maxAge: RUSH_JOIN_COOKIE_MAX_AGE });
     return res;
